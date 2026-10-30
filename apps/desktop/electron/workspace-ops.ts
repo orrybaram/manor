@@ -89,6 +89,11 @@ export interface CreateWorkspaceRequest {
    * result's `setup`. Omitted, create resolves once the script's tab exists.
    */
   awaitSetup?: { timeoutMs: number };
+  /**
+   * Leave the setup script for the caller to run with `runStartScript`
+   * once it has made the workspace ready (a move fast-forwards it first).
+   */
+  skipStartScript?: boolean;
 }
 
 export interface WorkspaceOps {
@@ -120,6 +125,15 @@ export interface WorkspaceOps {
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
   ): Promise<void>;
+  /**
+   * Run `project`'s worktree start script in `workspacePath` and wait for
+   * it to end, up to `timeoutMs`. Null when the project has none.
+   */
+  runStartScript(
+    project: Pick<ProjectInfo, "hostId" | "worktreeStartScript">,
+    workspacePath: string,
+    opts: { timeoutMs: number; origin?: string | null },
+  ): Promise<SetupScriptEnd | null>;
   /** Address one removal step to the connection that asked for the removal. */
   publishRemoveProgress(origin: string | null, step: string): void;
   quickMerge(projectId: string, worktreePath: string): Promise<void>;
@@ -148,6 +162,9 @@ function recordLastUsedHost(
     );
   }
 }
+
+/** The longest a caller may have `projects.runStartScript` wait. */
+export const START_SCRIPT_MAX_WAIT_MS = 30 * 60_000;
 
 /** `ended`, or `timed-out` once `timeoutMs` passes first. */
 function within(ended: Promise<SetupScriptEnd>, timeoutMs: number): Promise<SetupScriptEnd> {
@@ -186,7 +203,7 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       );
       const workspacePath = created?.path ?? null;
 
-      if (project?.worktreeStartScript && workspacePath) {
+      if (project?.worktreeStartScript && workspacePath && !req.skipStartScript) {
         const args = [
           workspacePath,
           project.worktreeStartScript,
@@ -203,6 +220,20 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
         await deps.runSetupScript(...args);
       }
       return { project, workspacePath };
+    },
+
+    async runStartScript(project, workspacePath, opts) {
+      if (!project.worktreeStartScript) return null;
+      let onEnd!: (end: SetupScriptEnd) => void;
+      const ended = new Promise<SetupScriptEnd>((resolve) => (onEnd = resolve));
+      await deps.runSetupScript(
+        workspacePath,
+        project.worktreeStartScript,
+        project.hostId,
+        opts.origin ?? null,
+        onEnd,
+      );
+      return within(ended, opts.timeoutMs);
     },
 
     async createFromIssues(project, seeds, baseBranch) {

@@ -156,6 +156,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.canQuickMerge": byProject(0),
   "projects.quickMergeWorktree": byProject(0),
   "projects.createWorktree": byProject(0),
+  "projects.runStartScript": byProject(0),
   "projects.convertMainToWorktree": byProject(0),
   "projects.listRemoteBranches": byProject(0),
   "projects.listLocalBranches": byProject(0),

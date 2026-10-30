@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  createWorkspaceHostMoveDeps,
   moveWorkspaceToHost,
   preflightWorkspaceMove,
   type WorkspaceHostMoveDeps,
@@ -8,6 +9,7 @@ import {
 } from "./workspace-host-move";
 import type { ProjectInfo, WorkspaceInfo } from "./types";
 import type { GitBackend } from "../backend/types";
+import type { SetupScriptEnd } from "../workspace-ops";
 
 const SRC = "/Users/me/.manor/worktrees/app/feat";
 const TARGET_MAIN = "/home/u/code/app";
@@ -108,7 +110,14 @@ function fakeGit(state: GitState, log: string[], hostId: string): Pick<GitBacken
         if (!u) throw new Error("no upstream");
         return `${u}\n`;
       }
-      if (args[0] === "rev-list") return `${state.ahead[cwd] ?? 0}\n`;
+      if (args[0] === "rev-list") {
+        const upstream = state.upstream[cwd];
+        const expected = upstream
+          ? ["rev-list", "--count", `${upstream}..HEAD`]
+          : ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"];
+        if (args.join(" ") !== expected.join(" ")) throw new Error(`unexpected rev-list: ${cmd}`);
+        return `${state.ahead[cwd] ?? 0}\n`;
+      }
       if (args[0] === "rev-parse" && args[1] === "HEAD") return `${state.head[cwd] ?? "abc"}\n`;
       if (args[0] === "merge-base") {
         if (state.ancestors.has(args[2])) return "";
@@ -180,11 +189,15 @@ function world(opts: Setup = {}) {
     createWorkspace: vi.fn(async (target: ProjectInfo, req: { name: string; branch: string }) => {
       log.push(`create ${target.id} ${req.name} ${req.branch}`);
       dst.workspaces.push({ path: TARGET_WS, branch: req.branch, isMain: false, name: req.name });
-      return {
-        workspacePath: TARGET_WS,
-        ...(target.worktreeStartScript ? { setup: { status: "exited" as const, exitCode: 0 } } : {}),
-      };
+      return { workspacePath: TARGET_WS as string | null };
     }),
+    runStartScript: vi.fn(
+      async (target: ProjectInfo, path: string): Promise<SetupScriptEnd | null> => {
+        if (!target.worktreeStartScript) return null;
+        log.push(`script ${target.worktreeStartScript} @ ${path}`);
+        return { status: "exited", exitCode: 0 };
+      },
+    ),
     createFolder: vi.fn(async () => null),
     linkIssue: vi.fn(async (_t: ProjectInfo, path: string, issue: { id: string }) => {
       log.push(`link ${issue.id} @ ${path}`);
@@ -193,7 +206,7 @@ function world(opts: Setup = {}) {
       log.push(`remove ${p.id} ${path}`);
     }),
   } satisfies WorkspaceHostMoveDeps;
-  return { deps, git, log, events: [] as WorkspaceMoveProgress[] };
+  return { deps, git, log, dst, events: [] as WorkspaceMoveProgress[] };
 }
 
 const REQ = { projectId: "src", path: SRC, targetHostId: "box" };
@@ -225,12 +238,15 @@ describe("preflightWorkspaceMove", () => {
 
   it("lists dirty files with their porcelain codes, renames whole", async () => {
     const { deps, git } = world();
-    git.status[SRC] = " M src/a.ts\0?? new file.txt\0R  b.ts\0old b.ts\0";
+    git.status[SRC] =
+      " M src/a.ts\0?? new file.txt\0R  b.ts\0old b.ts\0 R c.ts\0old c.ts\0 C d.ts\0d0.ts\0";
     const pre = await preflightWorkspaceMove(deps, REQ);
     expect(pre.dirtyFiles).toEqual([
       { code: " M", path: "src/a.ts" },
       { code: "??", path: "new file.txt" },
       { code: "R ", path: "b.ts" },
+      { code: " R", path: "c.ts" },
+      { code: " C", path: "d.ts" },
     ]);
     expect(pre.refusals).toEqual([{ code: "dirty", files: pre.dirtyFiles }]);
   });
@@ -336,6 +352,7 @@ describe("moveWorkspaceToHost", () => {
       `link i2 @ ${TARGET_WS}`,
       `box: git fetch origin feat @ ${TARGET_WS}`,
       `box: git merge --ff-only origin/feat @ ${TARGET_WS}`,
+      `script pnpm i @ ${TARGET_WS}`,
       `remove src ${SRC}`,
     ]);
     expect(deps.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ id: "dst" }), {
@@ -406,12 +423,13 @@ describe("moveWorkspaceToHost", () => {
       `local: push feat @ ${SRC}`,
       `box: git fetch origin feat @ ${TARGET_WS}`,
       `box: git merge --ff-only origin/feat @ ${TARGET_WS}`,
+      `script pnpm i @ ${TARGET_WS}`,
       `remove src ${SRC}`,
     ]);
-    // A reused workspace was set up already: no start script.
+    // The start script runs in a reused workspace too, after the fast-forward.
     expect(events[0]).toEqual({
       type: "plan",
-      steps: [{ id: "push" }, { id: "create" }, { id: "removeSource" }],
+      steps: [{ id: "push" }, { id: "create" }, { id: "setupScript" }, { id: "removeSource" }],
     });
   });
 
@@ -460,13 +478,68 @@ describe("moveWorkspaceToHost", () => {
 
   it("fails at the start script when it exits non-zero, keeping the source", async () => {
     const { deps } = world({ startScript: "exit 1" });
-    deps.createWorkspace.mockResolvedValueOnce({
-      workspacePath: TARGET_WS,
-      setup: { status: "exited", exitCode: 1 },
-    });
+    deps.runStartScript.mockResolvedValueOnce({ status: "exited", exitCode: 1 });
     const result = await moveWorkspaceToHost(deps, REQ);
-    expect(result).toMatchObject({ ok: false, step: "setupScript" });
+    expect(result).toEqual({
+      ok: false,
+      step: "setupScript",
+      error: "The start script exited with code 1",
+    });
     expect(deps.removeWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("runs the start script only once the new workspace is fast-forwarded", async () => {
+    const { deps, log } = world({ startScript: "pnpm i" });
+    await moveWorkspaceToHost(deps, REQ);
+    const merged = log.indexOf(`box: git merge --ff-only origin/feat @ ${TARGET_WS}`);
+    const script = log.indexOf(`script pnpm i @ ${TARGET_WS}`);
+    expect(merged).toBeGreaterThan(-1);
+    expect(script).toBeGreaterThan(merged);
+  });
+
+  it("on a retry after a failed start script, reuses the workspace, runs the script again, then removes the source", async () => {
+    const { deps, git, log } = world({ startScript: "pnpm i" });
+    git.ancestors.add("abc");
+    deps.runStartScript.mockResolvedValueOnce({ status: "exited", exitCode: 2 });
+    const first = await moveWorkspaceToHost(deps, REQ);
+    expect(first).toMatchObject({ ok: false, step: "setupScript" });
+    expect(deps.removeWorkspace).not.toHaveBeenCalled();
+
+    log.length = 0;
+    const retry = await moveWorkspaceToHost(deps, REQ);
+    expect(retry).toMatchObject({ ok: true, reused: true, sourceRemoved: true });
+    expect(deps.createWorkspace).toHaveBeenCalledTimes(1);
+    expect(writes(log).slice(-2)).toEqual([`script pnpm i @ ${TARGET_WS}`, `remove src ${SRC}`]);
+  });
+
+  it("reuses a workspace a set up brought with an adopted checkout", async () => {
+    const { deps, dst, log } = world({ targetMember: false });
+    dst.workspaces.push({ path: TARGET_WS, branch: "feat", isMain: false, name: "Feature" });
+    const result = await moveWorkspaceToHost(deps, REQ);
+    expect(result).toMatchObject({ ok: true, reused: true, targetPath: TARGET_WS });
+    expect(deps.createWorkspace).not.toHaveBeenCalled();
+    expect(writes(log)).toEqual([
+      `local: push feat @ ${SRC}`,
+      "setUp src -> box",
+      `box: git fetch origin feat @ ${TARGET_WS}`,
+      `box: git merge --ff-only origin/feat @ ${TARGET_WS}`,
+      `remove src ${SRC}`,
+    ]);
+  });
+
+  it("never reuses the target's main checkout on the branch", async () => {
+    const { deps, dst, log } = world();
+    dst.workspaces[0] = { ...dst.workspaces[0], branch: "feat" };
+    const result = await moveWorkspaceToHost(deps, REQ);
+    expect(result).toEqual({ ok: false, refusals: [{ code: "target-main-on-branch" }] });
+    expect(writes(log)).toEqual([]);
+  });
+
+  it("refuses a dirty source without connecting the target", async () => {
+    const { deps, git, log } = world();
+    git.status[SRC] = "?? x\0";
+    await moveWorkspaceToHost(deps, REQ);
+    expect(log).toEqual(["connect local"]);
   });
 
   it("keeps the source with keepSource", async () => {
@@ -523,5 +596,110 @@ describe("moveWorkspaceToHost", () => {
     const failed = await moveWorkspaceToHost({ ...again.deps, recreator: failing }, REQ);
     expect(failed).toEqual({ ok: false, step: "restore", error: "layout refused" });
     expect(again.deps.removeWorkspace).not.toHaveBeenCalled();
+  });
+});
+
+describe("createWorkspaceHostMoveDeps", () => {
+  const ISSUE = { id: "i9", identifier: "ENG-9", title: "Nine", url: "u9" };
+
+  function server(onHostServer: boolean) {
+    const target = project("dst", "box", TARGET_MAIN, [], { worktreeStartScript: "pnpm i" });
+    const call = vi.fn(async (_hostId: string, method: string, _args: unknown[], _ns?: string) => {
+      if (method === "createWorktree") {
+        return {
+          ...target,
+          workspaces: [
+            ...target.workspaces,
+            { path: "/home/u/other", branch: "other", isMain: false, name: null },
+            { path: TARGET_WS, branch: "feat", isMain: false, name: "Feature" },
+          ],
+        };
+      }
+      if (method === "runStartScript") return { status: "exited", exitCode: 0 };
+      return null;
+    });
+    const workspaceOps = {
+      create: vi.fn(async () => ({ project: null, workspacePath: TARGET_WS })),
+      remove: vi.fn(async () => {}),
+      runStartScript: vi.fn(async () => ({ status: "exited" as const, exitCode: 0 })),
+    };
+    const projectManager = {
+      getProjects: vi.fn(async () => [target]),
+      assertKnownHost: vi.fn(),
+      isRemoteProject: vi.fn(() => onHostServer),
+      transferProject: vi.fn(),
+      createWorkspaceFolder: vi.fn(() => null),
+      linkIssueToWorkspace: vi.fn(),
+    };
+    const deps = createWorkspaceHostMoveDeps({
+      projectManager: projectManager as never,
+      workspaceOps,
+      backendRegistry: { get: vi.fn(), ensureConnected: vi.fn(async () => {}) } as never,
+      hostRouting: {
+        remoteProjects: () => ({
+          list: () => [],
+          owns: () => true,
+          call,
+          handOver: async () => {},
+          layoutOf: () => ({}),
+        }),
+      },
+      setupTimeoutMs: 5000,
+    });
+    return { deps, call, workspaceOps, projectManager, target };
+  }
+
+  it("on an adopted host, creates through its server without the script and finds the new path", async () => {
+    const { deps, call, target } = server(true);
+    const made = await deps.createWorkspace(target, { name: "Feature", branch: "feat", linkedIssue: ISSUE });
+    expect(made).toEqual({ workspacePath: TARGET_WS });
+    expect(call).toHaveBeenCalledWith(
+      "box",
+      "createWorktree",
+      [
+        "dst",
+        "Feature",
+        { branch: "feat", useExistingBranch: true, skipStartScript: true, linkedIssue: ISSUE },
+      ],
+      undefined,
+    );
+  });
+
+  it("on an adopted host, runs the start script there and waits for its end", async () => {
+    const { deps, call, target } = server(true);
+    call.mockResolvedValueOnce({ status: "exited", exitCode: 3 });
+    expect(await deps.runStartScript(target, TARGET_WS)).toEqual({ status: "exited", exitCode: 3 });
+    expect(call).toHaveBeenCalledWith("box", "runStartScript", ["dst", TARGET_WS, 5000], undefined);
+  });
+
+  it("on an adopted host, links issues and removes through its server", async () => {
+    const { deps, call, target, projectManager } = server(true);
+    await deps.linkIssue(target, TARGET_WS, ISSUE);
+    expect(call).toHaveBeenCalledWith(
+      "box",
+      "linkIssueToWorkspace",
+      ["dst", TARGET_WS, ISSUE],
+      "linear",
+    );
+    await deps.removeWorkspace(target, TARGET_WS);
+    expect(call).toHaveBeenCalledWith("box", "removeWorktree", ["dst", TARGET_WS, false], undefined);
+    expect(projectManager.linkIssueToWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("for a project the desktop holds, goes through WorkspaceOps, the script run separately", async () => {
+    const { deps, call, target, workspaceOps } = server(false);
+    await deps.createWorkspace(target, { name: "Feature", branch: "feat" });
+    expect(workspaceOps.create).toHaveBeenCalledWith({
+      projectId: "dst",
+      name: "Feature",
+      branch: "feat",
+      useExistingBranch: true,
+      skipStartScript: true,
+    });
+    await deps.runStartScript(target, TARGET_WS);
+    expect(workspaceOps.runStartScript).toHaveBeenCalledWith(target, TARGET_WS, { timeoutMs: 5000 });
+    await deps.removeWorkspace(target, TARGET_WS);
+    expect(workspaceOps.remove).toHaveBeenCalledWith("dst", TARGET_WS, false);
+    expect(call).not.toHaveBeenCalled();
   });
 });

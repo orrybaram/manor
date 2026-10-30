@@ -39,6 +39,7 @@ import {
   type OpenInNewHostResult,
 } from "../../projects/new-host-for-project";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
+import { START_SCRIPT_MAX_WAIT_MS, type SetupScriptEnd } from "../../workspace-ops";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
@@ -369,7 +370,7 @@ export async function projectsCreateWorktree(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   name: string,
-  opts: Omit<CreateWorktreeOptions, "origin"> = {},
+  opts: Omit<CreateWorktreeOptions, "origin"> & { skipStartScript?: boolean } = {},
 ): Promise<ProjectInfo | null> {
   // Picked field by field rather than spread: `origin` is who asked, and that
   // is the transport's to say, never the frame's. The setup script starts on
@@ -383,8 +384,38 @@ export async function projectsCreateWorktree(
     useExistingBranch: opts.useExistingBranch,
     folderId: opts.folderId,
     origin: ctx.caller.id,
+    ...(opts.skipStartScript === true ? { skipStartScript: true } : {}),
   });
   return project;
+}
+
+/**
+ * Run a workspace's start script and wait for it to end, up to
+ * `timeoutMs` (10 minutes by default, 30 at most): for a caller that made
+ * the workspace with `skipStartScript` and readied it first (a move to
+ * another host). Null when the project has no start script.
+ */
+export async function projectsRunStartScript(
+  ctx: HandlerCtx<SharedDeps>,
+  projectId: string,
+  workspacePath: string,
+  timeoutMs?: number | null,
+): Promise<SetupScriptEnd | null> {
+  assertString(projectId, "projectId");
+  assertString(workspacePath, "workspacePath");
+  const wait =
+    typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.min(timeoutMs, START_SCRIPT_MAX_WAIT_MS)
+      : 10 * 60_000;
+  const project = (await ctx.deps.projectManager.getProjects()).find((p) => p.id === projectId);
+  if (!project) throw new Error(`Unknown project "${projectId}".`);
+  if (!project.workspaces.some((ws) => ws.path === workspacePath)) {
+    throw new Error(`"${workspacePath}" is not a workspace of ${project.name}.`);
+  }
+  return ctx.deps.workspaceOps.runStartScript(project, workspacePath, {
+    timeoutMs: wait,
+    origin: ctx.caller.id,
+  });
 }
 
 export function projectsConvertMainToWorktree(
@@ -645,6 +676,7 @@ export const projects = {
     route: byProject(0),
   }),
   createWorktree: method(projectsCreateWorktree, { mutating: true, route: byProject(0) }),
+  runStartScript: method(projectsRunStartScript, { mutating: true, route: byProject(0) }),
   convertMainToWorktree: method(projectsConvertMainToWorktree, {
     mutating: true,
     route: byProject(0),

@@ -10,9 +10,10 @@
  *    target has no member of the project's group (`transferProject`; a
  *    `needsInput` comes back as it is),
  * 3. **create** the workspace on the target on the same branch, with the
- *    same name, linked issues and folder, then **setupScript**: the
- *    project's worktree start script, waited for. A workspace the target
- *    already has on the branch is reused instead, fast-forwarded only,
+ *    same name, linked issues and folder (or reuse the one the target
+ *    already has on it), fast-forwarded only to what was pushed, then
+ *    **setupScript**: the project's worktree start script, run in that tree
+ *    and waited for, wherever the target is,
  * 4. **restore** and **agents**: whatever the injected `WorkspaceRecreator`
  *    plans (the layout and the agents; nothing by default),
  * 5. **removeSource** through the normal removal path, keeping the branch,
@@ -32,10 +33,9 @@ import type { BackendRegistry } from "../backend/registry";
 import { LOCAL_HOST_ID, type GitBackend } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { HostRouting } from "../server/host-routing";
-import type { SetupScriptEnd, WorkspaceOps } from "../workspace-ops";
+import { START_SCRIPT_MAX_WAIT_MS, type SetupScriptEnd, type WorkspaceOps } from "../workspace-ops";
 import type { ProjectManager } from "./project-manager";
 import type {
-  CreateWorktreeOptions,
   LinkedIssue,
   ProjectInfo,
   TransferResult,
@@ -62,6 +62,8 @@ export type WorkspaceMoveRefusal =
   | { code: "same-host" }
   | { code: "detached" }
   | { code: "target-dirty"; files: DirtyFile[] }
+  /** The target project's main checkout is on the branch: it is never reused. */
+  | { code: "target-main-on-branch" }
   | { code: "target-cannot-fast-forward" };
 
 /** The workspace the target already has on the branch. */
@@ -209,15 +211,10 @@ export interface WorkspaceHostMoveDeps {
   git(hostId: string): Pick<GitBackend, "exec" | "pushStream">;
   /** Set the project up on `hostId` (`transferProject`, copy). */
   setUp(projectId: string, hostId: string): Promise<TransferResult>;
-  /**
-   * Make a workspace in `target` and run its start script, waiting for it.
-   * `setup` is how the script ended: absent when none ran, `started` when
-   * it runs on a host server that is not waited on.
-   */
-  createWorkspace(
-    target: ProjectInfo,
-    req: CreateOnTarget,
-  ): Promise<{ workspacePath: string | null; setup?: SetupScriptEnd | "started" }>;
+  /** Make a workspace in `target` on an existing branch, without its start script. */
+  createWorkspace(target: ProjectInfo, req: CreateOnTarget): Promise<{ workspacePath: string | null }>;
+  /** Run `target`'s start script in `workspacePath` and wait for it; null when it has none. */
+  runStartScript(target: ProjectInfo, workspacePath: string): Promise<SetupScriptEnd | null>;
   createFolder(target: ProjectInfo, name: string): Promise<WorkspaceFolder | null>;
   linkIssue(target: ProjectInfo, workspacePath: string, issue: LinkedIssue): Promise<void>;
   /** The normal removal path: teardown script, panes ended, branch kept. */
@@ -240,7 +237,7 @@ function succeeds(git: Git, cwd: string, args: string[]): Promise<boolean> {
 /**
  * Every uncommitted and untracked file, asked with explicit flags so a
  * repo's `status.showUntrackedFiles=no` can't hide one. `-z` keeps paths
- * with spaces whole; a rename's second entry (its old path) is skipped.
+ * with spaces whole; a rename's or copy's second entry (its old path) is skipped.
  */
 export async function dirtyFilesAt(git: Git, cwd: string): Promise<DirtyFile[]> {
   const out = await git.exec(cwd, [
@@ -257,7 +254,8 @@ export async function dirtyFilesAt(git: Git, cwd: string): Promise<DirtyFile[]> 
     if (entry.length < 4) continue;
     const code = entry.slice(0, 2);
     files.push({ code, path: entry.slice(3) });
-    if (code[0] === "R" || code[0] === "C") i++;
+    // A rename or copy, in the index or the tree, is followed by its old path.
+    if (/[RC]/.test(code)) i++;
   }
   return files;
 }
@@ -341,7 +339,8 @@ function memberOn(
 }
 
 /**
- * `target`'s workspace on `branch`, if any, with whether it is dirty and
+ * `target`'s workspace on `branch`, if any ("main" when it is the main
+ * checkout, which a move never reuses), with whether it is dirty and
  * whether the source's head contains its head (so an ff-only merge brings
  * it up to date). Asked of the source: the target can't see the source's
  * unpushed commits yet, and a head the source lacks is not fast-forwardable.
@@ -351,9 +350,10 @@ async function existingOn(
   target: ProjectInfo,
   branch: string,
   source: { hostId: string; path: string },
-): Promise<(ExistingTargetWorkspace & { dirtyFiles: DirtyFile[] }) | undefined> {
+): Promise<(ExistingTargetWorkspace & { dirtyFiles: DirtyFile[] }) | "main" | undefined> {
   const ws = target.workspaces.find((w) => branchesEqual(w.branch, branch));
   if (!ws) return undefined;
+  if (ws.isMain) return "main";
   const git = deps.git(target.hostId);
   const dirtyFiles = await dirtyFilesAt(git, ws.path);
   const dirty = dirtyFiles.length > 0;
@@ -374,17 +374,31 @@ async function existingOn(
   return { path: ws.path, dirty, canFastForward, dirtyFiles };
 }
 
+/** What the source alone says: everything preflight reads without the target. */
+interface SourceRead {
+  project: ProjectInfo;
+  workspace: WorkspaceInfo;
+  sourceHostId: string;
+  /** Null for a detached HEAD. */
+  branch: string | null;
+  branchName: string;
+  hasOrigin: boolean;
+  dirtyFiles: DirtyFile[];
+  aheadCount?: number;
+  needsPush: boolean;
+  refusals: WorkspaceMoveRefusal[];
+}
+
 /**
- * What moving `path` (a workspace of `projectId`) to `targetHostId` would
- * do, and what refuses it. Reads both hosts through their own git; changes
- * nothing, and wakes no host. Throws for an unknown project or workspace,
- * or when a host can't be read.
+ * Read the source workspace through its own host's git and make the
+ * refusals only it can make: main workspace, same host, dirty, no origin,
+ * detached. Touches no other host.
  */
-export async function preflightWorkspaceMove(
+async function readSource(
   deps: WorkspaceHostMoveDeps,
+  projects: readonly ProjectInfo[],
   req: Pick<WorkspaceMoveRequest, "projectId" | "path" | "targetHostId">,
-): Promise<WorkspaceMovePreflight> {
-  const projects = await deps.projects();
+): Promise<SourceRead> {
   const { project, workspace } = sourceOf(projects, req.projectId, req.path);
   const sourceHostId = project.hostId ?? LOCAL_HOST_ID;
   const git = deps.git(sourceHostId);
@@ -407,11 +421,45 @@ export async function preflightWorkspaceMove(
   if (!hasOrigin) refusals.push({ code: "no-origin" });
   if (branch === null) refusals.push({ code: "detached" });
 
-  const member = memberOn(projects, project, req.targetHostId);
+  return {
+    project,
+    workspace,
+    sourceHostId,
+    branch,
+    branchName,
+    hasOrigin,
+    dirtyFiles,
+    ...(aheadCount !== undefined ? { aheadCount } : {}),
+    needsPush,
+    refusals,
+  };
+}
+
+/**
+ * What moving `path` (a workspace of `projectId`) to `targetHostId` would
+ * do, and what refuses it. Reads both hosts through their own git (the
+ * target only when the source raises no refusal of its own); changes
+ * nothing, and wakes no host. Throws for an unknown project or workspace,
+ * or when a host can't be read.
+ */
+export async function preflightWorkspaceMove(
+  deps: WorkspaceHostMoveDeps,
+  req: Pick<WorkspaceMoveRequest, "projectId" | "path" | "targetHostId">,
+): Promise<WorkspaceMovePreflight> {
+  const projects = await deps.projects();
+  const src = await readSource(deps, projects, req);
+  const refusals = [...src.refusals];
+
+  const member = memberOn(projects, src.project, req.targetHostId);
   let existingTargetWorktree: ExistingTargetWorkspace | undefined;
-  if (member && branch !== null && !workspace.isMain && req.targetHostId !== sourceHostId) {
-    const existing = await existingOn(deps, member, branch, { hostId: sourceHostId, path: cwd });
-    if (existing) {
+  if (member && src.branch !== null && refusals.length === 0) {
+    const existing = await existingOn(deps, member, src.branch, {
+      hostId: src.sourceHostId,
+      path: src.workspace.path,
+    });
+    if (existing === "main") {
+      refusals.push({ code: "target-main-on-branch" });
+    } else if (existing) {
       const { dirtyFiles: files, ...rest } = existing;
       existingTargetWorktree = rest;
       if (rest.dirty) refusals.push({ code: "target-dirty", files });
@@ -420,14 +468,14 @@ export async function preflightWorkspaceMove(
   }
 
   return {
-    sourceHostId,
-    branch: branchName,
-    name: workspace.name ?? branchName,
-    isMain: workspace.isMain,
-    hasOrigin,
-    dirtyFiles,
-    ...(aheadCount !== undefined ? { aheadCount } : {}),
-    needsPush,
+    sourceHostId: src.sourceHostId,
+    branch: src.branchName,
+    name: src.workspace.name ?? src.branchName,
+    isMain: src.workspace.isMain,
+    hasOrigin: src.hasOrigin,
+    dirtyFiles: src.dirtyFiles,
+    ...(src.aheadCount !== undefined ? { aheadCount: src.aheadCount } : {}),
+    needsPush: src.needsPush,
     targetProjectId: member?.id ?? null,
     targetHasProject: member !== undefined,
     ...(existingTargetWorktree ? { existingTargetWorktree } : {}),
@@ -539,8 +587,10 @@ function stepTracker(
 
 /**
  * Move the workspace at `req.path` to `req.targetHostId` (see the module
- * header). Preflight runs again first, and any refusal stops the move
- * before it touches anything. `onProgress` hears the plan, then each step.
+ * header). The source's own refusals are checked before the target is
+ * connected, so a refused move wakes nothing; the whole preflight then
+ * runs again, and any refusal stops the move before it touches anything.
+ * `onProgress` hears the plan, then each step.
  */
 export async function moveWorkspaceToHost(
   deps: WorkspaceHostMoveDeps,
@@ -548,22 +598,25 @@ export async function moveWorkspaceToHost(
   onProgress: (event: WorkspaceMoveProgress) => void = () => {},
 ): Promise<WorkspaceMoveResult> {
   const recreator = deps.recreator ?? NO_RECREATE;
-  const before = await deps.projects();
-  const { project: source, workspace } = sourceOf(before, req.projectId, req.path);
-  const sourceHostId = source.hostId ?? LOCAL_HOST_ID;
+  const { project: named } = sourceOf(await deps.projects(), req.projectId, req.path);
   const { targetHostId } = req;
 
-  await deps.connect(sourceHostId);
+  await deps.connect(named.hostId ?? LOCAL_HOST_ID);
+  const early = await readSource(deps, await deps.projects(), req);
+  if (early.refusals.length > 0) return { ok: false, refusals: early.refusals };
+
   await deps.connect(targetHostId);
+  const before = await deps.projects();
   const pre = await preflightWorkspaceMove(deps, req);
   if (pre.refusals.length > 0) return { ok: false, refusals: pre.refusals };
+  const { project: source, workspace } = sourceOf(before, req.projectId, req.path);
+  const sourceHostId = pre.sourceHostId;
 
   const branch = pre.branch;
   const sourceKey = workspaceKey(sourceHostId, workspace.path);
   const knownTarget = pre.targetProjectId
     ? before.find((p) => p.id === pre.targetProjectId)
     : undefined;
-  const reusing = pre.existingTargetWorktree !== undefined;
   // A project set up during the move takes its start script from the
   // group, so the source's stands in for it in the plan.
   const startScript = (knownTarget ?? source).worktreeStartScript;
@@ -578,7 +631,9 @@ export async function moveWorkspaceToHost(
   if (pre.needsPush) steps.push({ id: "push" });
   if (!pre.targetHasProject) steps.push({ id: "setUp" });
   steps.push({ id: "create" });
-  if (!reusing && startScript) steps.push({ id: "setupScript" });
+  // A reused workspace runs it too: a retry after a failed script must not
+  // skip it.
+  if (startScript) steps.push({ id: "setupScript" });
   for (const step of recreateSteps) steps.push({ ...step });
   if (!req.keepSource) steps.push({ id: "removeSource" });
   onProgress({ type: "plan", steps: steps.map((s) => ({ ...s })) });
@@ -605,29 +660,25 @@ export async function moveWorkspaceToHost(
       target = (await deps.projects()).find((p) => p.id === result.project.id) ?? result.project;
     }
 
-    // 3. Create, or reuse the target's workspace on the branch.
+    // 3. Create, or reuse the target's workspace on the branch; either way
+    // fast-forwarded to what was pushed before anything runs in it.
     progress.begin("create");
     const targetGit = deps.git(targetHostId);
     let targetPath: string;
     const existing = target.workspaces.find((w) => branchesEqual(w.branch, branch));
     if (existing) {
-      // A set up that adopted a checkout may bring a workspace preflight
-      // couldn't see: hold it to the same rules.
-      if (!reusing) {
-        if ((await dirtyFilesAt(targetGit, existing.path)).length > 0) {
-          throw new StepFailure("create", `${existing.path} has uncommitted changes.`);
-        }
-      }
-      try {
-        await fastForward(targetGit, existing.path, branch);
-      } catch (err) {
+      if (existing.isMain) {
         throw new StepFailure(
           "create",
-          `Could not fast-forward ${existing.path} to origin/${branch}: ${errorMessage(err)}`,
+          `The project's main checkout on the target is on ${branch}; switch it to another branch first.`,
         );
       }
+      // A set up that adopted a checkout may bring a workspace preflight
+      // couldn't see: hold it to the same rules.
+      if ((await dirtyFilesAt(targetGit, existing.path)).length > 0) {
+        throw new StepFailure("create", `${existing.path} has uncommitted changes.`);
+      }
       targetPath = existing.path;
-      progress.skip("setupScript");
     } else {
       const issues = workspace.linkedIssues ?? [];
       const folderId = await folderOnTarget(deps, source, workspace.folderId, target);
@@ -644,21 +695,30 @@ export async function moveWorkspaceToHost(
       for (const issue of issues.slice(1)) {
         await deps.linkIssue(target, targetPath, issue);
       }
-      // `useExistingBranch` checks out a local branch the target already
-      // had, which may be behind what was just pushed.
+    }
+    // `useExistingBranch` checks out a local branch the target already
+    // had, which may be behind what was just pushed; a reused one may be too.
+    try {
       await fastForward(targetGit, targetPath, branch);
+    } catch (err) {
+      throw new StepFailure(
+        "create",
+        `Could not fast-forward ${targetPath} to origin/${branch}: ${errorMessage(err)}`,
+      );
+    }
 
-      if (created.setup !== undefined) {
-        progress.begin("setupScript", { ifPlanned: true });
-        const failed = created.setup === "started" ? null : setupFailure(created.setup);
-        if (failed) throw new StepFailure("setupScript", failed);
-      } else {
-        progress.skip("setupScript");
-      }
+    // 4. The start script, in the up-to-date tree.
+    if (target.worktreeStartScript) {
+      progress.begin("setupScript", { ifPlanned: true });
+      const setup = await deps.runStartScript(target, targetPath);
+      const failed = setup ? setupFailure(setup) : null;
+      if (failed) throw new StepFailure("setupScript", failed);
+    } else {
+      progress.skip("setupScript");
     }
     const targetKey = workspaceKey(targetHostId, targetPath);
 
-    // 4. Layout and agents.
+    // 5. Layout and agents.
     if (recreateSteps.length > 0) {
       const first = steps.length - recreateSteps.length - (req.keepSource ? 0 : 1);
       await recreator.run(
@@ -681,7 +741,7 @@ export async function moveWorkspaceToHost(
       );
     }
 
-    // 5. Remove the source.
+    // 6. Remove the source.
     if (!req.keepSource) {
       progress.begin("removeSource");
       await deps.removeWorkspace(source, workspace.path);
@@ -708,10 +768,12 @@ export async function moveWorkspaceToHost(
 
 /**
  * The deps a move runs over in the desktop's Manor server. Git goes through
- * each host's backend; a workspace write goes through `WorkspaceOps` for a
- * project this desktop holds (local, or on a host not yet adopted), which
- * runs and waits for the start script here, and through the host's server
- * for a project on an adopted host, which starts the script there.
+ * each host's backend. A workspace write goes through `WorkspaceOps` for a
+ * project this desktop holds (local, or on a host not yet adopted), and
+ * through the host's server (`RemoteProjects.call`: woken, given a long
+ * call's time, refusals mapped, its projects read back) for a project on an
+ * adopted host. Either way the workspace is made without its start script,
+ * which the move runs, and waits for, once the tree is up to date.
  */
 export function createWorkspaceHostMoveDeps(server: {
   projectManager: Pick<
@@ -723,9 +785,9 @@ export function createWorkspaceHostMoveDeps(server: {
     | "createWorkspaceFolder"
     | "linkIssueToWorkspace"
   >;
-  workspaceOps: Pick<WorkspaceOps, "create" | "remove">;
+  workspaceOps: Pick<WorkspaceOps, "create" | "remove" | "runStartScript">;
   backendRegistry: Pick<BackendRegistry, "get" | "ensureConnected">;
-  hostRouting?: Pick<HostRouting, "remoteProjects" | "proxy">;
+  hostRouting?: Pick<HostRouting, "remoteProjects">;
   recreator?: WorkspaceRecreator;
   /** How long to wait for a start script; 10 minutes by default. */
   setupTimeoutMs?: number;
@@ -733,11 +795,11 @@ export function createWorkspaceHostMoveDeps(server: {
   const pm = server.projectManager;
   const remote = server.hostRouting?.remoteProjects();
   const onServer = (project: ProjectInfo) => pm.isRemoteProject(project.id);
-  const remoteCall = (hostId: string, method: string, args: unknown[]) => {
+  const remoteCall = (hostId: string, method: string, args: unknown[], ns?: string) => {
     if (!remote) throw new Error(`${hostId} has no host server to answer.`);
-    return remote.call(hostId, method, args);
+    return remote.call(hostId, method, args, ns);
   };
-  const setupTimeoutMs = server.setupTimeoutMs ?? 10 * 60_000;
+  const setupTimeoutMs = Math.min(server.setupTimeoutMs ?? 10 * 60_000, START_SCRIPT_MAX_WAIT_MS);
 
   return {
     projects: () => pm.getProjects(),
@@ -749,9 +811,10 @@ export function createWorkspaceHostMoveDeps(server: {
     setUp: (projectId, hostId) => pm.transferProject(projectId, hostId, "copy"),
 
     async createWorkspace(target, req) {
-      const opts: Omit<CreateWorktreeOptions, "origin"> = {
+      const opts = {
         branch: req.branch,
         useExistingBranch: true,
+        skipStartScript: true,
         ...(req.linkedIssue ? { linkedIssue: req.linkedIssue } : {}),
         ...(req.folderId ? { folderId: req.folderId } : {}),
       };
@@ -765,18 +828,27 @@ export function createWorkspaceHostMoveDeps(server: {
         const made = updated?.workspaces.find(
           (ws) => !ws.isMain && !before.has(ws.path) && branchesEqual(ws.branch, req.branch),
         );
-        return {
-          workspacePath: made?.path ?? null,
-          ...(made && updated?.worktreeStartScript ? { setup: "started" as const } : {}),
-        };
+        return { workspacePath: made?.path ?? null };
       }
-      const { workspacePath, setup } = await server.workspaceOps.create({
+      const { workspacePath } = await server.workspaceOps.create({
         projectId: target.id,
         name: req.name,
         ...opts,
-        awaitSetup: { timeoutMs: setupTimeoutMs },
       });
-      return { workspacePath, ...(setup ? { setup } : {}) };
+      return { workspacePath };
+    },
+
+    async runStartScript(target, workspacePath) {
+      if (onServer(target)) {
+        return (await remoteCall(target.hostId, "runStartScript", [
+          target.id,
+          workspacePath,
+          setupTimeoutMs,
+        ])) as SetupScriptEnd | null;
+      }
+      return server.workspaceOps.runStartScript(target, workspacePath, {
+        timeoutMs: setupTimeoutMs,
+      });
     },
 
     async createFolder(target, name) {
@@ -791,9 +863,12 @@ export function createWorkspaceHostMoveDeps(server: {
 
     async linkIssue(target, workspacePath, issue) {
       if (onServer(target)) {
-        const proxy = server.hostRouting?.proxy(target.hostId);
-        if (!proxy) throw new Error(`${target.hostId} is offline`);
-        await proxy.invoke("linear", "linkIssueToWorkspace", [target.id, workspacePath, issue]);
+        await remoteCall(
+          target.hostId,
+          "linkIssueToWorkspace",
+          [target.id, workspacePath, issue],
+          "linear",
+        );
         return;
       }
       pm.linkIssueToWorkspace(target.id, workspacePath, issue);

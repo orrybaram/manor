@@ -66,6 +66,7 @@ import {
   projectsConvertMainToWorktree,
   projectsCreateWorkspaceFolder,
   projectsCreateWorktree,
+  projectsRunStartScript,
   projectsDeleteWorkspaceFolder,
   projectsGetAll,
   projectsGetSelectedIndex,
@@ -549,6 +550,7 @@ const METHODS = flatten({
     listRemoteBranches: method(projectsListRemoteBranches),
     canQuickMerge: method(projectsCanQuickMerge),
     createWorktree: method(owned(projectsCreateWorktree), { mutating: true }),
+    runStartScript: method(owned(projectsRunStartScript), { mutating: true }),
     // The desktop forwards these for its projects here.
     quickMergeWorktree: method(owned(projectsQuickMergeWorktree), { mutating: true }),
     convertMainToWorktree: method(owned(projectsConvertMainToWorktree), { mutating: true }),

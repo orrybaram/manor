@@ -174,6 +174,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.clone": "home",
   "projects.moveToHost": "home",
   "projects.transfer": "home",
+  "projects.moveWorkspaceToHostPreflight": "home",
+  "projects.moveWorkspaceToHost": "home",
   // Starts a box from a profile on this desktop.
   "projects.openInNewHost": "home",
   "projects.getOriginUrl": "home",

@@ -22,6 +22,7 @@
  * each host's server itself where they touch a remote project.
  */
 
+import crypto from "node:crypto";
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
 import type {
   CreateWorktreeOptions,
@@ -38,7 +39,18 @@ import {
   type OpenInNewHostInput,
   type OpenInNewHostResult,
 } from "../../projects/new-host-for-project";
-import { publishRendererBroadcast } from "../../renderer-broadcast";
+import {
+  createWorkspaceHostMoveDeps,
+  moveWorkspaceToHost,
+  preflightWorkspaceMove,
+  type WorkspaceHostMoveDeps,
+  type WorkspaceMovePreflight,
+  type WorkspaceMoveProgress,
+  type WorkspaceMoveRequest,
+  type WorkspaceMoveResult,
+} from "../../projects/workspace-host-move";
+import { createWorkspaceRecreator } from "../../projects/workspace-recreator";
+import { publishRendererBroadcast, publishToRenderer } from "../../renderer-broadcast";
 import { START_SCRIPT_MAX_WAIT_MS, type SetupScriptEnd } from "../../workspace-ops";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
@@ -212,6 +224,132 @@ export async function projectsTransfer(
     opts.mode,
     overrides,
   );
+}
+
+/** What a workspace move reads of the server: all of it the desktop's own. */
+type WorkspaceMoveServer = Pick<
+  SharedDeps,
+  | "projectManager"
+  | "workspaceOps"
+  | "backendRegistry"
+  | "hostRouting"
+  | "layoutStore"
+  | "agentManager"
+  | "paneContextMap"
+>;
+
+/** A workspace move over this server's own deps, layout and agents included. */
+export function workspaceMoveDeps(deps: WorkspaceMoveServer): WorkspaceHostMoveDeps {
+  return createWorkspaceHostMoveDeps({
+    projectManager: deps.projectManager,
+    workspaceOps: deps.workspaceOps,
+    backendRegistry: deps.backendRegistry,
+    ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
+    recreator: createWorkspaceRecreator({
+      layoutStore: deps.layoutStore,
+      ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
+      agentManager: deps.agentManager,
+      projectManager: deps.projectManager,
+      paneContextMap: deps.paneContextMap,
+    }),
+  });
+}
+
+/** The workspaces a move is running for, as `<projectId>\0<path>`: one move each. */
+const activeWorkspaceMoves = new Set<string>();
+
+/**
+ * Run one workspace move, refusing a second of the same workspace while the
+ * first runs. Shared by the bridge and the control route.
+ */
+export async function runWorkspaceMove(
+  deps: WorkspaceMoveServer,
+  req: WorkspaceMoveRequest,
+  onProgress?: (event: WorkspaceMoveProgress) => void,
+): Promise<WorkspaceMoveResult> {
+  const lock = `${req.projectId}\0${req.path}`;
+  if (activeWorkspaceMoves.has(lock)) {
+    throw new Error("This workspace is already being moved.");
+  }
+  activeWorkspaceMoves.add(lock);
+  try {
+    return await moveWorkspaceToHost(workspaceMoveDeps(deps), req, onProgress);
+  } finally {
+    activeWorkspaceMoves.delete(lock);
+  }
+}
+
+/** A move's request off the wire, checked. */
+function assertMoveRequest(opts: {
+  projectId: string;
+  path: string;
+  targetHostId: string;
+}): void {
+  if (typeof opts !== "object" || opts === null) throw new Error("opts must be an object");
+  assertString(opts.projectId, "projectId");
+  assertString(opts.path, "path");
+  assertString(opts.targetHostId, "targetHostId");
+}
+
+/**
+ * What moving a workspace to `targetHostId` would do, and what refuses it,
+ * for the confirm dialog. Changes nothing.
+ */
+export async function projectsMoveWorkspaceToHostPreflight(
+  ctx: HandlerCtx<ServerDeps>,
+  opts: { projectId: string; path: string; targetHostId: string },
+): Promise<WorkspaceMovePreflight> {
+  assertMoveRequest(opts);
+  ctx.deps.projectManager.assertKnownHost(opts.targetHostId);
+  return preflightWorkspaceMove(workspaceMoveDeps(ctx.deps), {
+    projectId: opts.projectId,
+    path: opts.path,
+    targetHostId: opts.targetHostId,
+  });
+}
+
+/** One `projects.moveWorkspaceToHostProgress` frame: a move's plan or step, by its id. */
+export type WorkspaceMoveProgressEvent = WorkspaceMoveProgress & { moveId: string };
+
+/**
+ * Move a workspace to another host (`workspace-host-move.ts`), telling the
+ * caller each step as a `projects.moveWorkspaceToHostProgress` event that
+ * carries `moveId`: the caller's own, so it can listen before it asks, or
+ * a fresh one. Answers when the move ends, with the same id.
+ */
+export async function projectsMoveWorkspaceToHost(
+  ctx: HandlerCtx<ServerDeps>,
+  opts: {
+    projectId: string;
+    path: string;
+    targetHostId: string;
+    keepSource?: boolean;
+    moveId?: string;
+  },
+): Promise<WorkspaceMoveResult & { moveId: string }> {
+  assertMoveRequest(opts);
+  if (opts.keepSource !== undefined && opts.keepSource !== null && typeof opts.keepSource !== "boolean") {
+    throw new Error("keepSource must be a boolean");
+  }
+  if (opts.moveId !== undefined && opts.moveId !== null) assertString(opts.moveId, "moveId");
+  ctx.deps.projectManager.assertKnownHost(opts.targetHostId);
+  const moveId = opts.moveId ?? crypto.randomUUID();
+  const result = await runWorkspaceMove(
+    ctx.deps,
+    {
+      projectId: opts.projectId,
+      path: opts.path,
+      targetHostId: opts.targetHostId,
+      keepSource: opts.keepSource === true,
+    },
+    (event) => {
+      publishToRenderer(ctx.caller.id, "projects", "moveWorkspaceToHostProgress", {
+        ...event,
+        moveId,
+      });
+    },
+  );
+  return { ...result, moveId };
 }
 
 /**
@@ -722,6 +860,15 @@ export const projects = {
   clone: method(projectsClone, { mutating: true, route: LOCAL_ROUTE }),
   moveToHost: method(projectsMoveToHost, { mutating: true, route: LOCAL_ROUTE }),
   transfer: method(projectsTransfer, { mutating: true, route: LOCAL_ROUTE }),
+  // A workspace's move to another host: orchestrated here, reaching both
+  // hosts itself. Its progress goes to the caller, by `moveId`.
+  moveWorkspaceToHostPreflight: method(projectsMoveWorkspaceToHostPreflight, {
+    route: LOCAL_ROUTE,
+  }),
+  moveWorkspaceToHost: method(projectsMoveWorkspaceToHost, {
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
   // Runs a recipe on this machine to start a box:
   // the desktop user's call alone, like `hosts.addRecipeHost`.
   openInNewHost: method(projectsOpenInNewHost, {

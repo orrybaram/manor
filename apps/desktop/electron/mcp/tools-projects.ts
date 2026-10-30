@@ -123,6 +123,105 @@ function formatProjectListing(projects: ProjectInfo[]): string {
   return lines.join("\n");
 }
 
+// ── Moving a workspace to another host ──
+
+/** What `POST /workspaces/move-to-host` answers (`WorkspaceMoveAnswer`). */
+type WorkspaceMoveAnswer = {
+  sourceHost: string;
+  targetHost: string;
+} & (
+  | {
+      ok: true;
+      targetPath: string;
+      reused: boolean;
+      sourceRemoved: boolean;
+    }
+  | { ok: false; refusals: MoveRefusal[] }
+  | { ok: false; needsInput: { reason: string; repoUrl: string | null; targetDir: string } }
+  | { ok: false; step: string; error: string }
+);
+
+type MoveRefusal = { code: string; files?: Array<{ code: string; path: string }> };
+
+/** A move's step, as the error names it. */
+const MOVE_STEP_LABELS: Record<string, string> = {
+  push: "Pushing the branch",
+  setUp: "Setting the project up",
+  create: "Creating the workspace",
+  setupScript: "Running the setup script",
+  restore: "Restoring the tabs",
+  agents: "Starting the agents",
+  removeSource: "Removing the old workspace",
+};
+
+/** Why a move was refused, as a line (and the files, for a dirty tree). */
+function formatMoveRefusal(r: MoveRefusal, targetHost: string): string {
+  const files = (r.files ?? []).map((f) => `    ${f.code} ${f.path}`);
+  const count = (n: number) => `${n} changed file${n === 1 ? "" : "s"}`;
+  switch (r.code) {
+    case "dirty":
+      return [`  Commit or discard ${count(files.length)} first:`, ...files].join("\n");
+    case "target-dirty":
+      return [
+        `  ${targetHost} already has this branch checked out, with ${count(files.length)}:`,
+        ...files,
+      ].join("\n");
+    case "no-origin":
+      return "  The repository has no 'origin' remote to push the branch to.";
+    case "main-workspace":
+      return "  It is the project's main workspace; only other workspaces move.";
+    case "same-host":
+      return `  It is already on ${targetHost}.`;
+    case "detached":
+      return "  It is not on a branch (detached HEAD).";
+    case "target-main-on-branch":
+      return `  The project's main checkout on ${targetHost} is on this branch.`;
+    case "target-cannot-fast-forward":
+      return `  ${targetHost}'s checkout of this branch has commits this one doesn't, so it can't be fast-forwarded.`;
+    default:
+      return `  ${r.code}`;
+  }
+}
+
+/** `move_workspace_to_host`'s text for each way a move ends. */
+export function formatWorkspaceMove(worktreePath: string, answer: WorkspaceMoveAnswer): string {
+  const { sourceHost, targetHost } = answer;
+  if (answer.ok) {
+    const lines = [`Moved workspace to ${targetHost}: ${answer.targetPath}`];
+    if (answer.reused) lines.push(`Used the workspace ${targetHost} already had on this branch.`);
+    lines.push(
+      answer.sourceRemoved
+        ? `Removed ${worktreePath} from ${sourceHost}; the branch is kept.`
+        : `Kept ${worktreePath} on ${sourceHost}.`,
+    );
+    return lines.join("\n");
+  }
+  if ("refusals" in answer) {
+    return [
+      `Can't move ${worktreePath} to ${targetHost}:`,
+      ...answer.refusals.map((r) => formatMoveRefusal(r, targetHost)),
+      "Nothing was changed.",
+    ].join("\n");
+  }
+  if ("needsInput" in answer) {
+    return `Can't move ${worktreePath}: set the project up on ${targetHost} first (Set up on… in the sidebar), then move it again. Nothing was changed.`;
+  }
+  const label = MOVE_STEP_LABELS[answer.step] ?? answer.step;
+  // The push and the removal run on the source; every other step on the target.
+  const onSource = answer.step === "push" || answer.step === "removeSource";
+  const left =
+    answer.step === "removeSource"
+      ? `The workspace is on ${targetHost} now; ${worktreePath} may still be on ${sourceHost}.`
+      : `${worktreePath} is still on ${sourceHost}, as it was.`;
+  return `Couldn't move ${worktreePath}: ${label} on ${onSource ? sourceHost : targetHost} failed: ${answer.error}\n${left}`;
+}
+
+/**
+ * A move pushes, may clone and runs a setup script: it may take as long
+ * as the longest setup script a host waits for, and a little more.
+ */
+const MOVE_TIMEOUT_MS = 35 * 60_000;
+
 export function formatWorkspace(
   ws: WorkspaceInfo,
   folders: WorkspaceFolder[] = [],
@@ -251,6 +350,35 @@ const tools: ToolDef[] = [
         },
       },
       required: ["worktreePath"],
+    },
+  },
+  {
+    name: "move_workspace_to_host",
+    description:
+      "Move a workspace (not a project's main one) to another host: push its branch, set the project up on that host if needed, make the workspace there on the same branch and run its setup script, bring back its tabs, start its agents fresh with a handoff of their session, then remove it here. Refused while the workspace has uncommitted changes. Prints the new workspace's path.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        worktreePath: {
+          type: "string",
+          description: "Filesystem path of the workspace to move.",
+        },
+        host: {
+          type: "string",
+          description:
+            "The host to move it to: a host id or ssh target, or 'local' for this machine.",
+        },
+        keepSource: {
+          type: "boolean",
+          description: "Keep the workspace where it is as well, rather than removing it.",
+        },
+        projectId: {
+          type: "string",
+          description:
+            "The workspace's project, when more than one host has a workspace at that path.",
+        },
+      },
+      required: ["worktreePath", "host"],
     },
   },
   {
@@ -717,6 +845,19 @@ const handlers: ToolModule["handlers"] = {
         : {}),
     });
     return text(`Removed workspace at ${args.worktreePath}.`);
+  },
+
+  async move_workspace_to_host(args, http) {
+    const worktreePath = args.worktreePath as string;
+    const body: Record<string, unknown> = { worktreePath, host: args.host };
+    if (args.keepSource !== undefined) body.keepSource = args.keepSource;
+    if (args.projectId !== undefined) body.projectId = args.projectId;
+    const answer = (await http.post(
+      "/workspaces/move-to-host",
+      body,
+      MOVE_TIMEOUT_MS,
+    )) as WorkspaceMoveAnswer;
+    return text(formatWorkspaceMove(worktreePath, answer));
   },
 
   async current_workspace(_args, http) {

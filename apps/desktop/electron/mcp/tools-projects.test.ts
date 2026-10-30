@@ -214,3 +214,94 @@ describe("create_workspace", () => {
     expect(result.content[0].text).toContain('in project "App" (box-app on me@box)');
   });
 });
+
+describe("move_workspace_to_host", () => {
+  const moveTo = (answer: Record<string, unknown>) =>
+    fakeHttp({ post: async () => ({ sourceHost: "this Mac", targetHost: "me@box", ...answer }) });
+  const run = async (http: Http, args: Record<string, unknown> = {}) => {
+    const result = await projectsModule.handlers.move_workspace_to_host(
+      { worktreePath: "/Users/me/app-feature", host: "box", ...args },
+      http,
+    );
+    return result.content[0].text!;
+  };
+
+  it("posts the path, host and keepSource, and prints where the workspace went", async () => {
+    const http = moveTo({
+      ok: true,
+      targetPath: "/home/me/.manor/worktrees/app/feature",
+      reused: false,
+      sourceRemoved: true,
+    });
+    const out = await run(http, { keepSource: false });
+    expect(http.calls).toEqual([
+      {
+        method: "POST",
+        path: "/workspaces/move-to-host",
+        body: { worktreePath: "/Users/me/app-feature", host: "box", keepSource: false },
+      },
+    ]);
+    expect(out).toBe(
+      [
+        "Moved workspace to me@box: /home/me/.manor/worktrees/app/feature",
+        "Removed /Users/me/app-feature from this Mac; the branch is kept.",
+      ].join("\n"),
+    );
+  });
+
+  it("says when it reused the target's workspace and kept the source", async () => {
+    const out = await run(
+      moveTo({ ok: true, targetPath: "/home/me/feature", reused: true, sourceRemoved: false }),
+    );
+    expect(out).toContain("Moved workspace to me@box: /home/me/feature");
+    expect(out).toContain("already had on this branch");
+    expect(out).toContain("Kept /Users/me/app-feature on this Mac.");
+  });
+
+  it("lists the dirty files of a refusal", async () => {
+    const out = await run(
+      moveTo({
+        ok: false,
+        refusals: [
+          {
+            code: "dirty",
+            files: [
+              { code: " M", path: "src/a.ts" },
+              { code: "??", path: "notes.md" },
+            ],
+          },
+          { code: "no-origin" },
+        ],
+      }),
+    );
+    expect(out).toBe(
+      [
+        "Can't move /Users/me/app-feature to me@box:",
+        "  Commit or discard 2 changed files first:",
+        "     M src/a.ts",
+        "    ?? notes.md",
+        "  The repository has no 'origin' remote to push the branch to.",
+        "Nothing was changed.",
+      ].join("\n"),
+    );
+  });
+
+  it("says to set the project up on the host first when the set up needs input", async () => {
+    const out = await run(
+      moveTo({ ok: false, needsInput: { reason: "no-origin", repoUrl: null, targetDir: "~/app" } }),
+    );
+    expect(out).toMatch(/set the project up on me@box first/);
+  });
+
+  it("names the failed step and its host, and that the source is as it was", async () => {
+    const out = await run(moveTo({ ok: false, step: "create", error: "branch not found" }));
+    expect(out).toBe(
+      [
+        "Couldn't move /Users/me/app-feature: Creating the workspace on me@box failed: branch not found",
+        "/Users/me/app-feature is still on this Mac, as it was.",
+      ].join("\n"),
+    );
+    const push = await run(moveTo({ ok: false, step: "push", error: "rejected" }));
+    expect(push).toContain("Pushing the branch on this Mac failed: rejected");
+  });
+});

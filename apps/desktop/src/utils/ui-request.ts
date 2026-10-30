@@ -33,7 +33,9 @@ export type UiRequest =
   /** Open Settings → Hosts, on `hostId`'s row when given. */
   | { type: "open-hosts-settings"; hostId?: string }
   /** Open Settings → Automations on one automation of `hostId`'s (a bell row's). */
-  | { type: "open-automation"; hostId: string; automationId: string };
+  | { type: "open-automation"; hostId: string; automationId: string }
+  /** Open Settings → Automations on a new, empty automation. */
+  | { type: "new-automation" };
 
 type Listener = (request: UiRequest) => void;
 

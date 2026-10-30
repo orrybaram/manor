@@ -37,6 +37,7 @@ import RadioTower from "lucide-react/dist/esm/icons/radio-tower";
 import Server from "lucide-react/dist/esm/icons/server";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import Settings from "lucide-react/dist/esm/icons/settings";
+import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
 import SquareArrowOutUpRight from "lucide-react/dist/esm/icons/square-arrow-out-up-right";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -733,6 +734,13 @@ export function useCommands({
           "recipe",
         ],
         action: openSettingsPage("hosts"),
+      },
+      {
+        id: "settings-automations",
+        label: "Settings: Automations",
+        icon: <CalendarClock size={14} />,
+        keywords: ["settings", "automations", "schedule", "cron", "scheduled"],
+        action: openSettingsPage("automations"),
       },
       {
         id: "settings-remote",

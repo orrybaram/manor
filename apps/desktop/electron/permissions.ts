@@ -82,7 +82,7 @@ function takeTabCapturePass(
 }
 
 /** Whether `url` is the app's renderer: the dev server, or the bundled file. */
-function isRendererUrl(url: string): boolean {
+export function isRendererUrl(url: string): boolean {
   const devServer = process.env.VITE_DEV_SERVER_URL;
   try {
     const parsed = new URL(url);

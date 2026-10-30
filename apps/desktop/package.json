@@ -1,7 +1,7 @@
 {
   "name": "manor",
   "private": true,
-  "version": "0.24.2",
+  "version": "0.24.3",
   "repository": "github:orrybaram/manor",
   "main": "dist-electron/main.js",
   "scripts": {

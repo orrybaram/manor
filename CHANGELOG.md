@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.24.3] - 2026-10-30
+
+### Fixes
+
+- Shells in Manor terminals keep finding the running Manor after a relaunch. Before, `manor` and the MCP tools could say "Cannot connect to Manor — is it running?" when another Manor sharing `~/.manor`, such as a dev build, quit.
+- Agents modal: In the session preview, a tool call with no command or path shows its name once instead of twice.
+
+### Improvements
+
+- Agents modal: The session preview folds each run of back-to-back tool calls into one summary line. Click the line to list the calls.
+
 ## [0.24.2] - 2026-10-30
 
 ### Features

@@ -4,6 +4,7 @@ import type { ModalRow } from "../agents-modal-list";
 import {
   createLru,
   createPreviewLoader,
+  groupPreviewTurns,
   previewIdentity,
   previewRef,
   type PreviewState,
@@ -155,5 +156,26 @@ describe("createPreviewLoader", () => {
     loader.show("a", null);
     expect(states).toEqual([["a", "none"]]);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("groupPreviewTurns", () => {
+  it("folds each run of back-to-back tool calls into one group", () => {
+    const bash = { role: "tool", name: "Bash", summary: "ls" } as const;
+    const read = { role: "tool", name: "Read", summary: "a.ts" } as const;
+    expect(
+      groupPreviewTurns([
+        { role: "user", text: "hi", first: true },
+        bash,
+        read,
+        { role: "assistant", text: "ok" },
+        bash,
+      ]),
+    ).toEqual([
+      { role: "user", text: "hi", first: true },
+      { role: "tools", tools: [bash, read] },
+      { role: "assistant", text: "ok" },
+      { role: "tools", tools: [bash] },
+    ]);
   });
 });

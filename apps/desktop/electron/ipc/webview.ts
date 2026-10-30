@@ -92,6 +92,21 @@ const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
 const webviewDialogCleanup = new Map<string, () => void>();
+/**
+ * paneId → the URL its page's latest main-frame navigation went to (after
+ * redirects), so a retry the pane asked for before the user went elsewhere
+ * doesn't take them back (`webview:load-url`).
+ */
+const latestNavigation = new Map<string, string>();
+
+/** `url` as the URL parser spells it, so `http://h:1` and `http://h:1/` compare equal. */
+function normalizedUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+}
 
 // ── Docked DevTools ──
 
@@ -535,7 +550,18 @@ export function register(deps: HostDeps): void {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         wc.on("audio-state-changed", audioPlayingHandler as any);
 
+        const navigationHandler = (
+          details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+        ) => {
+          if (details.isMainFrame && !details.isSameDocument) latestNavigation.set(paneId, details.url);
+        };
+        wc.on("did-start-navigation", navigationHandler);
+        wc.on("did-redirect-navigation", navigationHandler);
+
         webviewEventCleanup.set(paneId, () => {
+          wc.off("did-start-navigation", navigationHandler);
+          wc.off("did-redirect-navigation", navigationHandler);
+          latestNavigation.delete(paneId);
           wc.off("did-start-loading", loadingStartHandler);
           wc.off("did-stop-loading", loadingStopHandler);
           wc.off("page-favicon-updated", faviconHandler);
@@ -801,6 +827,8 @@ export function register(deps: HostDeps): void {
 
   // The pane's error and waiting pages retry a load here rather than through
   // the element, whose `loadURL` logs every failure as an IPC handler error.
+  // A retry is of the page's latest navigation: one that arrives after the
+  // user (or an agent) has started another is stale, and is dropped.
   ipcMain.handle("webview:load-url", (_event, paneId: string, url: string) => {
     assertString(paneId, "paneId");
     assertString(url, "url");
@@ -808,6 +836,8 @@ export function register(deps: HostDeps): void {
     if (!webContentsId) return;
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) return;
+    const latest = latestNavigation.get(paneId);
+    if (latest !== undefined && normalizedUrl(latest) !== normalizedUrl(url)) return;
     // A failure is the page's `did-fail-load`, which the pane already hears.
     wc.loadURL(url).catch(() => {});
   });

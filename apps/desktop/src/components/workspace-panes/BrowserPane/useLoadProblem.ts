@@ -61,6 +61,13 @@ export function useLoadProblem(
   const [problem, setProblemState] = useState<LoadProblem | null>(null);
   const problemRef = useRef(problem);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The URL of the retry this hook last loaded, until its navigation ends. */
+  const retryingRef = useRef<string | null>(null);
+  /**
+   * The URL whose wait the user cancelled: a refusal of a retry already on
+   * its way leaves the error page up rather than start the wait again.
+   */
+  const cancelledRef = useRef<string | null>(null);
 
   const setProblem = (next: LoadProblem | null) => {
     if (retryTimerRef.current) {
@@ -71,7 +78,11 @@ export function useLoadProblem(
     setProblemState(next);
   };
 
-  const load = (url: string) => void window.electronAPI.webview.loadUrl(paneId, url);
+  // Main drops it if the pane has gone elsewhere by the time it arrives.
+  const load = (url: string) => {
+    retryingRef.current = url;
+    void window.electronAPI.webview.loadUrl(paneId, url);
+  };
 
   /** Wait for the dev server at `url`: the next retry, or the error page once the wait is over. */
   const waitFor = (url: string, name: string) => {
@@ -99,24 +110,35 @@ export function useLoadProblem(
     const onFailLoad = (e: Event) => {
       const fail = e as DidFailLoadEvent;
       if (!fail.isMainFrame || fail.errorCode === ERR_ABORTED) return;
+      retryingRef.current = null;
       if (waitsForDevServer(fail.validatedURL, fail.errorCode)) {
-        waitFor(fail.validatedURL, fail.errorDescription);
+        if (cancelledRef.current === fail.validatedURL) {
+          setProblem({ kind: "failed", url: fail.validatedURL, name: fail.errorDescription });
+        } else {
+          waitFor(fail.validatedURL, fail.errorDescription);
+        }
       } else {
         setProblem({ kind: "failed", url: fail.validatedURL, name: fail.errorDescription });
       }
     };
     // A failed load never commits, so a new navigation starting is always
-    // another attempt or another page: only the wait's own retry keeps it.
+    // another attempt or another page: only the wait's own retry keeps it
+    // (and the error page it was cancelled to, if it lands after the Cancel).
     const onStartNavigation = (e: Event) => {
       const nav = e as DidStartNavigationEvent;
       if (!nav.isMainFrame || nav.isInPlace) return;
       const current = problemRef.current;
+      if (nav.url === retryingRef.current) return;
       if (current?.kind === "waiting" && current.url === nav.url) return;
+      retryingRef.current = null;
+      cancelledRef.current = null;
       if (current) setProblem(null);
     };
     // A page committed: whatever stood in for it is over.
     const onNavigate = (e: Event) => {
       if ((e as DidNavigateEvent).isMainFrame === false) return;
+      retryingRef.current = null;
+      cancelledRef.current = null;
       if (problemRef.current) setProblem(null);
     };
     const onGone = () => setProblem({ kind: "crashed" });
@@ -145,6 +167,7 @@ export function useLoadProblem(
       load(current.url);
       return;
     }
+    cancelledRef.current = null;
     setProblem(null);
     // A crashed guest comes back on a reload: Electron starts it a new
     // renderer process.
@@ -155,6 +178,7 @@ export function useLoadProblem(
   const cancelWait = () => {
     const current = problemRef.current;
     if (current?.kind !== "waiting") return;
+    cancelledRef.current = current.url;
     setProblem({ kind: "failed", url: current.url, name: "ERR_CONNECTION_REFUSED" });
   };
 

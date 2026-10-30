@@ -511,7 +511,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   // Its PostToolUse hook names the file it wrote, as Claude's does.
   await runInTerminal(
     window,
-    `curl -sS -o /dev/null "http://127.0.0.1:$MANOR_HOOK_PORT/hook/event?paneId=$MANOR_PANE_ID&sessionId=e2e-edit&kind=claude&eventType=PostToolUse&filePath=$PWD/src/components/Widget.tsx" && touch "$HOME/hook-sent"`,
+    `curl -fsS -o /dev/null -H "x-manor-hook-token: $MANOR_HOOK_TOKEN" "http://127.0.0.1:$MANOR_HOOK_PORT/hook/event?paneId=$MANOR_PANE_ID&sessionId=e2e-edit&kind=claude&eventType=PostToolUse&filePath=$PWD/src/components/Widget.tsx" && touch "$HOME/hook-sent"`,
   );
   await expect.poll(() => fs.existsSync(path.join(tempHome, "hook-sent"))).toBe(true);
 

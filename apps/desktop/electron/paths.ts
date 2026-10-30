@@ -157,8 +157,9 @@ export function hookJournalFile(): string {
 }
 
 /**
- * Manor desktop's hook server port (a bare port number). Read by the hook
- * script when `MANOR_HOOK_PORT_FILE` is unset.
+ * Manor desktop's hook server: `<port>\n<token>`, mode 0600, the same shape
+ * as `remoteHookPortFile()`. Read by the hook script when
+ * `MANOR_HOOK_PORT_FILE` is unset.
  */
 export function hookPortFile(): string {
   return path.join(manorHomeDir(), "hook-port");
@@ -314,6 +315,14 @@ export function hookScriptJsPath(): string {
 
 export function webviewServerPortFile(): string {
   return path.join(manorHomeDir(), "webview-server-port");
+}
+
+/**
+ * The webview server's per-launch token, mode 0600. Every request to that
+ * server sends it as `x-manor-control-token`.
+ */
+export function webviewServerTokenFile(): string {
+  return path.join(manorHomeDir(), "webview-server-token");
 }
 
 export function portlessProxyPortFile(): string {

@@ -4,25 +4,32 @@
  * discovery and the "is Manor running?" error stay identical across both
  * surfaces.
  *
- * Discovery: reads port from ~/.manor/webview-server-port, unless
+ * Discovery: reads port from ~/.manor/webview-server-port and the token that
+ * server wants from ~/.manor/webview-server-token, unless
  * MANOR_CONTROL_PORT_FILE is set — see requestViaControlRelay() below.
  */
 
 import * as fs from "node:fs";
-import { webviewServerPortFile } from "../paths";
+import { webviewServerPortFile, webviewServerTokenFile } from "../paths";
 import type { Http } from "./types";
 import { HttpError } from "./types";
 
 const PORT_FILE = webviewServerPortFile();
+const TOKEN_FILE = webviewServerTokenFile();
 
 /**
- * Header carrying the remote control relay's token. Must match
+ * Header carrying the token of whichever server this talks to: the remote
+ * control relay or Manor desktop's webview server. Must match
  * `CONTROL_TOKEN_HEADER` in `electron/terminal-host/control-relay-listener.ts`
- * — duplicated rather than imported, because that file is part of the
- * daemon bundle and this one ships in the standalone CLI bundle
- * (`manor-cli.js`), which must stay electron- and terminal-host-free.
+ * and `electron/webview-server.ts` — duplicated rather than imported, because
+ * those are part of the daemon and Electron bundles and this one ships in the
+ * standalone CLI bundle (`manor-cli.js`), which must stay electron- and
+ * terminal-host-free.
  */
 const CONTROL_TOKEN_HEADER = "x-manor-control-token";
+
+const TOKEN_REFUSED_MESSAGE =
+  "Manor refused this terminal's control token. Open a new terminal, or restart Manor";
 
 const REMOTE_UNREACHABLE_MESSAGE =
   "Manor's remote daemon isn't reachable. Reconnect the host in Manor";
@@ -98,28 +105,45 @@ async function requestViaControlRelay(
   return await res.json();
 }
 
-// Candidate ports to reach Manor's webview server, in priority order:
-//   1. MANOR_WEBVIEW_PORT env — set by the host Manor instance (correct target
-//      in multi-instance setups), but goes stale if that instance restarts.
-//   2. The ~/.manor/webview-server-port file — always rewritten by the running
-//      instance, so it self-heals after a restart.
+// Candidate targets to reach Manor's webview server, in priority order, each
+// a port and the token that server wants (`CONTROL_TOKEN_HEADER`):
+//   1. MANOR_WEBVIEW_PORT + MANOR_WEBVIEW_TOKEN env — set by the host Manor
+//      instance (correct target in multi-instance setups), but goes stale if
+//      that instance restarts.
+//   2. The ~/.manor/webview-server-port and -token files — always rewritten by
+//      the running instance, so they self-heal after a restart. When they name
+//      the same port as the env, the file's token wins: it is the fresher.
 // Resolved per request (not cached at startup) so restarts don't wedge us.
-function candidatePorts(): number[] {
-  const ports: number[] = [];
+function candidateTargets(): { port: number; token: string }[] {
+  const targets: { port: number; token: string }[] = [];
+  const filePort = fs.existsSync(PORT_FILE)
+    ? parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10)
+    : NaN;
+  const fileToken = readTokenFile();
   const envPort = parseInt(process.env.MANOR_WEBVIEW_PORT ?? "", 10);
-  if (!isNaN(envPort) && envPort > 0) ports.push(envPort);
-  if (fs.existsSync(PORT_FILE)) {
-    const filePort = parseInt(fs.readFileSync(PORT_FILE, "utf-8").trim(), 10);
-    if (!isNaN(filePort) && filePort > 0 && !ports.includes(filePort)) {
-      ports.push(filePort);
-    }
+  if (!isNaN(envPort) && envPort > 0) {
+    const token =
+      envPort === filePort && fileToken ? fileToken : (process.env.MANOR_WEBVIEW_TOKEN ?? "");
+    targets.push({ port: envPort, token });
   }
-  if (ports.length === 0) {
+  if (!isNaN(filePort) && filePort > 0 && filePort !== envPort) {
+    targets.push({ port: filePort, token: fileToken ?? "" });
+  }
+  if (targets.length === 0) {
     throw new Error(
       `No Manor webview port found (env MANOR_WEBVIEW_PORT or ${PORT_FILE}) — is Manor running?`,
     );
   }
-  return ports;
+  return targets;
+}
+
+/** The token in `TOKEN_FILE`, or null if it is missing, unreadable or empty. */
+function readTokenFile(): string | null {
+  try {
+    return fs.readFileSync(TOKEN_FILE, "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -132,9 +156,10 @@ export function isConnectionError(err: unknown): boolean {
   return err instanceof TypeError && Boolean((err as NodeJS.ErrnoException).cause);
 }
 
-// Try each candidate port until one answers. Connection-level failures fall
-// through to the next candidate; an HTTP error from a live server is surfaced
-// as-is (don't mask a real error by retrying a different instance).
+// Try each candidate port until one answers. Connection-level failures and a
+// refused token fall through to the next candidate; any other HTTP error from
+// a live server is surfaced as-is (don't mask a real error by retrying a
+// different instance).
 async function request(urlPath: string, init?: RequestInit): Promise<unknown> {
   const controlPortFile = process.env.MANOR_CONTROL_PORT_FILE;
   if (controlPortFile) {
@@ -142,9 +167,21 @@ async function request(urlPath: string, init?: RequestInit): Promise<unknown> {
   }
 
   let lastErr: unknown;
-  for (const port of candidatePorts()) {
+  for (const { port, token } of candidateTargets()) {
     try {
-      const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, init);
+      const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, {
+        ...init,
+        headers: {
+          ...(init?.headers as Record<string, string> | undefined),
+          [CONTROL_TOKEN_HEADER]: token,
+        },
+      });
+      // A refused token may be a stale env pairing; the next candidate
+      // (the files, always current) may still get through.
+      if (res.status === 401) {
+        lastErr = new Error(TOKEN_REFUSED_MESSAGE);
+        continue;
+      }
       if (!res.ok) {
         const rawBody = await res.text();
         let parsed: unknown = null;
@@ -177,7 +214,7 @@ async function httpPost(
 ): Promise<unknown> {
   const init: RequestInit = {
     method: "POST",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   };
   if (timeoutMs !== undefined) {
@@ -192,7 +229,7 @@ async function httpDelete(
 ): Promise<unknown> {
   const init: RequestInit = {
     method: "DELETE",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   };
   return request(urlPath, init);

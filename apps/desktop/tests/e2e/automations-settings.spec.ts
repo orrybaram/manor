@@ -6,6 +6,7 @@ import type { APIRequestContext, ElectronApplication, Page, TestInfo } from "@pl
 
 import { expect, importSeededProject, test } from "./fixtures";
 import { FAKE_AGENT } from "./helpers/fake-agent";
+import { localApiHeaders, localApiUrl } from "./helpers/local-api";
 import { closeSettings, openSettings } from "./helpers/settings";
 
 /**
@@ -54,11 +55,6 @@ interface RunView {
   workspacePath?: string;
 }
 
-function apiUrl(tempHome: string, route: string): string {
-  const raw = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim();
-  return `http://127.0.0.1:${Number(raw)}${route}`;
-}
-
 async function api<T>(
   request: APIRequestContext,
   tempHome: string,
@@ -66,8 +62,9 @@ async function api<T>(
   route: string,
   data?: Record<string, unknown>,
 ): Promise<T> {
-  const res = await request.fetch(apiUrl(tempHome, route), {
+  const res = await request.fetch(localApiUrl(tempHome, route), {
     method,
+    headers: localApiHeaders(tempHome),
     data: data ?? (method === "GET" ? undefined : {}),
     timeout: 60_000,
   });

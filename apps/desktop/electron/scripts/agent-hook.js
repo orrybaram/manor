@@ -61,9 +61,9 @@ function readInput(argv, stdin) {
 const HOOK_TOKEN_HEADER = "x-manor-hook-token";
 
 /**
- * Read a hook port file: the port on the first line and, for a remote
- * daemon's listener, its token on the second. Manor desktop's file holds
- * just the port. Returns null if the file is missing or has no valid port.
+ * Read a hook port file: the port on the first line and the listener's token
+ * on the second (Manor desktop's and a remote daemon's alike). Returns null
+ * if the file is missing or has no valid port.
  */
 function readPortFile(portFile) {
   let raw;
@@ -85,8 +85,8 @@ function readPortFile(portFile) {
  * Resolve where to send the hook: the port file named by
  * MANOR_HOOK_PORT_FILE (set in a remote Manor daemon's panes), else
  * ~/.manor/hook-port (Manor desktop's, always fresh), falling back to the
- * MANOR_HOOK_PORT env var. Returns `{ port, token }` (token null when the
- * listener wants none) or null.
+ * MANOR_HOOK_PORT and MANOR_HOOK_TOKEN env vars Manor desktop gives its
+ * panes. Returns `{ port, token }` (token null when none is known) or null.
  *
  * Keep in sync with hookPortFile() / remoteHookPortFile() in electron/paths.ts.
  */
@@ -98,7 +98,7 @@ function resolveHookTarget(env, homeDir) {
   const envPort = env.MANOR_HOOK_PORT;
   if (envPort) {
     const n = parseInt(envPort, 10);
-    if (!isNaN(n) && n > 0) return { port: n, token: null };
+    if (!isNaN(n) && n > 0) return { port: n, token: env.MANOR_HOOK_TOKEN || null };
   }
   return null;
 }

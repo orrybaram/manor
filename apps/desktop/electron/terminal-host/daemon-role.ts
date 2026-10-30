@@ -125,8 +125,10 @@ export function localRole(): DaemonRole {
 const CLIENT_MACHINE_ENV_KEYS: ReadonlySet<string> = new Set([
   "MANOR_HOOK_PORT",
   "MANOR_HOOK_PORT_FILE",
+  "MANOR_HOOK_TOKEN",
   "MANOR_CONTROL_PORT_FILE",
   "MANOR_WEBVIEW_PORT",
+  "MANOR_WEBVIEW_TOKEN",
   "MANOR_PORTLESS_PORT",
 ]);
 

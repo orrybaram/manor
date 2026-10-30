@@ -30,6 +30,7 @@ const mockWebContents: Record<string, unknown> = {
 };
 
 vi.mock("electron", () => ({
+  app: { isPackaged: false },
   webContents: {
     fromId: vi.fn(),
   },
@@ -143,8 +144,27 @@ interface WebviewInfo {
   title: string;
 }
 
+/**
+ * A server's base URL, remembering its control token so the helpers below
+ * can send it: each `start()` mints its own.
+ */
+const tokensByBaseUrl = new Map<string, string>();
+function baseUrlOf(server: WebviewServer): string {
+  const url = `http://127.0.0.1:${server.serverPort}`;
+  tokensByBaseUrl.set(url, server.controlToken);
+  return url;
+}
+
+/** The headers every request to the server at `baseUrl` needs. */
+function controlHeaders(baseUrl: string): Record<string, string> {
+  return {
+    "x-manor-control-token": tokensByBaseUrl.get(baseUrl) ?? "",
+    "Content-Type": "application/json",
+  };
+}
+
 async function mcpHttpGet(baseUrl: string, urlPath: string): Promise<unknown> {
-  const res = await fetch(`${baseUrl}${urlPath}`);
+  const res = await fetch(`${baseUrl}${urlPath}`, { headers: controlHeaders(baseUrl) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`HTTP ${res.status}: ${body}`);
@@ -159,7 +179,7 @@ async function mcpHttpPost(
 ): Promise<unknown> {
   const res = await fetch(`${baseUrl}${urlPath}`, {
     method: "POST",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: controlHeaders(baseUrl),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -272,7 +292,7 @@ describe("MCP webview server logic", () => {
 
     server = serverWith({}, registry);
     await server.start();
-    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+    baseUrl = baseUrlOf(server);
   });
 
   afterEach(() => {
@@ -405,7 +425,7 @@ async function mcpHttpDelete(
 ): Promise<unknown> {
   const res = await fetch(`${baseUrl}${urlPath}`, {
     method: "DELETE",
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers: controlHeaders(baseUrl),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -472,7 +492,7 @@ describe("WebviewServer project/workspace routes", () => {
       workspaceOps: workspaceOpsFor(pm),
     });
     await server.start();
-    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+    baseUrl = baseUrlOf(server);
   });
 
   afterEach(() => {
@@ -797,7 +817,7 @@ describe("WebviewServer agent orchestration routes", () => {
     };
     server = serverWith(deps);
     await server.start();
-    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+    baseUrl = baseUrlOf(server);
   });
 
   afterEach(() => {
@@ -838,7 +858,7 @@ describe("WebviewServer agent orchestration routes", () => {
         projectManager: pm as unknown as HostDeps["projectManager"],
       });
       await bare.start();
-      const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+      const bareUrl = baseUrlOf(bare);
       await expect(
         mcpHttpGet(bareUrl, "/projects/proj-1/issues"),
       ).rejects.toThrow("HTTP 503");
@@ -921,7 +941,7 @@ describe("WebviewServer agent orchestration routes", () => {
           githubManager: github as unknown as HostDeps["githubManager"],
         });
         await bare.start();
-        const bareUrl = `http://127.0.0.1:${bare.serverPort}`;
+        const bareUrl = baseUrlOf(bare);
         await expect(
           mcpHttpGet(bareUrl, "/projects/proj-1/issues?source=linear"),
         ).rejects.toThrow("Linear is not connected");
@@ -1437,7 +1457,7 @@ describe("WebviewServer pane routes", () => {
     // renderer round-trip — only `/panes/:paneId/focus` below still proxies.
     server = serverWith({ layoutStore });
     await server.start();
-    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+    baseUrl = baseUrlOf(server);
   });
 
   afterEach(() => {
@@ -1770,7 +1790,9 @@ async function getContext(
   baseUrl: string,
   query: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const res = await fetch(`${baseUrl}/context${query}`);
+  const res = await fetch(`${baseUrl}/context${query}`, {
+    headers: controlHeaders(baseUrl),
+  });
   const body = await res.json();
   return { status: res.status, body };
 }
@@ -1906,7 +1928,7 @@ describe("GET /context", () => {
       } as unknown as HostDeps["sessionOwners"],
     });
     await server.start();
-    baseUrl = `http://127.0.0.1:${server.serverPort}`;
+    baseUrl = baseUrlOf(server);
   });
 
   afterEach(() => {
@@ -2021,7 +2043,7 @@ describe("GET /context sources computation", () => {
       linearManager,
     });
     await server.start();
-    return { server, baseUrl: `http://127.0.0.1:${server.serverPort}` };
+    return { server, baseUrl: baseUrlOf(server) };
   }
 
   const GITHUB_STUB = {

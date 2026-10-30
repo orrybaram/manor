@@ -6,8 +6,9 @@ import type { AgentSummary } from "../../../electron/routes/agents";
 import type { LayoutSnapshot } from "../../../src/lib/layout/snapshot";
 
 /**
- * The app's *local* control surface — `WebviewServer`, the unauthenticated
- * loopback listener the MCP server and CLI already use.
+ * The app's *local* control surface — `WebviewServer`, the loopback listener
+ * the MCP server and CLI already use. Every request sends the token the app
+ * published beside its port (`localApiHeaders`).
  *
  * Tests reach for it to observe state that the UI renders into a WebGL canvas
  * (terminal output) or not at all (the agent list behind a session row). It is
@@ -33,8 +34,17 @@ function localApiPort(tempHome: string): number {
   return port;
 }
 
-function localApiUrl(tempHome: string, route: string): string {
+export function localApiUrl(tempHome: string, route: string): string {
   return `http://127.0.0.1:${localApiPort(tempHome)}${route}`;
+}
+
+/**
+ * The headers `WebviewServer` requires: this app instance's token, and a JSON
+ * body type (which it requires on POST and DELETE).
+ */
+export function localApiHeaders(tempHome: string): Record<string, string> {
+  const token = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-token"), "utf-8");
+  return { "x-manor-control-token": token.trim(), "Content-Type": "application/json" };
 }
 
 async function getJson<T>(
@@ -42,7 +52,9 @@ async function getJson<T>(
   tempHome: string,
   route: string,
 ): Promise<T> {
-  const res = await request.get(localApiUrl(tempHome, route));
+  const res = await request.get(localApiUrl(tempHome, route), {
+    headers: localApiHeaders(tempHome),
+  });
   if (!res.ok()) throw new Error(`GET ${route} → ${res.status()}`);
   return (await res.json()) as T;
 }
@@ -79,6 +91,7 @@ export async function sendToSession(
   text: string,
 ): Promise<void> {
   const res = await request.post(localApiUrl(tempHome, "/sessions/send"), {
+    headers: localApiHeaders(tempHome),
     data: { target, text },
   });
   if (!res.ok()) throw new Error(`POST /sessions/send → ${res.status()}`);
@@ -127,7 +140,10 @@ export async function newTab(
   tempHome: string,
   body: Record<string, unknown>,
 ): Promise<{ tabId: string; paneId: string }> {
-  const res = await request.post(localApiUrl(tempHome, "/tabs"), { data: body });
+  const res = await request.post(localApiUrl(tempHome, "/tabs"), {
+    headers: localApiHeaders(tempHome),
+    data: body,
+  });
   if (!res.ok()) {
     throw new Error(`POST /tabs → ${res.status()} ${await res.text()}`);
   }
@@ -141,6 +157,7 @@ export async function splitPane(
   body: Record<string, unknown>,
 ): Promise<{ paneId: string }> {
   const res = await request.post(localApiUrl(tempHome, "/panes/split"), {
+    headers: localApiHeaders(tempHome),
     data: body,
   });
   if (!res.ok()) {
@@ -165,7 +182,10 @@ export async function postRoute(
   route: string,
   body: Record<string, unknown> = {},
 ): Promise<{ status: number; body: unknown }> {
-  const res = await request.post(localApiUrl(tempHome, route), { data: body });
+  const res = await request.post(localApiUrl(tempHome, route), {
+    headers: localApiHeaders(tempHome),
+    data: body,
+  });
   const parsed: unknown = await res.json().catch(() => null);
   return { status: res.status(), body: parsed };
 }
@@ -218,6 +238,7 @@ export async function readSessionMeta(
   tailLines = 200,
 ): Promise<SessionRead> {
   const res = await request.post(localApiUrl(tempHome, "/sessions/read"), {
+    headers: localApiHeaders(tempHome),
     data: { target, tailLines },
   });
   if (!res.ok()) throw new Error(`POST /sessions/read → ${res.status()}`);

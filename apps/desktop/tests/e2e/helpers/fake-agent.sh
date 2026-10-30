@@ -24,7 +24,7 @@ session="e2e-$$"
 hook() {
   [ -n "${MANOR_HOOK_PORT:-}" ] || return 0
   [ -n "${MANOR_PANE_ID:-}" ] || return 0
-  curl -sS -o /dev/null \
+  curl -sS -o /dev/null -H "x-manor-hook-token: ${MANOR_HOOK_TOKEN:-}" \
     "http://127.0.0.1:${MANOR_HOOK_PORT}/hook/event?paneId=${MANOR_PANE_ID}&sessionId=${session}&kind=claude&eventType=$1${2:+&notificationKind=$2}" \
     || true
 }

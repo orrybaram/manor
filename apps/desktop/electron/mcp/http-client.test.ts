@@ -50,6 +50,7 @@ describe("http-client", () => {
     vi.resetModules();
     delete process.env.MANOR_CONTROL_PORT_FILE;
     delete process.env.MANOR_WEBVIEW_PORT;
+    delete process.env.MANOR_WEBVIEW_TOKEN;
   });
 
   afterEach(() => {
@@ -59,9 +60,25 @@ describe("http-client", () => {
   // ── Local path (no MANOR_CONTROL_PORT_FILE): unchanged ──
 
   describe("without MANOR_CONTROL_PORT_FILE", () => {
-    it("reads the webview port file and hits it with no control token header", async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue("4321\n");
+    /** Serve Manor desktop's port and token files; null leaves one missing. */
+    function localFiles(port: string | null, token: string | null) {
+      mockExistsSync.mockImplementation((file: string) =>
+        file.endsWith("webview-server-port") ? port !== null : false,
+      );
+      mockReadFileSync.mockImplementation((file: string) => {
+        if (file.endsWith("webview-server-port") && port !== null) return `${port}\n`;
+        if (file.endsWith("webview-server-token") && token !== null) return `${token}\n`;
+        throw Object.assign(new Error(`ENOENT ${file}`), { code: "ENOENT" });
+      });
+    }
+
+    function sentToken(call: number): string | undefined {
+      const [, init] = mockFetch.mock.calls[call];
+      return (init?.headers as Record<string, string>)["x-manor-control-token"];
+    }
+
+    it("reads the webview port and token files and sends the token", async () => {
+      localFiles("4321", "file-token");
       mockFetch.mockResolvedValue(fetchOk({ ok: true }));
 
       const { createHttp } = await import("./http-client");
@@ -70,14 +87,79 @@ describe("http-client", () => {
 
       expect(result).toEqual({ ok: true });
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [url, init] = mockFetch.mock.calls[0];
-      expect(url).toBe("http://127.0.0.1:4321/projects");
-      expect((init?.headers as Record<string, string> | undefined)?.["x-manor-control-token"]).toBeUndefined();
+      expect(mockFetch.mock.calls[0][0]).toBe("http://127.0.0.1:4321/projects");
+      expect(sentToken(0)).toBe("file-token");
+    });
+
+    it("pairs the env port with the env token", async () => {
+      process.env.MANOR_WEBVIEW_PORT = "1111";
+      process.env.MANOR_WEBVIEW_TOKEN = "env-token";
+      localFiles(null, null);
+      mockFetch.mockResolvedValue(fetchOk({ ok: true }));
+
+      const { createHttp } = await import("./http-client");
+      await createHttp().get("/projects");
+
+      expect(mockFetch.mock.calls[0][0]).toBe("http://127.0.0.1:1111/projects");
+      expect(sentToken(0)).toBe("env-token");
+    });
+
+    it("prefers the file's token when env and file name the same port", async () => {
+      process.env.MANOR_WEBVIEW_PORT = "4321";
+      process.env.MANOR_WEBVIEW_TOKEN = "stale-env-token";
+      localFiles("4321", "file-token");
+      mockFetch.mockResolvedValue(fetchOk({ ok: true }));
+
+      const { createHttp } = await import("./http-client");
+      await createHttp().get("/projects");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(sentToken(0)).toBe("file-token");
+    });
+
+    it("falls through to the files when the env pairing is refused", async () => {
+      process.env.MANOR_WEBVIEW_PORT = "1111";
+      process.env.MANOR_WEBVIEW_TOKEN = "stale-env-token";
+      localFiles("4321", "file-token");
+      mockFetch
+        .mockResolvedValueOnce(fetchErr(401, { error: "Missing or wrong token" }))
+        .mockResolvedValueOnce(fetchOk({ ok: true }));
+
+      const { createHttp } = await import("./http-client");
+      const result = await createHttp().get("/projects");
+
+      expect(result).toEqual({ ok: true });
+      expect(mockFetch.mock.calls[1][0]).toBe("http://127.0.0.1:4321/projects");
+      expect(sentToken(1)).toBe("file-token");
+    });
+
+    it("explains a refused token when no candidate is accepted", async () => {
+      localFiles("4321", "file-token");
+      mockFetch.mockResolvedValue(fetchErr(401, { error: "Missing or wrong token" }));
+
+      const { createHttp } = await import("./http-client");
+      await expect(createHttp().get("/projects")).rejects.toThrow(
+        "Manor refused this terminal's control token",
+      );
+    });
+
+    it("declares a JSON body on every POST and DELETE, even an empty one", async () => {
+      localFiles("4321", "file-token");
+      mockFetch.mockResolvedValue(fetchOk({ ok: true }));
+
+      const { createHttp } = await import("./http-client");
+      const http = createHttp();
+      await http.post("/tabs");
+      await http.del("/panes/p1");
+
+      for (const call of [0, 1]) {
+        const [, init] = mockFetch.mock.calls[call];
+        expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+      }
     });
 
     it("surfaces HttpError for a non-2xx response", async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue("4321\n");
+      localFiles("4321", "file-token");
       mockFetch.mockResolvedValue(fetchErr(404, { error: "not found" }));
 
       const { createHttp } = await import("./http-client");

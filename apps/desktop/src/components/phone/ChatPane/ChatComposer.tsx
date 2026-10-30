@@ -152,7 +152,7 @@ export function ChatComposer(props: ChatComposerProps) {
           className={styles.composerInput}
           value={text}
           rows={1}
-          placeholder="Type / for commands"
+          placeholder={chatOf.commands === "claude" ? "Type / for commands" : `Message ${chatOf.name}`}
           aria-label={`Message ${chatOf.name}`}
           data-testid="chat-composer-input"
           aria-expanded={level !== null}

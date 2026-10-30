@@ -22,18 +22,19 @@ export function agentLabel(agent: AgentInfo): string {
  *
  * The prompt is built multi-line by its caller; this is the one place that
  * flattens it, because only delivery cares that a bare newline in a
- * harness's prompt box submits the turn early.
+ * harness's prompt box submits the turn early. Returns whether it was sent:
+ * an agent with no live pane can't take it.
  */
 export function sendPromptToAgent(
   workspacePath: string,
   prompt: string,
   target: AgentTarget,
   { what, toastId, hostId }: { what: string; toastId: string; hostId?: string | null },
-): void {
+): boolean {
   if (target.kind === "new") {
     startAgentWithPrompt(workspacePath, prompt, hostId);
     toast.success(`Sent ${what} to a new agent`, { id: toastId, duration: 3000 });
-    return;
+    return true;
   }
 
   const { agent } = target;
@@ -43,7 +44,7 @@ export function sendPromptToAgent(
       id: toastId,
       duration: 3000,
     });
-    return;
+    return false;
   }
 
   // Ordering is load-bearing, and mirrors `POST /sessions/send` in
@@ -59,4 +60,5 @@ export function sendPromptToAgent(
   navigateToAgent(agent);
 
   toast.success(`Sent ${what} to ${agentLabel(agent)}`, { id: toastId, duration: 3000 });
+  return true;
 }

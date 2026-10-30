@@ -11,7 +11,7 @@ import { Button } from "../../ui/Button/Button";
 import { AgentTargetMenu, AgentTargetMenuItem } from "../../review/ReviewSend/ReviewSend";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import { useSendableAgents } from "../../review/ReviewSend/useReviewSend";
-import { placeNotePopover, toPaneRect, type Rect, type Size } from "./note-placement";
+import { placeNotePopover, toPaneRect, typingElsewhere, type Rect, type Size } from "./note-placement";
 import type { PageNotes } from "./usePageNotes";
 
 import styles from "./BrowserPane.module.css";
@@ -81,7 +81,7 @@ export function PageNotesOverlay({
           notes={notes}
           pageUrl={pageUrl}
           agents={agents}
-          onCopy={pageNotes.copy}
+          onCopy={() => void pageNotes.copy()}
           onSend={(target) => void pageNotes.send(target)}
           onClear={pageNotes.clear}
         />
@@ -127,6 +127,12 @@ export function PinNotePopover({
   onChange: (text: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Into the note — unless the user is typing somewhere else (a terminal,
+  // another field): a note that opens on its own never takes their keys.
+  useEffect(() => {
+    if (!typingElsewhere(document.activeElement, ref.current)) inputRef.current?.focus();
+  }, []);
   // What Escape puts back.
   const [openedWith] = useState(note.note);
   // Its own height decides whether it fits under the element.
@@ -167,7 +173,7 @@ export function PinNotePopover({
         className={styles.noteInput}
         value={note.note}
         placeholder="Add a note (optional)"
-        autoFocus
+        ref={inputRef}
         spellCheck={false}
         data-testid="browser-note-input"
         onChange={(e) => onChange(e.target.value)}

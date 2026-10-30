@@ -220,6 +220,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       webviewRef,
       workspaceKey,
       pageUrl: () => shownUrlRef.current ?? initialUrl,
+      isPicking: () => navStateRef.current.pickerActive,
       onPickingChange: setPickingState,
     });
     const { start: startPins, stop: stopPins } = pageNotes;

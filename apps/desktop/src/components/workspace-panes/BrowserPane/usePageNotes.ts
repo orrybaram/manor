@@ -10,7 +10,7 @@ import {
   pinLabels,
   type PageNote,
 } from "../../../lib/page-notes";
-import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
+import { LOCAL_HOST_ID, parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import type { PagePick, PagePinsLayout } from "../../../../electron/webview-pins";
 
 export type PageNotes = {
@@ -27,8 +27,8 @@ export type PageNotes = {
   setNote: (id: string, note: string) => void;
   remove: (id: string) => void;
   clear: () => void;
-  /** The prompt, with this machine's screenshot paths, on the clipboard. */
-  copy: () => void;
+  /** The prompt on the clipboard, citing the screenshots where the workspace's agents run. */
+  copy: () => Promise<void>;
   /** The prompt to an agent, with the screenshots on its host; then the queue empties. */
   send: (target: AgentTarget) => Promise<void>;
 };
@@ -53,6 +53,7 @@ export function usePageNotes({
   webviewRef,
   workspaceKey,
   pageUrl,
+  isPicking,
   onPickingChange,
 }: {
   paneId: string;
@@ -60,6 +61,8 @@ export function usePageNotes({
   workspaceKey?: WorkspaceKey;
   /** The page's URL as the pane names it, read when a pick lands. */
   pageUrl: () => string;
+  /** Whether the user has picking armed; a pick that lands otherwise doesn't open its note. */
+  isPicking: () => boolean;
   onPickingChange: (active: boolean) => void;
 }): PageNotes {
   const [notes, dispatch] = useReducer(pageNotesReducer, []);
@@ -70,6 +73,8 @@ export function usePageNotes({
   notesRef.current = notes;
   const pageUrlRef = useRef(pageUrl);
   pageUrlRef.current = pageUrl;
+  const isPickingRef = useRef(isPicking);
+  isPickingRef.current = isPicking;
   const onPickingChangeRef = useRef(onPickingChange);
   onPickingChangeRef.current = onPickingChange;
 
@@ -97,13 +102,14 @@ export function usePageNotes({
           screenshot: pick.screenshot,
         },
       });
-      setOpenId(pick.pickId);
+      if (isPickingRef.current()) setOpenId(pick.pickId);
     });
     const unsubStopped = window.electronAPI.webview.onPinsStopped((stopPaneId: string) => {
       if (stopPaneId === paneId) onPickingChangeRef.current(false);
     });
     const unsubOpened = window.electronAPI.webview.onPinOpened((openPaneId: string, pinId: string) => {
-      if (openPaneId === paneId) setOpenId(pinId);
+      if (openPaneId !== paneId) return;
+      if (notesRef.current.some((n) => n.id === pinId)) setOpenId(pinId);
     });
     const unsubMoved = window.electronAPI.webview.onPinsMoved(
       (movedPaneId: string, next: PagePinsLayout) => {
@@ -152,42 +158,53 @@ export function usePageNotes({
     setOpenId(null);
   }, []);
 
-  const copy = useCallback(() => {
-    const list = notesRef.current;
-    if (list.length === 0) return;
-    const paths = Object.fromEntries(list.map((n) => [n.id, n.screenshot?.path]));
-    void window.electronAPI.clipboard.writeText(pageNotesPrompt(list, paths));
-    toast.success(`Copied ${noteCountLabel(list.length)} to the clipboard`, {
-      id: `page-notes-${paneId}`,
-      duration: 3000,
-    });
-  }, [paneId]);
-
-  const send = useCallback(
-    async (target: AgentTarget) => {
-      const list = notesRef.current;
-      if (list.length === 0 || !workspaceKey) return;
-      const { path: workspacePath, hostId } = parseWorkspaceKey(workspaceKey);
-      // Each screenshot where the agent runs: this machine's own path, or a
-      // copy uploaded to its host.
-      const uploaded = await Promise.all(
+  /**
+   * Each note's screenshot where the workspace's agents run: this machine's
+   * own path, or a copy uploaded to its remote host. A failed upload has none.
+   */
+  const screenshotPaths = useCallback(
+    async (list: PageNote[]): Promise<Record<string, string | undefined>> => {
+      const hostId = workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : LOCAL_HOST_ID;
+      const paths = await Promise.all(
         list.map((n) =>
           n.screenshot
             ? window.electronAPI.webview.uploadPinShot(n.screenshot.id, hostId).catch(() => null)
             : null,
         ),
       );
-      const paths = Object.fromEntries(list.map((n, i) => [n.id, uploaded[i] ?? undefined]));
-      sendPromptToAgent(workspacePath, pageNotesPrompt(list, paths), target, {
+      return Object.fromEntries(list.map((n, i) => [n.id, paths[i] ?? undefined]));
+    },
+    [workspaceKey],
+  );
+
+  const copy = useCallback(async () => {
+    const list = notesRef.current;
+    if (list.length === 0) return;
+    const prompt = pageNotesPrompt(list, await screenshotPaths(list));
+    void window.electronAPI.clipboard.writeText(prompt);
+    toast.success(`Copied ${noteCountLabel(list.length)} to the clipboard`, {
+      id: `page-notes-${paneId}`,
+      duration: 3000,
+    });
+  }, [paneId, screenshotPaths]);
+
+  const send = useCallback(
+    async (target: AgentTarget) => {
+      const list = notesRef.current;
+      if (list.length === 0 || !workspaceKey) return;
+      const { path: workspacePath, hostId } = parseWorkspaceKey(workspaceKey);
+      const sent = sendPromptToAgent(workspacePath, pageNotesPrompt(list, await screenshotPaths(list)), target, {
         what: noteCountLabel(list.length),
         toastId: `page-notes-${paneId}`,
         hostId,
       });
+      // Nothing went: the notes stay for another try.
+      if (!sent) return;
       // Only what was sent: a pick that landed during the upload stays.
       for (const n of list) dispatch({ type: "remove", id: n.id });
       setOpenId(null);
     },
-    [paneId, workspaceKey],
+    [paneId, workspaceKey, screenshotPaths],
   );
 
   return { notes, layout, openId, setOpenId, start, stop, setNote, remove, clear, copy, send };

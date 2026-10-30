@@ -13,7 +13,7 @@ import type { PagePick } from "../../../../electron/webview-pins";
 import { workspaceKey } from "../../../lib/workspace-key";
 import { usePageNotes, type PageNotes } from "./usePageNotes";
 
-const sendPromptToAgent = vi.hoisted(() => vi.fn());
+const sendPromptToAgent = vi.hoisted(() => vi.fn((..._args: unknown[]) => true));
 vi.mock("../../../lib/agent-send", () => ({ sendPromptToAgent }));
 
 type Handler = (...args: never[]) => void;
@@ -53,6 +53,7 @@ let container: HTMLDivElement;
 let root: Root;
 const probe: { current: PageNotes | null } = { current: null };
 const onPickingChange = vi.fn();
+let picking = true;
 
 function Probe() {
   const webviewRef = createRef<HTMLElement>();
@@ -61,6 +62,7 @@ function Probe() {
     webviewRef,
     workspaceKey: workspaceKey("box", "/repo/ws"),
     pageUrl: () => "http://localhost:3000/",
+    isPicking: () => picking,
     onPickingChange,
   });
   useEffect(() => {
@@ -72,6 +74,7 @@ function Probe() {
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  picking = true;
   container = document.createElement("div");
   root = createRoot(container);
   act(() => root.render(createElement(Probe)));
@@ -125,7 +128,7 @@ describe("usePageNotes", () => {
       ["shot-3", "box"],
     ]);
     expect(sendPromptToAgent).toHaveBeenCalledTimes(1);
-    const [workspacePath, prompt, sentTo, opts] = sendPromptToAgent.mock.calls[0];
+    const [workspacePath, prompt, sentTo, opts] = sendPromptToAgent.mock.calls[0] as [string, string, unknown, unknown];
     expect(workspacePath).toBe("/repo/ws");
     expect(sentTo).toBe(target);
     expect(opts).toMatchObject({ what: "3 notes", hostId: "box" });
@@ -137,11 +140,30 @@ describe("usePageNotes", () => {
     expect(webview.syncPins).toHaveBeenLastCalledWith("pane-1", []);
   });
 
-  it("copies with this machine's paths and keeps the queue", () => {
+  it("copies citing the screenshots on the workspace's host, and keeps the queue", async () => {
     act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
-    act(() => latestNotes().copy());
+    await act(() => latestNotes().copy());
+    expect(webview.uploadPinShot).toHaveBeenCalledWith("shot-1", "box");
     const text = (window.electronAPI.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(text).toContain("Screenshot: /home/me/.manor/pasted-images/1.png");
+    expect(text).toContain("Screenshot: /home/box/.manor/pasted-images/shot-1-box.png");
     expect(latestNotes().notes).toHaveLength(1);
+  });
+
+  it("keeps the notes when the send didn't go", async () => {
+    act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
+    sendPromptToAgent.mockReturnValueOnce(false);
+    await act(() => latestNotes().send({ kind: "new" }));
+    expect(sendPromptToAgent).toHaveBeenCalledTimes(1);
+    expect(latestNotes().notes).toHaveLength(1);
+  });
+
+  it("opens a note only for a pick made while armed, or a pin it holds", () => {
+    picking = false;
+    act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
+    expect(latestNotes().openId).toBeNull();
+    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "not-a-pin"));
+    expect(latestNotes().openId).toBeNull();
+    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "1"));
+    expect(latestNotes().openId).toBe("1");
   });
 });

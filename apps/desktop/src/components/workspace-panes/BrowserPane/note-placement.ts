@@ -1,7 +1,8 @@
 /**
  * Where a pin's note popover goes over the page. The page reports its pins in
  * its own CSS pixels; the pane draws in its own, which differ by the page's
- * zoom — so rects are scaled by the ratio of the two viewport widths.
+ * zoom — so rects are scaled by the ratio of the two viewport widths. And
+ * whether it may take the keyboard when it opens.
  */
 
 export type Rect = { x: number; y: number; width: number; height: number };
@@ -42,4 +43,12 @@ export function placeNotePopover(element: Rect, pane: Size, popover: Size): { le
 
   const maxTop = Math.max(EDGE, floor - popover.height);
   return { left, top: Math.min(Math.max(top, EDGE), maxTop) };
+}
+
+/** Whether `active` is a field outside `popover`'s pane that the user may be typing in. */
+export function typingElsewhere(active: Element | null, popover: Element | null): boolean {
+  if (!active || active === document.body) return false;
+  const pane = popover?.closest("[data-pane-id]") ?? popover?.parentElement ?? null;
+  if (pane?.contains(active)) return false;
+  return active.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])");
 }

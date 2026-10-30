@@ -13,6 +13,8 @@ import type { PageDialog } from "../../../../electron/webview-dialogs";
 import { PageDialogOverlay } from "./PageDialogOverlay";
 import { LoadProblemPage } from "./LoadProblemPage";
 import { useLoadProblem } from "./useLoadProblem";
+import { BlankPage } from "./BlankPage";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
 
 import styles from "./BrowserPane.module.css";
 
@@ -92,6 +94,8 @@ type BrowserPaneProps = {
   remoteHostId?: string | null;
   /** The pane's project, so the host-away overlay can open its Host settings. */
   projectId?: string;
+  /** The pane's workspace, whose dev servers a blank pane lists. */
+  workspaceKey?: WorkspaceKey;
   onNavStateChange?: (state: BrowserPaneNavState) => void;
 };
 
@@ -124,7 +128,7 @@ const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
-    const { paneId, initialUrl, remoteHostId = null, projectId, onNavStateChange } = props;
+    const { paneId, initialUrl, remoteHostId = null, projectId, workspaceKey, onNavStateChange } = props;
 
     const webviewRef = useRef<WebviewElement>(null);
 
@@ -618,7 +622,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
               onCancel={loadProblem.cancelWait}
             />
           ) : (
-            isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>
+            isBlank && <BlankPage workspaceKey={workspaceKey} onOpen={navigateTo} />
           )}
           {dialogs[0] && (
             <PageDialogOverlay

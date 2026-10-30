@@ -697,6 +697,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
                 initialUrl={paneUrl ?? "about:blank"}
                 remoteHostId={remoteHostId}
                 projectId={remoteProjectId}
+                workspaceKey={workspaceKey}
                 onNavStateChange={handleNavStateChange}
               />
             )}

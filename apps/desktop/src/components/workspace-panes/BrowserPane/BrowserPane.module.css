@@ -76,6 +76,75 @@
   .stateSpinner { animation: none; }
 }
 
+/* ── Blank pane: the workspace's dev servers ── */
+
+.serverList {
+  width: min(260px, 100%);
+  display: grid;
+  gap: 4px;
+}
+
+.serverRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dim);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.serverRow:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+
+.serverRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.serverDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+
+.serverHost {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.serverProcess {
+  min-width: 0;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.serverHint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.serverKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
 .stateCode {
   font-family: var(--font-mono);
   font-size: 11px;

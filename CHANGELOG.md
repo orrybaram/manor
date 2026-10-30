@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.25.0] - 2026-10-30
+
+### Features
+
+- **Browser pane**
+  - Pick elements on a page to pin them there, each with its own note. **Send to…** hands all the pins to an agent in one prompt, with screenshots.
+  - DevTools open docked in the pane instead of in a window of their own. When the pane moves, they stay open on the same side and at the same size.
+  - A pane pointed at a dev server that isn't up yet waits for it and loads the page once the server is listening. This also works for a dev server on a remote host.
+  - A blank pane lists the dev servers running in its workspace. Click one to open it.
+  - A page that fails to load shows an error page with **Retry**, and a page that crashes shows **Reload**.
+  - Hovering over a link shows its URL in the pane's bottom-left corner.
+  - A page's right-click menu now has Back, Forward, Reload, link and editing items.
+- `manor create-workspace --wait` waits for the project's setup script to finish. It reports the script's exit code and gives an error if the script fails, times out or can't start. `get-project` now shows the project's start script.
+
+### Fixes
+
+- **Browser pane**
+  - Moving between pages inside a single-page app, such as Next.js routes, no longer reloads the page.
+  - A page's alert, confirm and prompt dialogs open over its own pane instead of freezing Manor.
+- A project's setup script now gets the main checkout's path in `ROOT_WORKTREE_PATH`. Scripts that copy files like `.env` from the main checkout now work.
+
+### Improvements
+
+- The Files drawer lists folders first, then files, with each group in alphabetical order.
+- Badges: Red Ink and Works on My Machine are now optional. They're still secret badges you can earn, but you no longer need them to complete the Grounds track or to earn Lord of the Manor, whose target drops from 39 to 37.
+
 ## [0.24.3] - 2026-10-30
 
 ### Fixes

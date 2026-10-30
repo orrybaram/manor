@@ -166,6 +166,12 @@ export class WebviewServer {
       }
     };
 
+    // The page-dialog shim's synchronous request (webview-dialogs.ts) needs no
+    // filtering here: Chromium reports "[Deprecation] Synchronous
+    // XMLHttpRequest on the main thread…" as a DevTools issue
+    // (`Audits.issueAdded`), not a console message, so it never reaches this
+    // event (checked on Electron 44). DevTools' Issues panel lists it, at
+    // `manor-page-dialogs.js`.
     wc.on("console-message", listener);
     this.consoleListeners.set(paneId, () => {
       if (!wc.isDestroyed()) {

@@ -87,9 +87,13 @@ function apply(commands: LayoutCommand[], target: WorkspaceLayout | null): Works
   // The server mints the first panel of a workspace it has never heard of.
   let layout = target ?? createSinglePanelLayout("panel-minted", [], []);
   for (const [i, raw] of commands.entries()) {
-    const command = !target && i > 0 ? bindPanelId(raw, TARGET_FIRST_PANEL, "panel-minted") : raw;
+    // Bound as the caller binds it, once the first command made the panel.
+    const command = bindPanelId(raw, TARGET_FIRST_PANEL, "panel-minted");
     const next = applyLayoutCommand({ layout, closedStack: [] }, command);
-    expect(next.layout, `command ${i} (${command.type}) changed nothing`).not.toBe(layout);
+    // A reorder that finds the order right already is the one no-op allowed.
+    if (command.type !== "reorder-tabs") {
+      expect(next.layout, `command ${i} (${command.type}) changed nothing`).not.toBe(layout);
+    }
     layout = next.layout;
   }
   return layout;
@@ -184,6 +188,56 @@ describe("layoutReplay", () => {
     const built = apply(replay.commands, null);
     const root = Object.values(built.panels)[0].tabs[0].rootNode;
     expect(root).toMatchObject({ contentType: "file", filePath: `${DST}/README.md` });
+  });
+
+  describe("held tabs", () => {
+    const replayAll = (held: string[], target: WorkspaceLayout | null = null) => {
+      const replay = layoutReplay({
+        ...input(target && { layout: target, paneSessions: {} }),
+        heldPaneIds: new Set(held),
+      });
+      const restored = apply(replay.commands, target);
+      return { replay, restored, built: apply(replay.heldCommands, restored) };
+    };
+
+    it("leaves a held pane's tab out of the restore, then puts it back in its place", () => {
+      const { replay, restored, built } = replayAll(["p-file"]);
+      expect(layoutPaneIds(restored).has(replay.paneIds["p-file"])).toBe(false);
+      expect(layoutPaneIds(restored).has(replay.paneIds["p-server"])).toBe(true);
+      expect(shape(built)).toEqual(shape(sourceLayout()));
+      expect(replay.heldCommands.filter((c) => c.type === "new-tab")).toHaveLength(1);
+    });
+
+    it("puts a held pinned tab back pinned, ahead of the rest", () => {
+      const { built } = replayAll(["p-server"]);
+      expect(shape(built)).toEqual(shape(sourceLayout()));
+    });
+
+    it("opens a panel holding only held tabs with a placeholder the held batch closes", () => {
+      const { replay, restored, built } = replayAll(["p-web", "p-server", "p-shell"]);
+      const titles = Object.values(restored.panels).map((p) => p.tabs.map((t) => t.title));
+      expect(titles).toEqual([["Terminal"], ["Terminal"], ["logs"]]);
+      expect(shape(built)).toEqual(shape(sourceLayout()));
+      expect(replay.heldCommands.filter((c) => c.type === "close-tab")).toHaveLength(2);
+    });
+
+    it("gives a held pane no cwd", () => {
+      const { replay } = replayAll(["p-shell"]);
+      expect(replay.cwds).toEqual({});
+    });
+
+    it("replaces the target's default tab once the first panel has a tab, held or not", () => {
+      const fresh = createSinglePanelLayout("T", [tab("t-default", "Terminal", leaf("p-default"))], []);
+      const { restored, built } = replayAll(["p-server", "p-shell"], fresh);
+      expect(restored.panels.T.tabs.map((t) => t.title)).toEqual(["Terminal"]);
+      expect(shape(built)).toEqual(shape(sourceLayout()));
+    });
+
+    it("keeps the target's tabs ahead of a held tab put back", () => {
+      const setup = createSinglePanelLayout("T", [tab("t-setup", "Setup", leaf("p-setup"))], []);
+      const { built } = replayAll(["p-shell"], setup);
+      expect(built.panels.T.tabs.map((t) => t.title)).toEqual(["server", "Setup", "work"]);
+    });
   });
 
   it("answers nothing for a layout with no tabs", () => {

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { workspaceRecreator, type HostLayout } from "./workspace-recreator";
+import {
+  agentCommandFor,
+  workspaceRecreator,
+  type HostLayout,
+  type WorkspaceRecreatorDeps,
+} from "./workspace-recreator";
+import type { AgentInfo } from "../agent-persistence";
+import { getConnector } from "../agent-connectors";
+import type { SessionPreview } from "../sessions/preview";
 import type { RecreateContext } from "./workspace-host-move";
 import { applyLayoutCommand, type LayoutCommand } from "../../src/lib/layout/commands";
 import type { LayoutEntry, PersistedPaneSession } from "../../src/lib/layout/protocol";
@@ -101,9 +109,18 @@ function sourceEntry(): LayoutEntry {
   );
 }
 
-function hosts(source: ReturnType<typeof fakeHost>, target: ReturnType<typeof fakeHost>) {
+function hosts(
+  source: ReturnType<typeof fakeHost>,
+  target: ReturnType<typeof fakeHost>,
+  extra: Partial<WorkspaceRecreatorDeps> = {},
+): WorkspaceRecreatorDeps {
   return {
     layout: (hostId: string) => (hostId === "local" ? source.layout : target.layout),
+    agents: () => [],
+    transcript: async () => ({ turns: [], truncated: false }),
+    agentCommand: async () => "claude --dangerously-skip-permissions",
+    hostName: (hostId) => (hostId === "local" ? "this Mac" : "wsl-box"),
+    ...extra,
   };
 }
 
@@ -156,5 +173,148 @@ describe("workspaceRecreator: restore", () => {
     await expect(workspaceRecreator(hosts(source, target)).run(MOVE, () => {})).rejects.toThrow(
       /Workspace was removed/,
     );
+  });
+});
+
+function agent(paneId: string, extra: Partial<AgentInfo> = {}): AgentInfo {
+  return {
+    id: `agent-${paneId}`,
+    agentSessionId: `session-${paneId}`,
+    name: "Fix the login redirect",
+    status: "active",
+    createdAt: "2026-10-29T10:00:00.000Z",
+    updatedAt: "2026-10-29T11:00:00.000Z",
+    completedAt: null,
+    activatedAt: null,
+    projectId: "src",
+    projectName: "App",
+    hostId: "local",
+    workspacePath: SRC,
+    cwd: SRC,
+    agentKind: "claude",
+    agentCommand: "claude --resume session-old",
+    paneId,
+    lastAgentStatus: null,
+    resumedAt: null,
+    transcriptPath: `/Users/me/.claude/projects/x/session-${paneId}.jsonl`,
+    ...extra,
+  };
+}
+
+const PREVIEW: SessionPreview = {
+  truncated: true,
+  turns: [
+    { role: "user", text: "Fix the login redirect loop", first: true },
+    { role: "assistant", text: "Looking at the middleware." },
+    { role: "tool", name: "Read", summary: "src/middleware.ts" },
+    { role: "user", text: "Also keep the next= param" },
+  ],
+};
+
+describe("workspaceRecreator: agents", () => {
+  it("plans an agents step naming the kind, or how many", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const one = workspaceRecreator(hosts(source, fakeHost(), { agents: () => [agent("p2")] }));
+    expect(await one.plan(planOf(SOURCE_KEY))).toEqual([{ id: "restore" }, { id: "agents", detail: "claude" }]);
+
+    const two = workspaceRecreator(
+      hosts(source, fakeHost(), {
+        agents: () => [agent("p2"), agent("p3", { agentKind: "codex" }), agent("elsewhere")],
+      }),
+    );
+    expect(await two.plan(planOf(SOURCE_KEY))).toEqual([{ id: "restore" }, { id: "agents", detail: "2 agents" }]);
+
+    const ended = workspaceRecreator(
+      hosts(source, fakeHost(), { agents: () => [agent("p2", { status: "completed" })] }),
+    );
+    expect(await ended.plan(planOf(SOURCE_KEY))).toEqual([{ id: "restore" }]);
+  });
+
+  it("starts a fresh agent of the same kind with the handoff, in the old pane's place", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    const asked: string[] = [];
+    const recreator = workspaceRecreator(
+      hosts(source, target, {
+        agents: () => [agent("p2")],
+        transcript: async (hostId, a) => {
+          asked.push(`${hostId}:${a.agentSessionId}`);
+          return PREVIEW;
+        },
+      }),
+    );
+    await recreator.plan(planOf(SOURCE_KEY));
+    const begun: number[] = [];
+    // The agent's pane must not exist until its launch line is queued.
+    const queuedFirst: boolean[] = [];
+    const apply = target.layout.apply;
+    target.layout.apply = async (key, command) => {
+      if (command.type === "new-tab" && command.tab.title === "web") {
+        queuedFirst.push(target.queued.some((q) => q.kind === "agent-startup"));
+      }
+      return apply(key, command);
+    };
+    await recreator.run(MOVE, (i) => begun.push(i));
+
+    expect(begun).toEqual([0, 1]);
+    expect(asked).toEqual(["local:session-p2"]);
+    expect(queuedFirst).toEqual([true]);
+
+    const built = target.entries[TARGET_KEY].layout;
+    expect(Object.values(built.panels).map((p) => p.tabs.map((t) => t.title))).toEqual([["api", "web"], ["logs"]]);
+    const web = built.panels["panel-minted"].tabs[1];
+    const launch = target.queued.find((q) => q.kind === "agent-startup")!;
+    expect(web.rootNode).toMatchObject({ paneId: launch.paneId });
+    expect(launch.text).toBe("claude --dangerously-skip-permissions");
+    const opts = launch.opts as { prompt: string; agentKind: string };
+    expect(opts.agentKind).toBe("claude");
+    expect(opts.prompt).toContain("Continuing work moved from this Mac to wsl-box");
+    expect(opts.prompt).toContain("Fix the login redirect");
+    expect(opts.prompt).toContain("Fix the login redirect loop");
+    expect(opts.prompt).toContain("Also keep the next= param");
+    expect(opts.prompt).not.toContain("src/middleware.ts");
+    expect(opts.prompt).toContain("branch feat");
+  });
+
+  it("starts the agent with the title and branch note when its transcript can't be read", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    const recreator = workspaceRecreator(
+      hosts(source, target, {
+        agents: () => [agent("p2")],
+        transcript: async () => {
+          throw new Error("wsl-box is offline");
+        },
+      }),
+    );
+    await recreator.plan(planOf(SOURCE_KEY));
+    await recreator.run(MOVE, () => {});
+    const launch = target.queued.find((q) => q.kind === "agent-startup")!;
+    const { prompt } = launch.opts as { prompt: string };
+    expect(prompt).toContain("Fix the login redirect");
+    expect(prompt).toContain("branch feat");
+    expect(prompt).not.toContain("The last");
+    const titles = Object.values(target.entries[TARGET_KEY].layout.panels).map((p) => p.tabs.map((t) => t.title));
+    expect(titles).toEqual([["api", "web"], ["logs"]]);
+  });
+
+  it("brings an agent that started after the plan back as a shell", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    let agents: AgentInfo[] = [];
+    const recreator = workspaceRecreator(hosts(source, target, { agents: () => agents }));
+    expect(await recreator.plan(planOf(SOURCE_KEY))).toEqual([{ id: "restore" }]);
+    agents = [agent("p2")];
+    const begun: number[] = [];
+    await recreator.run(MOVE, (i) => begun.push(i));
+    expect(begun).toEqual([0]);
+    expect(target.queued.filter((q) => q.kind === "agent-startup")).toEqual([]);
+  });
+});
+
+describe("agentCommandFor", () => {
+  it("takes the first candidate of the kind, without its session arguments", () => {
+    expect(agentCommandFor("claude", ["codex", "claude --resume abc"])).toBe("claude");
+    expect(agentCommandFor("codex", ["claude", null])).toBe(getConnector("codex").defaultCommand);
   });
 });

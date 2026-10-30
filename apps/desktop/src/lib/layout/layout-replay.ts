@@ -21,6 +21,11 @@
  * source root to the target root (`cwds`): the caller types the `cd`. A cwd
  * outside the source root, or none, is the target root, and needs nothing.
  *
+ * **Held tabs.** A tab holding one of `heldPaneIds` (an agent's) is left
+ * out of `commands` and added by `heldCommands`, into the panel it was in
+ * and put back in its place, so its caller can queue each held pane's
+ * launch line in between: a launch starts when the apply adds its pane.
+ *
  * **What the target already has.** The target's own tabs stay, the
  * replayed ones after them, and a Setup tab still running its script is one
  * of them. The one exception is a lone, never-started default tab (a
@@ -35,7 +40,7 @@
 
 import type { LayoutCommand } from "./commands";
 import { newPaneId, newPanelId, newTabId } from "./ids";
-import { clonePaneTree, type PaneNode } from "./pane-tree";
+import { allPaneIds, clonePaneTree, type PaneNode } from "./pane-tree";
 import { allPanelIds, type PanelNode } from "./panel-tree";
 import type { PersistedPaneSession } from "./protocol";
 import type { Tab, WorkspaceLayout } from "./workspace-layout";
@@ -62,11 +67,23 @@ export interface LayoutReplayInput {
     layout: WorkspaceLayout;
     paneSessions: Readonly<Record<string, PersistedPaneSession>>;
   } | null;
+  /**
+   * Source panes whose tabs wait for `heldCommands` (an agent's, whose
+   * launch line must be queued before its pane is added). Their panes get
+   * no `cwd`.
+   */
+  heldPaneIds?: ReadonlySet<string>;
 }
 
 export interface LayoutReplay {
-  /** The commands, in order, for the target workspace. */
+  /** The commands, in order, for the target workspace: everything but the held tabs. */
   commands: LayoutCommand[];
+  /**
+   * The held tabs, after `commands`: added where they were, in their order.
+   * A panel holding only held tabs is opened with a placeholder tab in
+   * `commands`, closed here. Empty with nothing held.
+   */
+  heldCommands: LayoutCommand[];
   /** Each source pane's fresh id in the target. */
   paneIds: Record<string, string>;
   /** A fresh terminal's cwd, by its target pane id, where it is not the target root. */
@@ -143,12 +160,14 @@ function replaceableTab(target: LayoutReplayInput["target"]): string | null {
 /** Rebuild `input.source` in the target (see the module header). */
 export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   const { source, paneSessions, sourceRoot, targetRoot, target } = input;
+  const held = input.heldPaneIds ?? new Set<string>();
   const commands: LayoutCommand[] = [];
+  const heldCommands: LayoutCommand[] = [];
   const paneIds: Record<string, string> = {};
   const cwds: Record<string, string> = {};
 
   const tree = withoutEmptyPanels(source.panelTree, source);
-  if (!tree) return { commands, paneIds, cwds };
+  if (!tree) return { commands, heldCommands, paneIds, cwds };
 
   const remapLeaves = (node: PaneNode): PaneNode => {
     if (node.type === "split") {
@@ -174,7 +193,8 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
       }
       if (node.contentType === "browser" || node.contentType === "file") return;
       const sourceId = sourceOf.get(node.paneId);
-      const lastCwd = sourceId ? paneSessions[sourceId]?.lastCwd : null;
+      if (!sourceId || held.has(sourceId)) return;
+      const lastCwd = paneSessions[sourceId]?.lastCwd;
       const mapped = lastCwd ? mapUnderRoot(lastCwd, sourceRoot, targetRoot) : null;
       if (mapped && mapped !== trimSeparator(targetRoot)) cwds[node.paneId] = mapped;
     };
@@ -182,29 +202,41 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
     return { id: newTabId(), title: tab.title, rootNode: remapLeaves(rootNode) };
   };
 
+  const freshTabs = new Map<string, Tab>();
+  for (const panel of Object.values(source.panels)) {
+    for (const tab of panel.tabs) freshTabs.set(tab.id, fresh(tab));
+  }
+  const isHeld = (tab: Tab) => allPaneIds(tab.rootNode).some((id) => held.has(id));
+
   const replaced = replaceableTab(target);
   const firstPanel = target ? allPanelIds(target.layout.panelTree)[0] : TARGET_FIRST_PANEL;
 
-  // Which target panel each source panel becomes, and the tab a new panel
-  // was opened with (`split-panel-with-new-tab` needs one).
+  // Which target panel each source panel becomes, and the tab it was opened
+  // with: a new panel needs one (`split-panel-with-new-tab`), and so does a
+  // target with no layout (the first `new-tab`). The first tab the
+  // restore may open, or else a placeholder the held batch closes.
   const panelOf = new Map<string, string>();
   const seeded = new Map<string, Tab>();
-  const freshTabs = new Map<string, Tab>();
-  const freshOf = (tab: Tab): Tab => {
-    let made = freshTabs.get(tab.id);
-    if (!made) {
-      made = fresh(tab);
-      freshTabs.set(tab.id, made);
+  const placeholders = new Map<string, Tab>();
+  const seedOf = (sourcePanelId: string): Tab => {
+    const open = source.panels[sourcePanelId].tabs.find((t) => !isHeld(t));
+    if (open) {
+      const tab = freshTabs.get(open.id)!;
+      seeded.set(sourcePanelId, tab);
+      return tab;
     }
-    return made;
+    const placeholder: Tab = {
+      id: newTabId(),
+      title: DEFAULT_TAB_TITLE,
+      rootNode: { type: "leaf", paneId: newPaneId() },
+    };
+    placeholders.set(sourcePanelId, placeholder);
+    return placeholder;
   };
 
   // No layout yet: the first tab is what makes the target's first panel.
   if (!target) {
-    const firstSource = source.panels[firstLeaf(tree)];
-    const tab = freshOf(firstSource.tabs[0]);
-    seeded.set(firstSource.id, tab);
-    commands.push({ type: "new-tab", tab, select: false });
+    commands.push({ type: "new-tab", tab: seedOf(firstLeaf(tree)), select: false });
   }
 
   // `at` is the target panel standing for `node`. A split of `at` keeps
@@ -216,13 +248,10 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
       panelOf.set(node.panelId, at);
       return;
     }
-    const seedSource = source.panels[firstLeaf(node.second)];
-    const tab = freshOf(seedSource.tabs[0]);
     const opened = newPanelId();
-    seeded.set(seedSource.id, tab);
     commands.push({
       type: "split-panel-with-new-tab",
-      tab,
+      tab: seedOf(firstLeaf(node.second)),
       direction: node.direction,
       newPanelId: opened,
       sourcePanelId: at,
@@ -233,23 +262,64 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   };
   build(tree, firstPanel);
 
+  const firstSourcePanel = firstLeaf(tree);
+  /** The target's own tabs, in the panel the source's first lands in. */
+  const kept = target
+    ? (target.layout.panels[firstPanel]?.tabs ?? []).filter((t) => t.id !== replaced)
+    : [];
+  const keptPinned = new Set(target?.layout.panels[firstPanel]?.pinnedTabIds ?? []);
+  let replacedClosed = !replaced;
+
   for (const sourcePanelId of allPanelIds(tree)) {
     const panel = source.panels[sourcePanelId];
     const at = panelOf.get(sourcePanelId)!;
     const seed = seeded.get(sourcePanelId);
+    const pinned = new Set(panel.pinnedTabIds);
+    let opened = seed !== undefined;
+
+    // The restore: every tab without a held pane. Pinning moves a tab to
+    // the end of the pinned block, so pinned in pin order they line up as
+    // they were.
     for (const tab of panel.tabs) {
-      const made = freshOf(tab);
-      if (made === seed) continue;
+      const made = freshTabs.get(tab.id)!;
+      if (made === seed || isHeld(tab)) continue;
       commands.push({ type: "new-tab", tab: made, panelId: at, select: false });
+      opened = true;
     }
-    // Pinning moves a tab to the end of the pinned block: pinned in pin
-    // order, they line up as they were.
     for (const tabId of panel.pinnedTabIds) {
-      const made = freshTabs.get(tabId);
-      if (made) commands.push({ type: "toggle-pin-tab", tabId: made.id });
+      const tab = panel.tabs.find((t) => t.id === tabId);
+      if (tab && !isHeld(tab)) commands.push({ type: "toggle-pin-tab", tabId: freshTabs.get(tabId)!.id });
     }
+    const isFirst = sourcePanelId === firstSourcePanel;
+    if (isFirst && opened && !replacedClosed) {
+      commands.push({ type: "close-tab", tabId: replaced! });
+      replacedClosed = true;
+    }
+
+    // The held batch: the rest, then the order put back.
+    const heldTabs = panel.tabs.filter(isHeld);
+    if (heldTabs.length === 0) continue;
+    for (const tab of heldTabs) {
+      heldCommands.push({ type: "new-tab", tab: freshTabs.get(tab.id)!, panelId: at, select: false });
+    }
+    for (const tab of heldTabs) {
+      if (pinned.has(tab.id)) heldCommands.push({ type: "toggle-pin-tab", tabId: freshTabs.get(tab.id)!.id });
+    }
+    const placeholder = placeholders.get(sourcePanelId);
+    if (placeholder) heldCommands.push({ type: "close-tab", tabId: placeholder.id });
+    if (isFirst && !replacedClosed) {
+      heldCommands.push({ type: "close-tab", tabId: replaced! });
+      replacedClosed = true;
+    }
+    const mine = isFirst ? kept : [];
+    const ordered = [
+      ...mine.filter((t) => keptPinned.has(t.id)).map((t) => t.id),
+      ...panel.tabs.filter((t) => pinned.has(t.id)).map((t) => freshTabs.get(t.id)!.id),
+      ...mine.filter((t) => !keptPinned.has(t.id)).map((t) => t.id),
+      ...panel.tabs.filter((t) => !pinned.has(t.id)).map((t) => freshTabs.get(t.id)!.id),
+    ];
+    heldCommands.push({ type: "reorder-tabs", panelId: at, tabIds: ordered });
   }
 
-  if (replaced) commands.push({ type: "close-tab", tabId: replaced });
-  return { commands, paneIds, cwds };
+  return { commands, heldCommands, paneIds, cwds };
 }

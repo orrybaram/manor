@@ -13,6 +13,7 @@ import { errorMessage } from "./lib/errors";
 import { writeFileAtomic } from "./lib/fs-atomic";
 import { shellQuote } from "./terminal-host/ssh-config";
 import { commandAfterCd } from "../src/lib/command-after-cd";
+import { OPENCODE_PLUGIN_FILE, opencodePluginSource, opencodePluginsDir } from "./opencode-plugin";
 
 // ── Interface ──
 
@@ -700,8 +701,29 @@ export class OpencodeConnector implements AgentConnector {
     return `${baseCommand} "${escaped}"`;
   }
 
+  /**
+   * opencode has no hook config: Manor's plugin (`./opencode-plugin.ts`) in
+   * its plugins directory sends the hook events. Written only when its
+   * content changed, so registering again is a no-op.
+   */
   registerHooks(_hookScriptPath: string): string[] {
-    // opencode hook wiring is not supported yet; no-op for now.
+    const pluginPath = path.join(
+      opencodePluginsDir(process.env, process.env.HOME || "/tmp"),
+      OPENCODE_PLUGIN_FILE,
+    );
+    const content = opencodePluginSource();
+    let existing = "";
+    try {
+      existing = fs.readFileSync(pluginPath, "utf-8");
+    } catch {
+      // Not installed yet.
+    }
+    if (existing === content) return [];
+    try {
+      writeFileAtomic(pluginPath, content);
+    } catch (err) {
+      return [`opencode plugin not installed at ${pluginPath}: ${errorMessage(err)}`];
+    }
     return [];
   }
 

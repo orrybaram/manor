@@ -42,6 +42,7 @@ const CommandPalette = lazy(() => import("./components/command-palette/CommandPa
 const GoToFile = lazy(() => import("./components/go-to-file/GoToFile").then(m => ({ default: m.GoToFile })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
+type AutomationTarget = import("./components/settings/AutomationsPage/AutomationsPage").AutomationTarget;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
 import { RemoveFromHostDialog } from "./components/sidebar/RemoveFromHostDialog";
@@ -190,10 +191,7 @@ function App() {
   );
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
-  const [settingsAutomation, setSettingsAutomation] = useState<{
-    hostId: string;
-    automationId: string;
-  } | null>(null);
+  const [settingsAutomation, setSettingsAutomation] = useState<AutomationTarget | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
@@ -411,6 +409,12 @@ function App() {
           setSettingsPage("automations");
           setSettingsSection(null);
           setSettingsAutomation({ hostId: request.hostId, automationId: request.automationId });
+          setSettingsOpen(true);
+        }
+        if (request.type === "new-automation") {
+          setSettingsPage("automations");
+          setSettingsSection(null);
+          setSettingsAutomation("new");
           setSettingsOpen(true);
         }
         if (request.type === "open-remote-settings") {

@@ -577,4 +577,10 @@ describe("AutomationsPage", () => {
     expect(q("automation-detail")).toBeNull();
     expect(q("automations-page")).not.toBeNull();
   });
+
+  it("opens on a new automation once a host can take one", async () => {
+    await render("new");
+    expect(q("automation-create")).not.toBeNull();
+    expect(q("automation-chip-host")?.tagName).toBe("BUTTON");
+  });
 });

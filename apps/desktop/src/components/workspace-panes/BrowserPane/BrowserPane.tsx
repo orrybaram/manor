@@ -161,9 +161,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const siteOf = (url: string) => boxSites[url] ?? siteLabel(url);
 
     // The error and crash pages.
-    const loadProblem = useLoadProblem(paneId, webviewRef, (problem) => {
-      if (problem.kind !== "crashed") nameBoxSite(problem.url);
-    });
+    const loadProblem = useLoadProblem(
+      paneId,
+      webviewRef,
+      (problem) => {
+        if (problem.kind !== "crashed") nameBoxSite(problem.url);
+      },
+      () => remoteHostIdRef.current !== null,
+    );
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);

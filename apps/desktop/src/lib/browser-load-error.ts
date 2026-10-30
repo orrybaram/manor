@@ -8,6 +8,12 @@
 export const ERR_ABORTED = -3;
 /** Nothing is listening on the port. */
 export const ERR_CONNECTION_REFUSED = -102;
+/** The connection was closed (a TCP FIN) before any response. */
+export const ERR_CONNECTION_CLOSED = -100;
+/** The connection was reset (a TCP RST). */
+export const ERR_CONNECTION_RESET = -101;
+/** The connection closed without sending a byte of response. */
+export const ERR_EMPTY_RESPONSE = -324;
 
 const DESCRIPTIONS: Record<string, string> = {
   ERR_NAME_NOT_RESOLVED: "The server's DNS address could not be found.",

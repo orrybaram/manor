@@ -16,8 +16,10 @@ let webview: ProblemWebview;
 let result: UseLoadProblemResult;
 let loadUrl: ReturnType<typeof vi.fn>;
 
+let remote = false;
+
 function Harness() {
-  const loadProblem = useLoadProblem(PANE, { current: webview });
+  const loadProblem = useLoadProblem(PANE, { current: webview }, undefined, () => remote);
   useLayoutEffect(() => {
     result = loadProblem;
   });
@@ -41,6 +43,7 @@ const started = (url: string) =>
   fire("did-start-navigation", { url, isInPlace: false, isMainFrame: true });
 
 beforeEach(() => {
+  remote = false;
   vi.useFakeTimers();
   loadUrl = vi.fn(async () => {});
   (window as unknown as { electronAPI: unknown }).electronAPI = { webview: { loadUrl } };
@@ -111,5 +114,33 @@ describe("useLoadProblem's dev-server wait", () => {
     expect(result.problem).toBeNull();
     act(() => vi.advanceTimersByTime(10_000));
     expect(loadUrl).not.toHaveBeenCalled();
+  });
+
+  it("waits on a remote pane's forward that the box refused, and Cancel names how it failed", () => {
+    const FORWARD = "http://127.0.0.1:49152/";
+    const empty = () =>
+      fire("did-fail-load", {
+        errorCode: -324,
+        errorDescription: "ERR_EMPTY_RESPONSE",
+        validatedURL: FORWARD,
+        isMainFrame: true,
+      });
+    remote = true;
+    started(FORWARD);
+    empty();
+    expect(result.problem).toMatchObject({ kind: "waiting", url: FORWARD, attempt: 1 });
+    act(() => result.cancelWait());
+    expect(result.problem).toEqual({ kind: "failed", url: FORWARD, name: "ERR_EMPTY_RESPONSE" });
+  });
+
+  it("shows the error page for a local pane's empty response", () => {
+    started(DEV);
+    fire("did-fail-load", {
+      errorCode: -324,
+      errorDescription: "ERR_EMPTY_RESPONSE",
+      validatedURL: DEV,
+      isMainFrame: true,
+    });
+    expect(result.problem).toMatchObject({ kind: "failed", url: DEV, name: "ERR_EMPTY_RESPONSE" });
   });
 });

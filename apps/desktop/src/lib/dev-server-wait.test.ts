@@ -45,4 +45,25 @@ describe("waitsForDevServer", () => {
     expect(waitsForDevServer("http://10.0.0.2:3000/", REFUSED)).toBe(false);
     expect(waitsForDevServer("https://localhost:3000/", REFUSED)).toBe(false);
   });
+
+  it("for a remote pane, also waits on how its port forward reports the box refused", () => {
+    const FORWARD = "http://127.0.0.1:49152/";
+    for (const code of [REFUSED, -324, -100, -101]) {
+      expect(waitsForDevServer(FORWARD, code, true)).toBe(true);
+    }
+    expect(waitsForDevServer(FORWARD, -105, true)).toBe(false);
+    expect(waitsForDevServer(FORWARD, -118, true)).toBe(false);
+  });
+
+  it("for a local pane, a closed or reset connection is a real error", () => {
+    for (const code of [-324, -100, -101]) {
+      expect(waitsForDevServer("http://localhost:3000/", code)).toBe(false);
+      expect(waitsForDevServer("http://localhost:3000/", code, false)).toBe(false);
+    }
+  });
+
+  it("for a remote pane, still only a loopback http load", () => {
+    expect(waitsForDevServer("http://example.com:3000/", -324, true)).toBe(false);
+    expect(waitsForDevServer("https://127.0.0.1:49152/", -324, true)).toBe(false);
+  });
 });

@@ -4,7 +4,12 @@
  * server still starting, so the pane waits for it instead of showing the
  * error page.
  */
-import { ERR_CONNECTION_REFUSED } from "./browser-load-error";
+import {
+  ERR_CONNECTION_CLOSED,
+  ERR_CONNECTION_REFUSED,
+  ERR_CONNECTION_RESET,
+  ERR_EMPTY_RESPONSE,
+} from "./browser-load-error";
 
 /** The whole wait, from the first refusal; after it the error page shows. */
 export const DEV_SERVER_WAIT_MS = 2 * 60_000;
@@ -13,14 +18,28 @@ export const DEV_SERVER_WAIT_MS = 2 * 60_000;
 const BACKOFF_MS = [1_000, 1_000, 2_000, 3_000, 5_000];
 
 /**
- * Whether a main-frame load of `url` that failed with `errorCode` waits for
- * a dev server: only a refused `http://` load on this machine's loopback.
+ * How a load through a remote pane's port forward fails while nothing listens
+ * on the box's port. The forward's own local port does listen, so the
+ * connection is accepted, then closed or reset once the box refuses the other
+ * end: an ssh `-L` forward drops the socket when its channel open fails, and
+ * an exec forward's `port-pipe` exits and ends it.
  */
-export function waitsForDevServer(url: string, errorCode: number): boolean {
-  return (
-    errorCode === ERR_CONNECTION_REFUSED &&
-    /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|\?|#|$)/i.test(url)
-  );
+const FORWARD_REFUSED = new Set([
+  ERR_CONNECTION_REFUSED,
+  ERR_EMPTY_RESPONSE,
+  ERR_CONNECTION_CLOSED,
+  ERR_CONNECTION_RESET,
+]);
+
+/**
+ * Whether a main-frame load of `url` that failed with `errorCode` waits for
+ * a dev server: only a refused `http://` load on this machine's loopback. A
+ * `remote` pane loads the box's dev servers through a port forward on that
+ * loopback, so it also waits on the ways a forward says the box refused.
+ */
+export function waitsForDevServer(url: string, errorCode: number, remote = false): boolean {
+  const refused = remote ? FORWARD_REFUSED.has(errorCode) : errorCode === ERR_CONNECTION_REFUSED;
+  return refused && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|\?|#|$)/i.test(url);
 }
 
 /**

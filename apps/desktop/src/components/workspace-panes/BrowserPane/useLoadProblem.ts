@@ -11,9 +11,16 @@ export type LoadProblem =
   | { kind: "crashed" }
   /**
    * Nothing listens yet on the loopback port `url` loads from: retry
-   * `attempt` is due at `retryAt`.
+   * `attempt` is due at `retryAt`. `name` is how the last attempt failed.
    */
-  | { kind: "waiting"; url: string; attempt: number; retryAt: number; startedAt: number };
+  | {
+      kind: "waiting";
+      url: string;
+      name: string;
+      attempt: number;
+      retryAt: number;
+      startedAt: number;
+    };
 
 /** The `<webview>` methods and events this hook uses. */
 export interface ProblemWebview extends HTMLElement {
@@ -52,18 +59,24 @@ export interface UseLoadProblemResult {
  * error page until the next navigation starts; a dead renderer shows the
  * crash page until it is reloaded. A refused load of a loopback dev server
  * instead waits for it, retrying on `dev-server-wait`'s backoff, until a
- * page loads, the pane goes somewhere else, or the wait runs out.
+ * page loads, the pane goes somewhere else, or the wait runs out. A remote
+ * pane (`isRemote`) reaches the box's dev servers through a port forward,
+ * which reports a refusal its own ways (`waitsForDevServer`).
  */
 export function useLoadProblem(
   paneId: string,
   webviewRef: RefObject<ProblemWebview | null>,
   /** Told of each problem as it is shown. */
   onProblem?: (problem: LoadProblem) => void,
+  /** Whether the pane's workspace is on a remote host, read at each failure. */
+  isRemote: () => boolean = () => false,
 ): UseLoadProblemResult {
   const [problem, setProblemState] = useState<LoadProblem | null>(null);
   const problemRef = useRef(problem);
   const onProblemRef = useRef(onProblem);
   onProblemRef.current = onProblem;
+  const isRemoteRef = useRef(isRemote);
+  isRemoteRef.current = isRemote;
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The URL of the retry this hook last loaded, until its navigation ends. */
   const retryingRef = useRef<string | null>(null);
@@ -101,7 +114,7 @@ export function useLoadProblem(
       setProblem({ kind: "failed", url, name });
       return;
     }
-    setProblem({ kind: "waiting", url, attempt, retryAt: now + delay, startedAt });
+    setProblem({ kind: "waiting", url, name, attempt, retryAt: now + delay, startedAt });
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
       load(url);
@@ -116,7 +129,7 @@ export function useLoadProblem(
       const fail = e as DidFailLoadEvent;
       if (!fail.isMainFrame || fail.errorCode === ERR_ABORTED) return;
       retryingRef.current = null;
-      if (waitsForDevServer(fail.validatedURL, fail.errorCode)) {
+      if (waitsForDevServer(fail.validatedURL, fail.errorCode, isRemoteRef.current())) {
         if (cancelledRef.current === fail.validatedURL) {
           setProblem({ kind: "failed", url: fail.validatedURL, name: fail.errorDescription });
         } else {
@@ -184,7 +197,7 @@ export function useLoadProblem(
     const current = problemRef.current;
     if (current?.kind !== "waiting") return;
     cancelledRef.current = current.url;
-    setProblem({ kind: "failed", url: current.url, name: "ERR_CONNECTION_REFUSED" });
+    setProblem({ kind: "failed", url: current.url, name: current.name });
   };
 
   return { problem, retry, cancelWait };

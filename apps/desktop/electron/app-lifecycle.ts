@@ -520,6 +520,7 @@ export function initApp(devTitle: string | null): void {
       keybindingsManager,
       checkForUpdates,
       saveZoomLevel,
+      toggleFocusedPageDevTools: webviewIpc.toggleFocusedPageDevTools,
     });
 
     // A wake from sleep or an unlock can leave a remote host's connection up

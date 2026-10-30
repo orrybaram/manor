@@ -25,6 +25,11 @@ import {
   sentCommands,
   settled,
 } from "./fake-layout-server";
+import {
+  forgetDevTools,
+  rememberDevTools,
+  rememberedDevTools,
+} from "../../lib/remembered-devtools";
 
 const WS_PATH = "/test/workspace";
 
@@ -269,6 +274,38 @@ describe("broadcasts set the state", () => {
     const state = useAppStore.getState();
     expect(state.paneCwd).toEqual({ "pane-1": "/repo" });
     expect(state.paneTitle).toEqual({ "pane-1": "one" });
+  });
+
+  it("forgets the DevTools of a pane that left the tree, not of one that moved", async () => {
+    setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
+    const dock = { side: "right" as const, fractions: { bottom: 0.4, right: 0.5 } };
+    rememberDevTools("pane-1", dock);
+    rememberDevTools("pane-2", dock);
+
+    // pane-1 moves into tab-2's split; pane-2 stays.
+    broadcastLayout(
+      WS_PATH,
+      layoutOf([
+        {
+          id: "tab-2",
+          title: "Terminal",
+          rootNode: {
+            type: "split",
+            direction: "horizontal",
+            ratio: 0.5,
+            first: { type: "leaf", paneId: "pane-2" },
+            second: { type: "leaf", paneId: "pane-1" },
+          },
+        },
+      ]),
+      2,
+    );
+    expect(rememberedDevTools("pane-1")).toEqual(dock);
+
+    broadcastLayout(WS_PATH, layoutOf([tab("tab-2", "pane-2")]), 3);
+    expect(rememberedDevTools("pane-1")).toBeUndefined();
+    expect(rememberedDevTools("pane-2")).toEqual(dock);
+    forgetDevTools("pane-2");
   });
 
   it("seeds the side maps of the panes a reopen brought back", async () => {

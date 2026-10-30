@@ -1,12 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type {
-  PasteClipboardImageResult,
-  PickedElementResult,
-} from "../src/electron";
+import type { PasteClipboardImageResult } from "../src/electron";
 import type { MenuContext } from "../src/lib/menu-commands";
 import type { RecordingCommand } from "../src/lib/webview-recorder";
+import type { DockRect } from "../src/lib/devtools-dock";
 import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
 import type { BridgeEvents } from "./bridge/events";
+import type { PageDialog } from "./webview-dialogs";
+import type { PagePick, PagePinsLayout } from "./webview-pins";
 import {
   BRIDGE_EVENT,
   BRIDGE_INVOKE,
@@ -237,16 +237,51 @@ const nativeApi = {
     ) =>
       invoke("webview:register", paneId, webContentsId, remoteHostId ?? null),
     unregister: (paneId: string) => invoke("webview:unregister", paneId),
-    startPicker: (paneId: string) => invoke("webview:start-picker", paneId),
-    cancelPicker: (paneId: string) => invoke("webview:cancel-picker", paneId),
+    /**
+     * Arm picking on the page: each click becomes a pick (`onPinPicked`)
+     * until Escape (`onPinsStopped`) or `stopPins`. `theme` colours the pins.
+     */
+    startPins: (paneId: string, theme: { accent: string; bg: string }) =>
+      invoke<boolean>("webview:start-pins", paneId, theme),
+    stopPins: (paneId: string) => invoke("webview:stop-pins", paneId),
+    /** The pins the page shows, in order, with their numbers. */
+    syncPins: (paneId: string, pins: Array<{ id: string; label: string }>) =>
+      invoke("webview:sync-pins", paneId, pins),
+    /** A pick's screenshot on `hostId`: its own path here, or a copy there. */
+    uploadPinShot: (shotId: string, hostId?: string | null) =>
+      invoke<string | null>("webview:upload-pin-shot", shotId, hostId ?? null),
+    onPinPicked: (callback: (paneId: string, pick: PagePick) => void) =>
+      onChannelArgs("webview:pin-picked", callback),
+    onPinsStopped: (callback: (paneId: string) => void) =>
+      onChannel("webview:pins-stopped", callback),
+    onPinOpened: (callback: (paneId: string, pinId: string) => void) =>
+      onChannelArgs("webview:pin-opened", callback),
+    onPinsMoved: (callback: (paneId: string, layout: PagePinsLayout) => void) =>
+      onChannelArgs("webview:pins-moved", callback),
     zoomIn: (paneId: string) => invoke("webview:zoom-in", paneId),
     zoomOut: (paneId: string) => invoke("webview:zoom-out", paneId),
     zoomReset: (paneId: string) => invoke("webview:zoom-reset", paneId),
-    onPickerResult: (
-      callback: (paneId: string, result: PickedElementResult) => void,
-    ) => onChannelArgs("webview:picker-result", callback),
-    onPickerCancel: (callback: (paneId: string) => void) =>
-      onChannelArgs("webview:picker-cancel", callback),
+    /** Open the pane's DevTools docked in it (`browser-devtools-dock.ts`). */
+    openDevTools: (paneId: string) =>
+      invoke<boolean>("webview:open-devtools", paneId),
+    closeDevTools: (paneId: string) => invoke("webview:close-devtools", paneId),
+    /**
+     * Where the pane's DevTools slot is, in window CSS pixels, or null to hide
+     * the native view. With `snapshot`, resolves to a data URL of its last
+     * frame, to paint while it is hidden under an overlay.
+     */
+    setDevToolsBounds: (
+      paneId: string,
+      slot: DockRect | null,
+      snapshot = false,
+    ) =>
+      invoke<string | null>("webview:set-devtools-bounds", paneId, slot, snapshot),
+    /** Main opened or closed the pane's docked DevTools. */
+    onDevToolsChanged: (callback: (paneId: string, open: boolean) => void) =>
+      onChannelArgs("webview:devtools-changed", callback),
+    /** ⌥⌘I pressed in the page: toggle its DevTools. */
+    onToggleDevTools: (callback: (paneId: string) => void) =>
+      onChannel("webview:toggle-devtools", callback),
     onEscape: (callback: (paneId: string) => void) =>
       onChannel("webview:escape", callback),
     onFocusUrl: (callback: (paneId: string) => void) =>
@@ -258,7 +293,12 @@ const nativeApi = {
         opts?: { background?: boolean },
       ) => void,
     ) => onChannelArgs("webview:new-window", callback),
+    /** The page menu's Open Link in Split: a browser pane beside this one. */
+    onOpenInSplit: (callback: (paneId: string, url: string) => void) =>
+      onChannelArgs("webview:open-in-split", callback),
     stop: (paneId: string) => invoke("webview:stop", paneId),
+    /** Load `url` again after a failure; a new failure is the page's `did-fail-load`. */
+    loadUrl: (paneId: string, url: string) => invoke("webview:load-url", paneId, url),
     findInPage: (
       paneId: string,
       query: string,
@@ -308,6 +348,15 @@ const nativeApi = {
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
     ) => onChannelArgs("webview:audio-state-changed", callback),
+    /** A page's alert/confirm/prompt, to show in its pane (`webview-dialogs.ts`). */
+    onDialog: (callback: (paneId: string, dialog: PageDialog) => void) =>
+      onChannelArgs("webview:dialog", callback),
+    /** A dialog main dismissed itself: the page navigated, crashed or closed. */
+    onDialogClosed: (callback: (paneId: string, dialogId: string) => void) =>
+      onChannelArgs("webview:dialog-closed", callback),
+    /** The user's answer; `text` is a prompt's. */
+    replyDialog: (dialogId: string, ok: boolean, text?: string) =>
+      invoke("webview:dialog-reply", dialogId, ok, text),
   },
 
   /**

@@ -14,6 +14,12 @@ export const FAKE_AGENT = path.join(__dirname, "fake-agent.sh");
 /** Printed once at startup. Assert on this to know the session is live. */
 export const FAKE_AGENT_BANNER = "fake-agent ready";
 
+/**
+ * Set this in the fake agent's environment to a file path and it appends
+ * every message it receives there, whole, one per line.
+ */
+export const FAKE_AGENT_LOG_ENV = "FAKE_AGENT_LOG";
+
 /** Prefix the fake agent echoes back for anything sent to it. */
 export const FAKE_AGENT_ECHO = "received:";
 

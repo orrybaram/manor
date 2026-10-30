@@ -23,6 +23,7 @@
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { PIN_REPORT_PREFIX } from "./page-pins-script";
 import { webContents } from "electron";
 import { writeFileAtomic } from "./lib/fs-atomic";
 import { isJsonContentType, mintToken, refuseLoopbackRequest } from "./lib/loopback-guard";
@@ -153,6 +154,8 @@ export class WebviewServer {
     ) => {
       const entries = this.consoleLogs.get(paneId);
       if (!entries) return;
+      // The pins' own reports (webview-pins.ts) are Manor's, not the page's.
+      if (message.startsWith(PIN_REPORT_PREFIX)) return;
 
       entries.push({
         timestamp: new Date().toISOString(),
@@ -166,6 +169,12 @@ export class WebviewServer {
       }
     };
 
+    // The page-dialog shim's synchronous request (webview-dialogs.ts) needs no
+    // filtering here: Chromium reports "[Deprecation] Synchronous
+    // XMLHttpRequest on the main thread…" as a DevTools issue
+    // (`Audits.issueAdded`), not a console message, so it never reaches this
+    // event (checked on Electron 44). DevTools' Issues panel lists it, at
+    // `manor-page-dialogs.js`.
     wc.on("console-message", listener);
     this.consoleListeners.set(paneId, () => {
       if (!wc.isDestroyed()) {

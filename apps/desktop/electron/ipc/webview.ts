@@ -31,11 +31,19 @@ import {
 } from "electron";
 import { assertString } from "../ipc-validate";
 import { recordingManager } from "../recording-manager";
-import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { HostDeps } from "./types";
-import { resolveBindings } from "../../src/lib/keybinding-defs";
-import { createPageKeyHandler } from "./webview-keys";
+import {
+  comboMatches,
+  resolveBindings,
+  type KeyCombo,
+} from "../../src/lib/keybinding-defs";
+import { isDockRect } from "../../src/lib/devtools-dock";
+import { BrowserDevToolsDock, type DockTarget } from "../browser-devtools-dock";
+import { comboFromInputEvent, createPageKeyHandler } from "./webview-keys";
+import { attachPageDialogs, registerPageDialogIpc } from "../webview-dialogs";
+import { attachPagePins, registerPagePinsIpc } from "../webview-pins";
+import { buildPageContextMenu } from "../webview-context-menu";
 import {
   buildPopupWindowOptions,
   closeAllChildWindows,
@@ -83,6 +91,110 @@ const webviewUnloadCleanup = new Map<string, () => void>();
 const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
+const webviewDialogCleanup = new Map<string, () => void>();
+const webviewPinsCleanup = new Map<string, () => void>();
+
+/**
+ * paneId → the URL its page's latest main-frame navigation went to (after
+ * redirects), so a retry the pane asked for before the user went elsewhere
+ * doesn't take them back (`webview:load-url`).
+ */
+const latestNavigation = new Map<string, string>();
+
+/** `url` as the URL parser spells it, so `http://h:1` and `http://h:1/` compare equal. */
+function normalizedUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+}
+
+// ── Docked DevTools ──
+
+/** The key that toggles a page's DevTools, kept current by `register`. */
+let devToolsBinding: KeyCombo | undefined;
+
+/**
+ * The app menu's Toggle Developer Tools accelerator (`app-menu-template.ts`),
+ * which already reaches a focused frontend and toggles its pane's DevTools.
+ * Acting on it here too would close them twice over, and the second toggle
+ * could reopen them.
+ */
+const MENU_DEVTOOLS_COMBO: KeyCombo =
+  process.platform === "darwin"
+    ? { key: "i", meta: true, alt: true, ctrl: false, shift: false }
+    : { key: "i", ctrl: true, shift: true, meta: false, alt: false };
+
+/** Every open docked DevTools; see `browser-devtools-dock.ts`. */
+const devToolsDock = new BrowserDevToolsDock({
+  onChange(paneId, host, open) {
+    if (!host.isDestroyed()) host.send("webview:devtools-changed", paneId, open);
+  },
+  // A DevTools frontend is no page: its keys reach neither the page's
+  // `before-input-event` nor the app's renderer. Watch it for the toggle key
+  // so the same shortcut closes DevTools from inside them.
+  onFrontend(paneId, frontend) {
+    frontend.on("input-event", (_event, input) => {
+      const combo = comboFromInputEvent(input);
+      if (!combo || !devToolsBinding || !comboMatches(combo, devToolsBinding)) return;
+      if (comboMatches(combo, MENU_DEVTOOLS_COMBO)) return;
+      // Let the key finish routing before the frontend is torn down under it.
+      setImmediate(() => void devToolsDock.close(paneId));
+    });
+  },
+});
+
+/** The page, renderer and window of `paneId`, or null if any is gone. */
+function devToolsTarget(paneId: string): DockTarget | null {
+  const guestId = webviewRegistry.get(paneId);
+  const guest = guestId !== undefined ? webContents.fromId(guestId) : undefined;
+  const host = getPaneRendererWebContents(paneId);
+  const window = host ? BrowserWindow.fromWebContents(host) : null;
+  if (!guest || guest.isDestroyed() || !host || !window || window.isDestroyed()) {
+    return null;
+  }
+  return { guest, host, window };
+}
+
+/**
+ * Open `paneId`'s DevTools docked in the pane, then inspect the element at
+ * `inspectAt` if given. Docking comes first: `inspectElement` on its own
+ * opens Electron's DevTools window and bypasses the dock.
+ */
+async function openDevTools(
+  paneId: string,
+  inspectAt?: { x: number; y: number },
+): Promise<boolean> {
+  const target = devToolsTarget(paneId);
+  if (!target) return false;
+  const opened = await devToolsDock.open(paneId, target);
+  if (opened && inspectAt && !target.guest.isDestroyed()) {
+    target.guest.inspectElement(inspectAt.x, inspectAt.y);
+  }
+  return opened;
+}
+
+function toggleDevTools(paneId: string): void {
+  if (devToolsDock.isOpen(paneId)) void devToolsDock.close(paneId);
+  else void openDevTools(paneId);
+}
+
+/**
+ * The app menu's Toggle Developer Tools while `focused` is a browser pane's
+ * page or its docked DevTools: toggles that pane's. False when `focused` is
+ * neither, so the menu toggles the window's own instead.
+ */
+export function toggleFocusedPageDevTools(focused: Electron.WebContents): boolean {
+  for (const [paneId, guestId] of webviewRegistry) {
+    const guest = webContents.fromId(guestId);
+    if (!guest || guest.isDestroyed()) continue;
+    if (guest !== focused && guest.devToolsWebContents !== focused) continue;
+    toggleDevTools(paneId);
+    return true;
+  }
+  return false;
+}
 
 export function createWebviewServer(getDeps: () => HostDeps): WebviewServer {
   return new WebviewServer(webviewRegistry, getDeps);
@@ -319,9 +431,18 @@ export function register(deps: HostDeps): void {
     deps.keybindingsManager.getAll(),
     bindingPlatform,
   ).bindings;
+  devToolsBinding = pageBindings["browser-devtools"];
   deps.keybindingsManager.onChange((overrides) => {
     pageBindings = resolveBindings(overrides, bindingPlatform).bindings;
+    devToolsBinding = pageBindings["browser-devtools"];
   });
+
+  registerPageDialogIpc();
+  registerPagePinsIpc((paneId) => {
+    const id = webviewRegistry.get(paneId);
+    const page = id !== undefined ? webContents.fromId(id) : undefined;
+    return page && !page.isDestroyed() ? page : null;
+  }, deps.backendRegistry);
 
   ipcMain.handle(
     "webview:register",
@@ -352,61 +473,40 @@ export function register(deps: HostDeps): void {
           _ev: Electron.Event,
           params: Electron.ContextMenuParams,
         ) => {
-          const template: Electron.MenuItemConstructorOptions[] = [];
-
-          if (params.mediaType === "image" && params.srcURL) {
-            template.push(
-              {
-                label: "Open Image in New Tab",
-                click: () => {
-                  rendererWebContents.send(
-                    "webview:new-window",
-                    paneId,
-                    params.srcURL,
-                  );
-                },
-              },
-              {
-                label: "Save Image As...",
-                click: async () => {
-                  const win = BrowserWindow.fromWebContents(rendererWebContents);
-                  if (!win || win.isDestroyed()) return;
-                  const result = await dialog.showSaveDialog(win, {
-                    defaultPath: new URL(params.srcURL).pathname
-                      .split("/")
-                      .pop() || "image",
-                  });
-                  if (!result.canceled && result.filePath) {
-                    wc.downloadURL(params.srcURL);
-                    wc.session.once("will-download", (_e, item) => {
-                      item.setSavePath(result.filePath!);
-                    });
-                  }
-                },
-              },
-              {
-                label: "Copy Image",
-                click: () => {
-                  wc.copyImageAt(params.x, params.y);
-                },
-              },
-              {
-                label: "Copy Image Address",
-                click: () => {
-                  void clipboard.writeText(params.srcURL);
-                },
-              },
-              { type: "separator" },
-            );
-          }
-
-          template.push({
-            label: "Inspect Element",
-            click: () => wc.inspectElement(params.x, params.y),
+          const template = buildPageContextMenu(params, {
+            canGoBack: wc.navigationHistory.canGoBack(),
+            canGoForward: wc.navigationHistory.canGoForward(),
+            goBack: () => wc.navigationHistory.goBack(),
+            goForward: () => wc.navigationHistory.goForward(),
+            reload: () => wc.reload(),
+            openInNewTab: (url) =>
+              rendererWebContents.send("webview:new-window", paneId, url),
+            // The renderer owns the layout: it splits the pane.
+            openInSplit: (url) =>
+              rendererWebContents.send("webview:open-in-split", paneId, url),
+            copyText: (text) => clipboard.writeText(text),
+            cut: () => wc.cut(),
+            copy: () => wc.copy(),
+            paste: () => wc.paste(),
+            selectAll: () => wc.selectAll(),
+            saveImageAs: async (url) => {
+              const win = BrowserWindow.fromWebContents(rendererWebContents);
+              if (!win || win.isDestroyed()) return;
+              const result = await dialog.showSaveDialog(win, {
+                defaultPath: new URL(url).pathname.split("/").pop() || "image",
+              });
+              if (!result.canceled && result.filePath) {
+                wc.downloadURL(url);
+                wc.session.once("will-download", (_e, item) => {
+                  item.setSavePath(result.filePath!);
+                });
+              }
+            },
+            copyImageAt: (x, y) => wc.copyImageAt(x, y),
+            // Docked in the pane, then inspecting: see `openDevTools`.
+            inspectElement: (x, y) => void openDevTools(paneId, { x, y }),
           });
-
-          const menu = Menu.buildFromTemplate(template);
-          menu.popup();
+          Menu.buildFromTemplate(template).popup();
         };
         wc.on("context-menu", handler);
         webviewContextMenuCleanup.set(paneId, () => {
@@ -457,7 +557,18 @@ export function register(deps: HostDeps): void {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         wc.on("audio-state-changed", audioPlayingHandler as any);
 
+        const navigationHandler = (
+          details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+        ) => {
+          if (details.isMainFrame && !details.isSameDocument) latestNavigation.set(paneId, details.url);
+        };
+        wc.on("did-start-navigation", navigationHandler);
+        wc.on("did-redirect-navigation", navigationHandler);
+
         webviewEventCleanup.set(paneId, () => {
+          wc.off("did-start-navigation", navigationHandler);
+          wc.off("did-redirect-navigation", navigationHandler);
+          latestNavigation.delete(paneId);
           wc.off("did-start-loading", loadingStartHandler);
           wc.off("did-stop-loading", loadingStopHandler);
           wc.off("page-favicon-updated", faviconHandler);
@@ -559,12 +670,31 @@ export function register(deps: HostDeps): void {
         webviewUnloadCleanup.set(paneId, () => {
           wc.off("will-prevent-unload", preventUnloadHandler);
         });
+
+        // alert/confirm/prompt as an overlay in the pane — see webview-dialogs.ts.
+        webviewDialogCleanup.get(paneId)?.();
+        webviewDialogCleanup.set(
+          paneId,
+          attachPageDialogs(paneId, wc, rendererWebContents),
+        );
+
+        // Picks, pin clicks and pin positions — see webview-pins.ts.
+        webviewPinsCleanup.get(paneId)?.();
+        webviewPinsCleanup.set(
+          paneId,
+          attachPagePins(paneId, wc, rendererWebContents, deps.backendRegistry),
+        );
       }
     },
   );
 
   ipcMain.handle("webview:unregister", (_event, paneId: string) => {
     assertString(paneId, "paneId");
+    // Only the renderer that owns the pane's DevTools closes them: a pane torn
+    // off to another window may have registered there first.
+    if (devToolsDock.hostOf(paneId) === _event.sender) {
+      void devToolsDock.close(paneId);
+    }
     webviewContextMenuCleanup.get(paneId)?.();
     webviewContextMenuCleanup.delete(paneId);
     webviewEscapeCleanup.get(paneId)?.();
@@ -577,6 +707,10 @@ export function register(deps: HostDeps): void {
     webviewAudioCleanup.delete(paneId);
     webviewPopupCleanup.get(paneId)?.();
     webviewPopupCleanup.delete(paneId);
+    webviewDialogCleanup.get(paneId)?.();
+    webviewDialogCleanup.delete(paneId);
+    webviewPinsCleanup.get(paneId)?.();
+    webviewPinsCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     deps.paneHosts.delete(paneId);
     webviewRegistry.delete(paneId);
@@ -593,57 +727,31 @@ export function register(deps: HostDeps): void {
     paneRenderers.delete(paneId);
   });
 
-  ipcMain.handle("webview:start-picker", async (event, paneId: string) => {
+  ipcMain.handle("webview:open-devtools", (_event, paneId: string) => {
     assertString(paneId, "paneId");
-    const webContentsId = webviewRegistry.get(paneId);
-    if (!webContentsId) return;
-    const wc = webContents.fromId(webContentsId);
-    if (!wc || wc.isDestroyed()) return;
-
-    await wc.executeJavaScript(PICKER_SCRIPT);
-
-    // Route the pane-scoped picker result back to the window that started the
-    // picker (which owns the pane), not just the primary window — otherwise a
-    // detached window's browser pane would never receive its result.
-    const rendererWebContents = event.sender;
-    const listener = (
-      _ev: Electron.Event,
-      _level: number,
-      message: string,
-    ) => {
-      if (rendererWebContents.isDestroyed()) {
-        wc.off("console-message", listener);
-        return;
-      }
-      if (message.startsWith("__MANOR_PICK__:")) {
-        wc.off("console-message", listener);
-        try {
-          const result = JSON.parse(
-            message.slice("__MANOR_PICK__:".length),
-          );
-          rendererWebContents.send("webview:picker-result", paneId, result);
-        } catch {
-          // ignore parse errors
-        }
-      } else if (message === "__MANOR_PICK_CANCEL__") {
-        wc.off("console-message", listener);
-        rendererWebContents.send("webview:picker-cancel", paneId);
-      }
-    };
-
-    wc.on("console-message", listener);
+    return openDevTools(paneId);
   });
 
-  ipcMain.handle("webview:cancel-picker", async (_event, paneId: string) => {
+  ipcMain.handle("webview:close-devtools", async (_event, paneId: string) => {
     assertString(paneId, "paneId");
-    const webContentsId = webviewRegistry.get(paneId);
-    if (!webContentsId) return;
-    const wc = webContents.fromId(webContentsId);
-    if (!wc || wc.isDestroyed()) return;
-    await wc.executeJavaScript(
-      "if (window.__manor_picker_cancel__) window.__manor_picker_cancel__();",
-    );
+    await devToolsDock.close(paneId);
   });
+
+  // Where the pane's DevTools slot is (window CSS pixels), or null to hide
+  // the view; with `snapshot`, answers the hidden view's last frame.
+  ipcMain.handle(
+    "webview:set-devtools-bounds",
+    (event, paneId: string, slot: unknown, snapshot: unknown) => {
+      assertString(paneId, "paneId");
+      if (slot !== null && !isDockRect(slot)) {
+        throw new Error("slot must be a rect or null");
+      }
+      if (devToolsDock.hostOf(paneId) !== event.sender) return null;
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return null;
+      return devToolsDock.setBounds(paneId, window, slot, snapshot === true);
+    },
+  );
 
   ipcMain.handle("webview:zoom-in", (_event, paneId: string) => {
     assertString(paneId, "paneId");
@@ -679,6 +787,23 @@ export function register(deps: HostDeps): void {
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) return;
     wc.stop();
+  });
+
+  // The pane's error and waiting pages retry a load here rather than through
+  // the element, whose `loadURL` logs every failure as an IPC handler error.
+  // A retry is of the page's latest navigation: one that arrives after the
+  // user (or an agent) has started another is stale, and is dropped.
+  ipcMain.handle("webview:load-url", (_event, paneId: string, url: string) => {
+    assertString(paneId, "paneId");
+    assertString(url, "url");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    const latest = latestNavigation.get(paneId);
+    if (latest !== undefined && normalizedUrl(latest) !== normalizedUrl(url)) return;
+    // A failure is the page's `did-fail-load`, which the pane already hears.
+    wc.loadURL(url).catch(() => {});
   });
 
   ipcMain.handle("webview:find-in-page", (_event, paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => {

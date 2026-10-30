@@ -28,27 +28,7 @@ export type ReviewSend = {
  */
 export function useReviewSend(workspacePath: string, hostId?: string): ReviewSend {
   const comments = useReviewStore((s) => s.drafts[workspacePath] ?? NO_DRAFTS);
-  const allAgents = useAgentStore((s) => s.agents);
-
-  /**
-   * Filtered here rather than inside the selector: a selector that builds a
-   * new array on every store read would re-render on every unrelated agent
-   * update.
-   */
-  const agents = useMemo(
-    () =>
-      allAgents
-        // The same path on another host is another workspace, with its own agents.
-        .filter(
-          (a) =>
-            a.workspacePath === workspacePath &&
-            a.hostId === (hostId ?? LOCAL_HOST_ID) &&
-            a.status === "active" &&
-            a.paneId,
-        )
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    [allAgents, workspacePath, hostId],
-  );
+  const agents = useSendableAgents(workspacePath, hostId);
 
   const send = useCallback(
     (target: ReviewTarget) => {
@@ -63,6 +43,34 @@ export function useReviewSend(workspacePath: string, hostId?: string): ReviewSen
     : { kind: "new" };
 
   return { comments, agents, defaultTarget, send };
+}
+
+/**
+ * Live agents in the workspace that can take a prompt, most recently updated
+ * first: what a "Send to…" menu lists. A browser pane's notes use it too.
+ */
+export function useSendableAgents(workspacePath: string, hostId?: string | null): AgentInfo[] {
+  const allAgents = useAgentStore((s) => s.agents);
+
+  /**
+   * Filtered here rather than inside the selector: a selector that builds a
+   * new array on every store read would re-render on every unrelated agent
+   * update.
+   */
+  return useMemo(
+    () =>
+      allAgents
+        // The same path on another host is another workspace, with its own agents.
+        .filter(
+          (a) =>
+            a.workspacePath === workspacePath &&
+            a.hostId === (hostId || LOCAL_HOST_ID) &&
+            a.status === "active" &&
+            a.paneId,
+        )
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    [allAgents, workspacePath, hostId],
+  );
 }
 
 /**

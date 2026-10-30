@@ -46,11 +46,12 @@ function escapeShellDoubleQuoted(text: string): string {
  * Flatten a prompt to a single line. Prompts here are typed into an
  * interactive shell or a harness's prompt box, and a bare newline either
  * leaves the shell waiting on a continuation prompt or submits the turn
- * early — so every whitespace run that spans a newline collapses to one
- * space before the text is sent.
+ * early — so every whitespace run that spans a newline (or a bare carriage
+ * return, which a raw-mode harness reads as Enter) collapses to one space
+ * before the text is sent.
  */
 export function flattenPrompt(prompt: string): string {
-  return prompt.replace(/\s*\n\s*/g, " ").trim();
+  return prompt.replace(/\s*[\r\n]\s*/g, " ").trim();
 }
 
 /**

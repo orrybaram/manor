@@ -312,6 +312,7 @@ export const PAGE_BROWSER_COMMANDS: readonly string[] = [
   "browser-find",
   "browser-back",
   "browser-forward",
+  "browser-devtools",
 ];
 
 /**

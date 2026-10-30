@@ -27,6 +27,39 @@
   color: var(--text-dim);
 }
 
+/* What stands in for the page: the error, crash and waiting pages. Under
+   the host-away banner (z-index 5), which explains them. */
+.statePage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.stateTitle {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.stateDetail {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stateCode {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* The stated empty state a browser pane renders on the web app,
    instead of the `<webview>` it cannot mount there. */
 .webUnavailable {
@@ -67,7 +100,7 @@
 .dialogScrim {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: 4;
   display: grid;
   place-items: center;
   padding: 16px;

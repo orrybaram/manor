@@ -8,9 +8,11 @@ import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
 import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
-import { isLocalhostHttpUrl } from "../../../lib/hosts";
+import { siteLabel } from "./site-label";
 import type { PageDialog } from "../../../../electron/webview-dialogs";
 import { PageDialogOverlay } from "./PageDialogOverlay";
+import { LoadProblemPage } from "./LoadProblemPage";
+import { useLoadProblem } from "./useLoadProblem";
 
 import styles from "./BrowserPane.module.css";
 
@@ -22,6 +24,7 @@ interface WebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   reload(): void;
+  loadURL(url: string): Promise<void>;
   getWebContentsId(): number;
 }
 
@@ -112,20 +115,6 @@ function formatPickedElement(result: PickedElementResult): string {
   return sections.join("\n\n");
 }
 
-/**
- * The site a page dialog names: its origin's host. A remote pane's page is
- * served through a port forward on this machine, so a loopback origin is
- * named by the box's own address the pane remembers (`remembered`).
- */
-function dialogSite(origin: string, remembered: string | null): string {
-  const source = remembered && isLocalhostHttpUrl(origin) && isLocalhostHttpUrl(remembered) ? remembered : origin;
-  try {
-    return new URL(source).host || source;
-  } catch {
-    return source;
-  }
-}
-
 // React 19 silently drops a boolean `allowpopups={true}` on <webview>, leaving
 // the attribute absent — which makes Electron block all guest window.open /
 // target=_blank before they reach setWindowOpenHandler. Emit it as a string
@@ -149,6 +138,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       initialUrl,
       webviewRef,
     });
+    // The error and crash pages.
+    const loadProblem = useLoadProblem(webviewRef);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);
@@ -395,6 +386,10 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const remoteHostIdRef = useRef(remoteHostId);
     remoteHostIdRef.current = remoteHostId;
 
+    /** A remote pane's remembered box URL, which names its forwarded pages. */
+    const rememberedRemoteUrl = () =>
+      remoteHostId ? selectPaneUrl(useAppStore.getState(), paneId) : null;
+
     const answerDialog = (dialog: PageDialog, ok: boolean, text?: string) => {
       void window.electronAPI.webview.replyDialog(dialog.id, ok, text);
       setDialogs((open) => open.filter((d) => d.id !== dialog.id));
@@ -606,6 +601,16 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             <div className={styles.emptyState}>
               Waiting for {remoteBrowserUrl.hostLabel ?? "the remote host"}…
             </div>
+          ) : loadProblem.problem ? (
+            <LoadProblemPage
+              problem={loadProblem.problem}
+              site={
+                loadProblem.problem.kind === "failed"
+                  ? siteLabel(loadProblem.problem.url, rememberedRemoteUrl())
+                  : ""
+              }
+              onRetry={loadProblem.retry}
+            />
           ) : (
             isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>
           )}
@@ -613,7 +618,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             <PageDialogOverlay
               key={dialogs[0].id}
               dialog={dialogs[0]}
-              site={dialogSite(dialogs[0].origin, remoteHostId ? selectPaneUrl(useAppStore.getState(), paneId) : null)}
+              site={siteLabel(dialogs[0].origin, rememberedRemoteUrl())}
               onAnswer={(ok, text) => answerDialog(dialogs[0], ok, text)}
             />
           )}

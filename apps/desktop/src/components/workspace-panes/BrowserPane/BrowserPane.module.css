@@ -247,6 +247,28 @@
   gap: 6px;
 }
 
+/* ── Hovered link ── */
+
+/* The URL of the link under the pointer. Never takes a click from the page. */
+.linkBubble {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  max-width: 70%;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dim);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 /* ── URL Autocomplete ── */
 
 .autocompleteDropdown {

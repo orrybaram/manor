@@ -33,6 +33,10 @@ interface WebviewTitleEvent extends Event {
   title: string;
 }
 
+interface WebviewTargetUrlEvent extends Event {
+  url: string;
+}
+
 export interface BrowserPaneNavState {
   url: string;
   canGoBack: boolean;
@@ -156,6 +160,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     // The page's open alert/confirm/prompt; the first is shown. The page is
     // blocked on it, so there is rarely more than one.
     const [dialogs, setDialogs] = useState<PageDialog[]>([]);
+    // The link under the pointer (or focused), for the status bubble.
+    const [targetUrl, setTargetUrl] = useState("");
 
     const isDragActive = useDragOverlayStore(selectIsDragActive);
 
@@ -445,6 +451,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       wv.addEventListener("did-navigate-in-page", onNavigate);
       wv.addEventListener("page-title-updated", onTitleUpdate);
       wv.addEventListener("did-attach", onDidAttach);
+      // The guest reports it straight to its element; no trip through main.
+      const onTargetUrl = (e: Event) => setTargetUrl((e as WebviewTargetUrlEvent).url);
+      wv.addEventListener("update-target-url", onTargetUrl);
 
       const unsubDialog = window.electronAPI.webview.onDialog(
         (dialogPaneId: string, dialog: PageDialog) => {
@@ -565,6 +574,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
+        wv.removeEventListener("update-target-url", onTargetUrl);
         wv.removeEventListener("focus", onWebviewFocus);
         wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);
@@ -623,6 +633,11 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             />
           ) : (
             isBlank && <BlankPage workspaceKey={workspaceKey} onOpen={navigateTo} />
+          )}
+          {targetUrl && !loadProblem.problem && (
+            <div className={styles.linkBubble} data-testid="browser-link-bubble">
+              {targetUrl}
+            </div>
           )}
           {dialogs[0] && (
             <PageDialogOverlay

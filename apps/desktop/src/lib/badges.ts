@@ -86,6 +86,8 @@ export interface BadgeMeta {
   section: BadgeSection;
   /** Hidden on screen (`???`) until earned or revealed. */
   secret?: boolean;
+  /** Not needed to complete its track or for Lord of the Manor. */
+  optional?: boolean;
   /**
    * Progress toward the unlock, mirroring the predicate in
    * `electron/stats-badges.ts`. `current` is uncapped — clamp at the call site.
@@ -501,6 +503,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     tier: "bronze",
     section: "grounds",
     secret: true,
+    optional: true,
     progress: counter("allTime", "prChangesRequested", 10),
   },
   {
@@ -512,6 +515,7 @@ export const BADGE_META: readonly BadgeMeta[] = [
     tier: "bronze",
     section: "grounds",
     secret: true,
+    optional: true,
     progress: counter("allTime", "prChecksFailed", 25),
   },
   {
@@ -533,7 +537,9 @@ export const BADGE_META: readonly BadgeMeta[] = [
 ];
 
 for (const badge of BADGE_META) {
-  if (badge.id !== PLATINUM_ID) BADGE_META_BASE_IDS.push(badge.id);
+  if (badge.id !== PLATINUM_ID && !badge.optional) {
+    BADGE_META_BASE_IDS.push(badge.id);
+  }
 }
 
 /** Rack ordering: rarest tier last, so the easy wins read first. */
@@ -570,16 +576,21 @@ function isEarned(summary: StatsSummary, id: string): boolean {
   return summary.badges[id] !== undefined;
 }
 
+/** The badges a track needs for completion: all but the optional ones. */
+function requiredBadges(section: BadgeSectionMeta): BadgeMeta[] {
+  return BADGE_META.filter((b) => b.section === section.id && !b.optional);
+}
+
 /**
  * Completion status for one track, derived from `summary.badges`. Complete
- * when every badge in the track is earned. The `manor` track holds only
+ * when every required badge in the track is earned. The `manor` track holds only
  * Lord of the Manor, so it completes once that badge is earned.
  */
 export function trackState(
   section: BadgeSectionMeta,
   summary: StatsSummary,
 ): TrackState {
-  const badges = BADGE_META.filter((b) => b.section === section.id);
+  const badges = requiredBadges(section);
   const earned = badges.filter((b) => isEarned(summary, b.id)).length;
   return { earned, total: badges.length, complete: earned === badges.length };
 }
@@ -596,9 +607,7 @@ export function earnedTitles(summary: StatsSummary): EarnedTitle[] {
   const result: EarnedTitle[] = [];
   for (const section of BADGE_SECTIONS) {
     if (!trackState(section, summary).complete) continue;
-    const times = BADGE_META.filter((b) => b.section === section.id).map(
-      (b) => summary.badges[b.id],
-    );
+    const times = requiredBadges(section).map((b) => summary.badges[b.id]);
     const at = times.reduce((a, b) => (a > b ? a : b));
     result.push({ section: section.id, title: section.title, at });
   }

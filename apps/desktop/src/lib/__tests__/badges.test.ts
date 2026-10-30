@@ -104,7 +104,7 @@ const ELECTRON_BADGE_TARGETS: Record<string, number> = {
   "seal-of-approval": 10,
   "red-ink": 10,
   "works-on-my-machine": 25,
-  platinum: 39,
+  platinum: 37,
 };
 
 function summary(overrides: Partial<StatsSummary> = {}): StatsSummary {
@@ -248,6 +248,7 @@ function award(
 
 const staff = BADGE_SECTIONS.find((s) => s.id === "staff")!;
 const tenure = BADGE_SECTIONS.find((s) => s.id === "tenure")!;
+const grounds = BADGE_SECTIONS.find((s) => s.id === "grounds")!;
 const manor = BADGE_SECTIONS.find((s) => s.id === "manor")!;
 
 describe("BADGE_SECTIONS", () => {
@@ -288,6 +289,15 @@ describe("trackState", () => {
   it("completes when every badge is earned", () => {
     const state = trackState(tenure, summary({ badges: award("tenure") }));
     expect(state).toEqual({ earned: 6, total: 6, complete: true });
+  });
+
+  it("completes without the optional badges", () => {
+    const badges = award("grounds");
+    delete badges["red-ink"];
+    delete badges["works-on-my-machine"];
+    const state = trackState(grounds, summary({ badges }));
+    expect(state.complete).toBe(true);
+    expect(state.earned).toBe(state.total);
   });
 
   it("completes the manor track when platinum is earned", () => {
@@ -354,11 +364,11 @@ describe("tierTally", () => {
 describe("platinum", () => {
   it("reports progress as other badges earned over other total", () => {
     const plat = BADGE_META.find((b) => b.id === "platinum")!;
-    expect(plat.progress(summary())).toEqual({ current: 0, target: 39 });
+    expect(plat.progress(summary())).toEqual({ current: 0, target: 37 });
     expect(
       plat.progress(
         summary({ badges: { "first-blood": AT(1), platinum: AT(2) } }),
       ),
-    ).toEqual({ current: 1, target: 39 });
+    ).toEqual({ current: 1, target: 37 });
   });
 });

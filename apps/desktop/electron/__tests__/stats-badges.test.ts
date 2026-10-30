@@ -187,6 +187,14 @@ describe("BADGES", () => {
     expect(badge.earned(THRESHOLDS[id])).toBe(true);
   });
 
+  it("awards platinum without the optional badges", () => {
+    const platinum = BADGES.find((b) => b.id === "platinum") as BadgeDef;
+    const badges = { ...ALL_OTHERS_AWARDED };
+    delete badges["red-ink"];
+    delete badges["works-on-my-machine"];
+    expect(platinum.earned(summary({ badges }))).toBe(true);
+  });
+
   it("counts quick merges and merged PRs together for shipper", () => {
     const shipper = BADGES.find((b) => b.id === "shipper") as BadgeDef;
     expect(shipper.earned(summary({ allTime: { prsMerged: 10 } }))).toBe(true);

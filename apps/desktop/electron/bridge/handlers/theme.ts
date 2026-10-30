@@ -2,7 +2,13 @@ import { assertString } from "../../ipc-validate";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
-import type { Theme, ThemeColors } from "../../theme";
+import {
+  assertTheme,
+  assertThemeName,
+  type Theme,
+  type ThemeCatalog,
+  type ThemeColors,
+} from "../../theme";
 
 /**
  * Theme, whole, as the `theme` namespace of the handler
@@ -31,6 +37,50 @@ export function themeAllColors(
   ctx: HandlerCtx<ServerDeps>,
 ): Promise<Record<string, ThemeColors>> {
   return ctx.deps.themeManager.loadAllThemeColors();
+}
+
+/** Every theme in picker order, and the recent picks. */
+export function themeCatalog(ctx: HandlerCtx<ServerDeps>): Promise<ThemeCatalog> {
+  return ctx.deps.themeManager.catalog();
+}
+
+/** Count a project's theme pick as recent; the global pick counts itself. */
+export function themeAddRecent(ctx: HandlerCtx<ServerDeps>, name: string): void {
+  assertString(name, "name");
+  ctx.deps.themeManager.addRecent(name);
+}
+
+/**
+ * Save a custom theme (a rename when `previousName` differs) and return its
+ * selection name. Viewers hear the selected theme again: an edit to the
+ * selected theme repaints them, and open pickers reload their list on it.
+ */
+export function themeSaveCustom(
+  ctx: HandlerCtx<ServerDeps>,
+  name: string,
+  theme: Theme,
+  previousName?: string,
+): string {
+  assertThemeName(name);
+  assertTheme(theme);
+  if (previousName !== undefined) assertThemeName(previousName);
+  const saved = ctx.deps.themeManager.saveCustomTheme(name, theme, previousName);
+  announce(ctx.deps.themeManager);
+  return saved;
+}
+
+/** Delete a custom theme; if it was selected, every viewer goes back to the default. */
+export function themeDeleteCustom(ctx: HandlerCtx<ServerDeps>, name: string): void {
+  assertThemeName(name);
+  ctx.deps.themeManager.deleteCustomTheme(name);
+  announce(ctx.deps.themeManager);
+}
+
+function announce(manager: ServerDeps["themeManager"]): void {
+  publishRendererBroadcast("theme", "changed", {
+    name: manager.getSelectedThemeName(),
+    theme: manager.getTheme(),
+  });
 }
 
 /**
@@ -63,4 +113,8 @@ export const theme = {
   preview: method(themePreview),
   allColors: method(themeAllColors),
   setSelected: method(themeSetSelected),
+  catalog: method(themeCatalog),
+  addRecent: method(themeAddRecent),
+  saveCustom: method(themeSaveCustom),
+  deleteCustom: method(themeDeleteCustom),
 };

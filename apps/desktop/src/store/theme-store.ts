@@ -24,6 +24,8 @@ export interface Theme {
   brightMagenta: string;
   brightCyan: string;
   brightWhite: string;
+  /** The app's accent. Optional: without one the accent is `blue`. */
+  accent?: string;
 }
 
 interface ThemeState {
@@ -60,7 +62,7 @@ export function applyCssVars(theme: Theme) {
   root.style.setProperty("--text-primary", withAlpha(theme.foreground, 0.7));
   root.style.setProperty("--text-selected", theme.foreground);
   root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));
-  root.style.setProperty("--accent", theme.blue);
+  root.style.setProperty("--accent", theme.accent ?? theme.blue);
 
   // Palette colors
   root.style.setProperty("--red", theme.red);

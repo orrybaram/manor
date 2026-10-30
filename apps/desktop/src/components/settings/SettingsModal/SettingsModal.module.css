@@ -577,52 +577,7 @@
   color: var(--fg-a50);
 }
 
-/* ── Theme picker ── */
-
-.themeSearch {
-  margin-bottom: 8px;
-}
-
-.themeList {
-  max-height: 280px;
-  overflow-y: auto;
-  border: 1px solid var(--surface);
-  border-radius: 6px;
-  background: var(--bg);
-}
-
-.themeItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 20px 7px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-}
-
-.themeItem:last-child {
-  border-bottom: none;
-}
-
-.themeItem:hover {
-  background: var(--hover);
-}
-
-.themeItemSelected {
-  background: var(--surface);
-  color: var(--text-selected);
-}
-
-.themeItemHighlighted {
-  background: var(--hover);
-  color: var(--text-selected);
-}
-
-.themeItemLabel {
-  flex: 1;
-}
+/* ── Theme badges and dots (the project theme select) ── */
 
 .themeItemBadge {
   font-size: 10px;
@@ -640,13 +595,6 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-}
-
-.checkmark {
-  color: var(--accent);
-  font-size: 14px;
-  flex-shrink: 0;
-  width: 16px;
 }
 
 /* ── Color picker ── */

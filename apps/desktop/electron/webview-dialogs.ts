@@ -19,14 +19,25 @@
  * answer. The console channel the picker uses can't do this: it only carries
  * messages out of the page, and `confirm` must wait for its answer.
  *
- * The request names the pane by a random per-pane token baked into its shim,
- * so a page can only ever open a dialog in its own pane. A dialog in an
- * out-of-process (cross-site) iframe is not reached by the shim and falls
- * through to Electron's native one.
+ * The request names the pane by a random token baked into its shim, and main
+ * shows it only if the browser-set origin of the request (its `Origin`, else
+ * its referrer) is the origin of a frame in that pane's page: a page that
+ * learns another pane's token still can't open a dialog there, nor claim to be
+ * another site. Each new document gets a new token (see `DialogTokens`), so a
+ * token is worthless once its page is gone. The overlay names the site by that
+ * verified origin.
+ *
+ * Whenever main can't answer (a stale token, an origin it can't verify, a page
+ * whose referrer policy sends no referrer, a `Permissions-Policy` that forbids
+ * synchronous requests), the shim falls back to the native dialog it replaced,
+ * rather than answer for the user. So does a dialog in an out-of-process
+ * (cross-site) iframe, which the shim doesn't reach, and one opened before the
+ * pane registers.
  */
 import { randomUUID } from "node:crypto";
 import { ipcMain, protocol, type Session, type WebContents } from "electron";
 import { assertString } from "./ipc-validate";
+import { clampDialogText, DialogTokens, isPaneOrigin, requestOrigin } from "./page-dialog-guard";
 
 const PAGE_DIALOG_SCHEME = "manor-dialog";
 
@@ -37,7 +48,7 @@ export interface PageDialog {
   message: string;
   /** A `prompt`'s default text; "" for the others. */
   defaultText: string;
-  /** The calling frame's origin (or URL, for an opaque origin). */
+  /** The calling frame's origin, as the browser reported it. */
   origin: string;
 }
 
@@ -59,92 +70,133 @@ export function registerPageDialogScheme(): void {
   ]);
 }
 
+/** Where the shim's frames show up in DevTools (and issue locations). */
+const PAGE_DIALOG_SHIM_URL = "manor-page-dialogs.js";
+
 /**
- * The shim, closed over `token`. It keeps its own references to
- * `XMLHttpRequest` and `JSON` so a page that patches them later can't see or
- * spoof the round-trip. A request that can't be made (a page being unloaded
- * may not block) reads as a dismissed dialog.
+ * The shim, closed over `token`. Everything it calls is captured before the
+ * page's own scripts run and called through the captured `Reflect.apply`, so
+ * a page that patches `XMLHttpRequest`, `JSON` or `Function.prototype.call`
+ * later can't see the token or spoof the round-trip. The native dialogs it
+ * replaces stay at hand for whenever main doesn't answer: a request that
+ * can't be made, or anything but a 200.
  */
 function shimSource(token: string): string {
   return `((token) => {
-  const XHR = XMLHttpRequest, open = XHR.prototype.open, send = XHR.prototype.send;
+  const apply = Reflect.apply, describe = Object.getOwnPropertyDescriptor;
+  const XHR = XMLHttpRequest, proto = XHR.prototype;
+  const open = proto.open, send = proto.send;
+  const status = describe(proto, "status").get, responseText = describe(proto, "responseText").get;
   const stringify = JSON.stringify, parse = JSON.parse;
+  const nativeAlert = window.alert, nativeConfirm = window.confirm, nativePrompt = window.prompt;
+  const url = "${PAGE_DIALOG_SCHEME}://" + token + "/";
+  // The user's answer, or null when Manor can't give one.
   const ask = (type, message, defaultText) => {
     try {
       const xhr = new XHR();
-      open.call(xhr, "POST", "${PAGE_DIALOG_SCHEME}://" + token + "/", false);
-      const origin = location.origin !== "null" ? location.origin : location.href;
-      send.call(xhr, stringify({ type, message, defaultText, origin }));
-      return parse(xhr.responseText);
+      apply(open, xhr, ["POST", url, false]);
+      apply(send, xhr, [stringify({ type, message, defaultText })]);
+      if (apply(status, xhr, []) !== 200) return null;
+      const answer = parse(apply(responseText, xhr, []));
+      return answer !== null && typeof answer === "object" ? answer : null;
     } catch {
-      return { ok: false };
+      return null;
     }
   };
   const text = (value) => (value === undefined ? "" : String(value));
-  window.alert = function alert(message) { ask("alert", text(message), ""); };
-  window.confirm = function confirm(message) { return ask("confirm", text(message), "").ok === true; };
+  window.alert = function alert(message) {
+    if (ask("alert", text(message), "") === null) apply(nativeAlert, window, [message]);
+  };
+  window.confirm = function confirm(message) {
+    const answer = ask("confirm", text(message), "");
+    return answer === null ? apply(nativeConfirm, window, [message]) : answer.ok === true;
+  };
   window.prompt = function prompt(message, defaultValue) {
     const answer = ask("prompt", text(message), text(defaultValue));
+    if (answer === null) return apply(nativePrompt, window, [message, defaultValue]);
     return answer.ok === true ? String(answer.text ?? "") : null;
   };
-})(${JSON.stringify(token)});`;
+})(${JSON.stringify(token)});
+//# sourceURL=${PAGE_DIALOG_SHIM_URL}`;
 }
 
 interface PaneDialogs {
   paneId: string;
+  /** The pane's page, whose frames a request's origin must belong to. */
+  page: WebContents;
   /** The renderer hosting the pane, which shows the overlay. */
   host: WebContents;
   /** Each open dialog's responder, by dialog id. */
   pending: Map<string, (answer: PageDialogAnswer) => void>;
 }
 
-/** token → the pane its shim belongs to. */
-const panesByToken = new Map<string, PaneDialogs>();
-/** dialog id → its pane's token, for the renderer's reply. */
-const tokensByDialog = new Map<string, string>();
+const tokens = new DialogTokens<PaneDialogs>(randomUUID);
+/** dialog id → its pane, for the renderer's reply. */
+const panesByDialog = new Map<string, PaneDialogs>();
 const sessionsHandled = new WeakSet<Session>();
 
-function respond(answer: PageDialogAnswer, status = 200): Response {
+/** The answer, readable only by `origin`. */
+function respond(answer: PageDialogAnswer, origin: string): Response {
   return new Response(JSON.stringify(answer), {
-    status,
     headers: {
       "content-type": "application/json",
-      "access-control-allow-origin": "*",
+      "access-control-allow-origin": origin,
     },
   });
 }
 
+/** No answer, and one no page may read: the shim falls back to the native dialog. */
+function refuse(status: number): Response {
+  return new Response(null, { status });
+}
+
+/** The origins of every frame in `page`, or none once it's gone. */
+function frameOrigins(page: WebContents): string[] {
+  if (page.isDestroyed()) return [];
+  try {
+    return page.mainFrame.framesInSubtree.map((frame) => frame.origin);
+  } catch {
+    return []; // a frame disposed of mid-walk
+  }
+}
+
 async function handleDialogRequest(request: Request): Promise<Response> {
-  const token = new URL(request.url).hostname;
-  const pane = panesByToken.get(token);
-  if (!pane || pane.host.isDestroyed()) return respond({ ok: false }, 404);
-  let body: Partial<Omit<PageDialog, "id">>;
+  const pane = tokens.resolve(new URL(request.url).hostname);
+  if (!pane || pane.host.isDestroyed()) return refuse(404);
+  // The page's own word on where it is counts for nothing: only what the
+  // browser says, checked against the frames this pane actually shows.
+  const origin = requestOrigin(request.headers.get("origin"), request.referrer);
+  if (!origin || !isPaneOrigin(origin, frameOrigins(pane.page))) return refuse(403);
+  let body: Partial<Pick<PageDialog, "type" | "message" | "defaultText">>;
   try {
     body = JSON.parse(await request.text());
   } catch {
-    return respond({ ok: false }, 400);
+    return refuse(400);
   }
+  // One at a time: the page is blocked on it, so another is some other
+  // document's, and is answered as dismissed rather than queued up.
+  if (pane.pending.size > 0) return respond({ ok: false }, origin);
   const type = body.type === "confirm" || body.type === "prompt" ? body.type : "alert";
   const dialog: PageDialog = {
     id: randomUUID(),
     type,
-    message: String(body.message ?? ""),
-    defaultText: type === "prompt" ? String(body.defaultText ?? "") : "",
-    origin: String(body.origin ?? ""),
+    message: clampDialogText(String(body.message ?? "")),
+    defaultText: type === "prompt" ? clampDialogText(String(body.defaultText ?? "")) : "",
+    origin,
   };
   const answer = await new Promise<PageDialogAnswer>((resolve) => {
     pane.pending.set(dialog.id, resolve);
-    tokensByDialog.set(dialog.id, token);
+    panesByDialog.set(dialog.id, pane);
     pane.host.send("webview:dialog", pane.paneId, dialog);
   });
-  return respond(answer);
+  return respond(answer, origin);
 }
 
 function settle(pane: PaneDialogs, id: string, answer: PageDialogAnswer): void {
   const resolve = pane.pending.get(id);
   if (!resolve) return;
   pane.pending.delete(id);
-  tokensByDialog.delete(id);
+  panesByDialog.delete(id);
   resolve(answer);
 }
 
@@ -160,8 +212,7 @@ function dismissAll(pane: PaneDialogs): void {
 export function registerPageDialogIpc(): void {
   ipcMain.handle("webview:dialog-reply", (_event, id: string, ok: boolean, text?: string) => {
     assertString(id, "id");
-    const token = tokensByDialog.get(id);
-    const pane = token ? panesByToken.get(token) : undefined;
+    const pane = panesByDialog.get(id);
     if (!pane) return;
     settle(pane, id, { ok: ok === true, text: typeof text === "string" ? text : undefined });
   });
@@ -177,42 +228,69 @@ export function attachPageDialogs(paneId: string, page: WebContents, host: WebCo
     page.session.protocol.handle(PAGE_DIALOG_SCHEME, handleDialogRequest);
   }
 
-  const token = randomUUID();
-  const pane: PaneDialogs = { paneId, host, pending: new Map() };
-  panesByToken.set(token, pane);
-  const source = shimSource(token);
-
-  void (async () => {
-    try {
-      // A pane registered again (its webview re-attached) brings its own token.
-      if (page.debugger.isAttached()) page.debugger.detach();
-      page.debugger.attach("1.3");
-      // Without `Page.enable`, a script added for new documents holds up
-      // their load instead of running ahead of it.
-      await page.debugger.sendCommand("Page.enable");
-      await page.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source });
-      // The document already there (the pane's first page can start before
-      // it registers) gets the shim now.
-      await page.debugger.sendCommand("Runtime.evaluate", { expression: source });
-    } catch (err) {
+  const pane: PaneDialogs = { paneId, page, host, pending: new Map() };
+  /** The shim script the debugger adds to each new document, once added. */
+  let scriptId: string | null = null;
+  // Debugger commands run one after another, so a rotation never races the
+  // attach or another rotation.
+  let queue: Promise<void> = Promise.resolve();
+  const enqueue = (step: () => Promise<void>) => {
+    queue = queue.then(step).catch((err) => {
       console.warn(`[webview] ${paneId}: page dialogs fall back to native ones:`, err);
+    });
+  };
+  /** The shim for the next document, with a fresh token, in place of the last. */
+  const addShim = async (source: string) => {
+    const previous = scriptId;
+    const added = (await page.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
+      source,
+    })) as { identifier: string };
+    scriptId = added.identifier;
+    if (previous !== null) {
+      await page.debugger.sendCommand("Page.removeScriptToEvaluateOnNewDocument", {
+        identifier: previous,
+      });
     }
-  })();
+  };
+
+  const firstSource = shimSource(tokens.issue(pane));
+  enqueue(async () => {
+    // A pane registered again (its webview re-attached) brings its own token.
+    if (page.debugger.isAttached()) page.debugger.detach();
+    page.debugger.attach("1.3");
+    // Without `Page.enable`, a script added for new documents holds up
+    // their load instead of running ahead of it.
+    await page.debugger.sendCommand("Page.enable");
+    await addShim(firstSource);
+    // The document already there (the pane's first page can start before
+    // it registers) gets the shim now.
+    await page.debugger.sendCommand("Runtime.evaluate", { expression: firstSource });
+  });
 
   // A new document, or a dead renderer, ends the dialogs of the old one, as
-  // a browser tab's do.
+  // a browser tab's do. The new document gets a new token; the old one stops
+  // working once it has committed.
   const onNavigation = (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>) => {
-    if (details.isMainFrame && !details.isSameDocument) dismissAll(pane);
+    if (!details.isMainFrame || details.isSameDocument) return;
+    dismissAll(pane);
+    const source = shimSource(tokens.issue(pane));
+    enqueue(async () => {
+      if (page.isDestroyed() || !page.debugger.isAttached()) return;
+      await addShim(source);
+    });
   };
+  const onCommitted = () => tokens.committed(pane);
   const onGone = () => dismissAll(pane);
   page.on("did-start-navigation", onNavigation);
+  page.on("did-navigate", onCommitted);
   page.on("render-process-gone", onGone);
 
   return () => {
     page.off("did-start-navigation", onNavigation);
+    page.off("did-navigate", onCommitted);
     page.off("render-process-gone", onGone);
     dismissAll(pane);
-    panesByToken.delete(token);
+    tokens.release(pane);
     if (!page.isDestroyed() && page.debugger.isAttached()) {
       try {
         page.debugger.detach();

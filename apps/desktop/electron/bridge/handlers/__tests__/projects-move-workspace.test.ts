@@ -11,11 +11,19 @@ import type { WorkspaceMoveProgress } from "../../../projects/workspace-host-mov
 
 const moveWorkspaceToHost = vi.fn();
 const preflightWorkspaceMove = vi.fn();
-vi.mock("../../../projects/workspace-host-move", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
+const createDeps = vi.fn();
+vi.mock("../../../projects/workspace-host-move", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../projects/workspace-host-move")>();
+  return {
+  ...actual,
+  createWorkspaceHostMoveDeps: (server: Parameters<typeof actual.createWorkspaceHostMoveDeps>[0]) => {
+    createDeps(server);
+    return actual.createWorkspaceHostMoveDeps(server);
+  },
   moveWorkspaceToHost: (...args: unknown[]) => moveWorkspaceToHost(...args),
   preflightWorkspaceMove: (...args: unknown[]) => preflightWorkspaceMove(...args),
-}));
+  };
+});
 
 const publishToRenderer = vi.fn();
 vi.mock("../../../renderer-broadcast", async (importOriginal) => ({
@@ -23,6 +31,7 @@ vi.mock("../../../renderer-broadcast", async (importOriginal) => ({
   publishToRenderer: (...args: unknown[]) => publishToRenderer(...args),
 }));
 
+import { START_SCRIPT_MAX_WAIT_MS } from "../../../workspace-ops";
 import { localCtx } from "../../method";
 import { projectsMoveWorkspaceToHost, projectsMoveWorkspaceToHostPreflight } from "../projects";
 
@@ -77,6 +86,10 @@ describe("projects.moveWorkspaceToHost", () => {
     });
 
     expect(result).toEqual({ ...done, moveId: "move-7" });
+    // The start script is waited for as long as any host allows one.
+    expect(createDeps).toHaveBeenCalledWith(
+      expect.objectContaining({ setupTimeoutMs: START_SCRIPT_MAX_WAIT_MS }),
+    );
     expect(moveWorkspaceToHost).toHaveBeenCalledWith(
       expect.objectContaining({ recreator: expect.anything() }),
       { ...request, keepSource: true },

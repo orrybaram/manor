@@ -8,7 +8,7 @@ import {
   resolveProjectId,
   resolveWorkspacePath,
 } from "./context";
-import type { ToolDef, ToolModule } from "./types";
+import type { Http, ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
 /** Shared by every tool that takes an optional, inferrable project. */
@@ -156,6 +156,8 @@ const MOVE_STEP_LABELS: Record<string, string> = {
 
 /** Why a move was refused, as a line (and the files, for a dirty tree). */
 function formatMoveRefusal(r: MoveRefusal, targetHost: string): string {
+  // Where the host's name starts the sentence.
+  const TargetHost = targetHost === "this machine" ? "This machine" : targetHost;
   const files = (r.files ?? []).map((f) => `    ${f.code} ${f.path}`);
   const count = (n: number) => `${n} changed file${n === 1 ? "" : "s"}`;
   switch (r.code) {
@@ -163,7 +165,7 @@ function formatMoveRefusal(r: MoveRefusal, targetHost: string): string {
       return [`  Commit or discard ${count(files.length)} first:`, ...files].join("\n");
     case "target-dirty":
       return [
-        `  ${targetHost} already has this branch checked out, with ${count(files.length)}:`,
+        `  ${TargetHost} already has this branch checked out, with ${count(files.length)}:`,
         ...files,
       ].join("\n");
     case "no-origin":
@@ -177,15 +179,21 @@ function formatMoveRefusal(r: MoveRefusal, targetHost: string): string {
     case "target-main-on-branch":
       return `  The project's main checkout on ${targetHost} is on this branch.`;
     case "target-cannot-fast-forward":
-      return `  ${targetHost}'s checkout of this branch has commits this one doesn't, so it can't be fast-forwarded.`;
+      return `  ${TargetHost}'s checkout of this branch has commits this one doesn't, so it can't be fast-forwarded.`;
     default:
       return `  ${r.code}`;
   }
 }
 
+/** A host's name mid-sentence: "this machine", or the remote host's name as it is. */
+function midSentence(host: string): string {
+  return host === "This machine" ? "this machine" : host;
+}
+
 /** `move_workspace_to_host`'s text for each way a move ends. */
 export function formatWorkspaceMove(worktreePath: string, answer: WorkspaceMoveAnswer): string {
-  const { sourceHost, targetHost } = answer;
+  const sourceHost = midSentence(answer.sourceHost);
+  const targetHost = midSentence(answer.targetHost);
   if (answer.ok) {
     const lines = [`Moved workspace to ${targetHost}: ${answer.targetPath}`];
     if (answer.reused) lines.push(`Used the workspace ${targetHost} already had on this branch.`);
@@ -217,10 +225,35 @@ export function formatWorkspaceMove(worktreePath: string, answer: WorkspaceMoveA
 }
 
 /**
- * A move pushes, may clone and runs a setup script: it may take as long
- * as the longest setup script a host waits for, and a little more.
+ * The project a move names: the one given, else the caller's own as
+ * `remove_workspace` finds it (`resolveProjectId`), when that project has the
+ * workspace — so an agent in a linked group's workspace names its own host's
+ * member. Otherwise none, and the route finds the project by the path.
  */
-const MOVE_TIMEOUT_MS = 35 * 60_000;
+async function moveProjectId(
+  http: Http,
+  projectId: string | undefined,
+  worktreePath: string,
+): Promise<string | undefined> {
+  if (projectId) return projectId;
+  try {
+    const own = await resolveProjectId(http);
+    if (!own) return undefined;
+    const project = (await http.get(`/projects/${encodeURIComponent(own)}`)) as ProjectInfo;
+    return project.workspaces?.some((ws) => ws.path === worktreePath) ? own : undefined;
+  } catch {
+    // Not in a Manor pane, or its project is gone: the path decides.
+    return undefined;
+  }
+}
+
+/**
+ * A move pushes, may clone, and waits for the setup script up to 30
+ * minutes (`START_SCRIPT_MAX_WAIT_MS`, which the server's move passes on;
+ * not imported, as the CLI bundle stays clear of the server). Ten more
+ * cover the push, the clone, the tabs and the agents.
+ */
+const MOVE_TIMEOUT_MS = 40 * 60_000;
 
 export function formatWorkspace(
   ws: WorkspaceInfo,
@@ -851,7 +884,8 @@ const handlers: ToolModule["handlers"] = {
     const worktreePath = args.worktreePath as string;
     const body: Record<string, unknown> = { worktreePath, host: args.host };
     if (args.keepSource !== undefined) body.keepSource = args.keepSource;
-    if (args.projectId !== undefined) body.projectId = args.projectId;
+    const projectId = await moveProjectId(http, args.projectId as string | undefined, worktreePath);
+    if (projectId !== undefined) body.projectId = projectId;
     const answer = (await http.post(
       "/workspaces/move-to-host",
       body,

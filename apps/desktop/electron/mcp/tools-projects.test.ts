@@ -217,7 +217,7 @@ describe("create_workspace", () => {
 
 describe("move_workspace_to_host", () => {
   const moveTo = (answer: Record<string, unknown>) =>
-    fakeHttp({ post: async () => ({ sourceHost: "this Mac", targetHost: "me@box", ...answer }) });
+    fakeHttp({ post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }) });
   const run = async (http: Http, args: Record<string, unknown> = {}) => {
     const result = await projectsModule.handlers.move_workspace_to_host(
       { worktreePath: "/Users/me/app-feature", host: "box", ...args },
@@ -234,7 +234,9 @@ describe("move_workspace_to_host", () => {
       sourceRemoved: true,
     });
     const out = await run(http, { keepSource: false });
-    expect(http.calls).toEqual([
+    // Outside a Manor pane there is no caller's project: the route finds it by path.
+    expect(http.calls[0].path).toMatch(/^\/context/);
+    expect(http.calls.slice(1)).toEqual([
       {
         method: "POST",
         path: "/workspaces/move-to-host",
@@ -244,7 +246,7 @@ describe("move_workspace_to_host", () => {
     expect(out).toBe(
       [
         "Moved workspace to me@box: /home/me/.manor/worktrees/app/feature",
-        "Removed /Users/me/app-feature from this Mac; the branch is kept.",
+        "Removed /Users/me/app-feature from this machine; the branch is kept.",
       ].join("\n"),
     );
   });
@@ -255,7 +257,7 @@ describe("move_workspace_to_host", () => {
     );
     expect(out).toContain("Moved workspace to me@box: /home/me/feature");
     expect(out).toContain("already had on this branch");
-    expect(out).toContain("Kept /Users/me/app-feature on this Mac.");
+    expect(out).toContain("Kept /Users/me/app-feature on this machine.");
   });
 
   it("lists the dirty files of a refusal", async () => {
@@ -298,10 +300,53 @@ describe("move_workspace_to_host", () => {
     expect(out).toBe(
       [
         "Couldn't move /Users/me/app-feature: Creating the workspace on me@box failed: branch not found",
-        "/Users/me/app-feature is still on this Mac, as it was.",
+        "/Users/me/app-feature is still on this machine, as it was.",
       ].join("\n"),
     );
     const push = await run(moveTo({ ok: false, step: "push", error: "rejected" }));
-    expect(push).toContain("Pushing the branch on this Mac failed: rejected");
+    expect(push).toContain("Pushing the branch on this machine failed: rejected");
+  });
+
+  it("names the caller's own project when it has the workspace, as remove_workspace finds it", async () => {
+    const answer = { ok: true, targetPath: "/t", reused: false, sourceRemoved: true };
+    const ownsIt = fakeHttp({
+      get: async (path) =>
+        path.startsWith("/context")
+          ? { projectId: "p-local" }
+          : { id: "p-local", workspaces: [{ path: "/Users/me/app-feature" }] },
+      post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }),
+    });
+    await run(ownsIt);
+    expect(ownsIt.calls[1]).toMatchObject({ method: "GET", path: "/projects/p-local" });
+    expect(ownsIt.calls[2].body).toMatchObject({ projectId: "p-local" });
+
+    const elsewhere = fakeHttp({
+      get: async (path) =>
+        path.startsWith("/context") ? { projectId: "p-other" } : { id: "p-other", workspaces: [] },
+      post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }),
+    });
+    await run(elsewhere);
+    expect(elsewhere.calls[2].body).not.toHaveProperty("projectId");
+
+    const explicit = fakeHttp({ post: async () => ({ sourceHost: "a", targetHost: "b", ...answer }) });
+    await run(explicit, { projectId: "p-box" });
+    expect(explicit.calls).toEqual([
+      expect.objectContaining({ method: "POST", body: expect.objectContaining({ projectId: "p-box" }) }),
+    ]);
+  });
+
+  it("says this machine mid-sentence and This machine to start one", async () => {
+    const out = await run(
+      fakeHttp({
+        post: async () => ({
+          sourceHost: "me@box",
+          targetHost: "This machine",
+          ok: false,
+          refusals: [{ code: "target-dirty", files: [{ code: " M", path: "a.ts" }] }],
+        }),
+      }),
+    );
+    expect(out).toContain("Can't move /Users/me/app-feature to this machine:");
+    expect(out).toContain("  This machine already has this branch checked out, with 1 changed file:");
   });
 });

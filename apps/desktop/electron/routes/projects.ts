@@ -20,6 +20,7 @@ import { hostSpecLabel } from "../backend/providers/recipes";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
 import { runWorkspaceMove } from "../bridge/handlers/projects";
+import { hostDisplayName } from "../projects/host-records";
 import type { WorkspaceMoveResult } from "../projects/workspace-host-move";
 import { startAgentInWorkspace } from "./agents";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
@@ -904,9 +905,9 @@ export const projectRoutes: ServerRoute[] = [
 
 /** `POST /workspaces/move-to-host`'s answer: the move's, with both hosts named. */
 export type WorkspaceMoveAnswer = WorkspaceMoveResult & {
-  /** The source's host, as listings label it. */
+  /** The source's host, as the sidebar names it ("This machine" for local). */
   sourceHost: string;
-  /** The target's host id and label. */
+  /** The target's host id and its name, the same way. */
   targetHostId: string;
   targetHost: string;
 };
@@ -956,7 +957,7 @@ export const workspaceMoveRoutes: ServerRoute[] = [
         return;
       }
       if (owners.length > 1) {
-        const list = owners.map((p) => `${p.id} (${p.name} on ${pm.hostLabel(p.hostId)})`);
+        const list = owners.map((p) => `${p.id} (${p.name} on ${hostDisplayName(pm, p.hostId)})`);
         json(400, {
           error: `More than one project has a workspace at ${worktreePath}: ${list.join(", ")}. Pass projectId.`,
         });
@@ -981,9 +982,9 @@ export const workspaceMoveRoutes: ServerRoute[] = [
       });
       const answer: WorkspaceMoveAnswer = {
         ...result,
-        sourceHost: pm.hostLabel(project.hostId),
+        sourceHost: hostDisplayName(pm, project.hostId),
         targetHostId: resolved.hostId,
-        targetHost: pm.hostLabel(resolved.hostId),
+        targetHost: hostDisplayName(pm, resolved.hostId),
       };
       json(200, answer);
     },

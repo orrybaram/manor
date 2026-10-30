@@ -283,7 +283,7 @@ describe("dispatch", () => {
         targetPath: "/home/me/feature",
         reused: false,
         sourceRemoved: false,
-        sourceHost: "this Mac",
+        sourceHost: "This machine",
         targetHost: "me@box",
       }),
     });
@@ -300,6 +300,7 @@ describe("dispatch", () => {
       expect.any(Number),
     );
     expect(io.stdout).toContain("Moved workspace to me@box: /home/me/feature");
+    expect(io.stdout).toContain("Kept /ws on this machine.");
   });
 
   it("sends false for the --no- form of a boolean flag", async () => {

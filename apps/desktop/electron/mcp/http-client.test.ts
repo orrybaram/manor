@@ -300,3 +300,113 @@ describe("http-client", () => {
     });
   });
 });
+
+// ── Long writes: node:http, no five-minute headers timeout, no second send ──
+
+describe("http-client long requests", () => {
+  const ORIGINAL_ENV = { ...process.env };
+  let server: import("node:http").Server | null = null;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    delete process.env.MANOR_CONTROL_PORT_FILE;
+    delete process.env.MANOR_WEBVIEW_PORT;
+  });
+
+  afterEach(async () => {
+    process.env = { ...ORIGINAL_ENV };
+    if (server) await new Promise((r) => server!.close(r));
+    server = null;
+  });
+
+  /** A real server that answers each POST after `delayMs`, recording what it got. */
+  async function listen(delayMs: number, seen: string[]): Promise<number> {
+    const http = await import("node:http");
+    server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen.push(`${req.method} ${req.url} ${body}`);
+        setTimeout(() => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, moved: true }));
+        }, delayMs);
+      });
+    });
+    await new Promise<void>((r) => server!.listen(0, "127.0.0.1", r));
+    return (server.address() as import("node:net").AddressInfo).port;
+  }
+
+  it("sends a POST with a timeout over node:http, not fetch, and reads its answer", async () => {
+    const seen: string[] = [];
+    const port = await listen(50, seen);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(`${port}\n`);
+
+    const { createHttp } = await import("./http-client");
+    const result = await createHttp().post("/workspaces/move-to-host", { host: "box" }, 10_000);
+
+    expect(result).toEqual({ ok: true, moved: true });
+    expect(seen).toEqual(['POST /workspaces/move-to-host {"host":"box"}']);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("goes to the next port when nothing listens on the first: the write was never sent", async () => {
+    const seen: string[] = [];
+    const port = await listen(0, seen);
+    process.env.MANOR_WEBVIEW_PORT = "1"; // nothing listens on port 1
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(`${port}\n`);
+
+    const { createHttp } = await import("./http-client");
+    await expect(createHttp().post("/automations/a/run", {}, 10_000)).resolves.toEqual({
+      ok: true,
+      moved: true,
+    });
+    expect(seen).toHaveLength(1);
+  });
+
+  it("stops at its own timeout, once, without trying another port", async () => {
+    const seen: string[] = [];
+    const port = await listen(5_000, seen);
+    process.env.MANOR_WEBVIEW_PORT = String(port);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(`${port + 1}\n`);
+
+    const { createHttp, isConnectionError } = await import("./http-client");
+    const err = await createHttp()
+      .post("/workspaces/move-to-host", {}, 100)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(isConnectionError(err)).toBe(false);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("never sends a write again after fetch's headers timeout, and doesn't call it a connection error", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue("4321\n");
+    process.env.MANOR_WEBVIEW_PORT = "1234";
+    const timedOut = new TypeError("fetch failed");
+    (timedOut as NodeJS.ErrnoException).cause = Object.assign(new Error("Headers Timeout Error"), {
+      code: "UND_ERR_HEADERS_TIMEOUT",
+    });
+    mockFetch.mockRejectedValue(timedOut);
+
+    const { createHttp, isConnectionError } = await import("./http-client");
+    await expect(createHttp().post("/projects/p/workspaces", {})).rejects.toBe(timedOut);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(isConnectionError(timedOut)).toBe(false);
+  });
+
+  it("still tries the next port for a refused write", async () => {
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue("4321\n");
+    process.env.MANOR_WEBVIEW_PORT = "1234";
+    mockFetch.mockRejectedValueOnce(connectionRefused()).mockResolvedValueOnce(fetchOk({ ok: 1 }));
+
+    const { createHttp } = await import("./http-client");
+    await expect(createHttp().post("/projects/p/workspaces", {})).resolves.toEqual({ ok: 1 });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});

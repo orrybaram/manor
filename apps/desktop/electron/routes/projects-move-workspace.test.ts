@@ -108,7 +108,7 @@ describe("POST /workspaces/move-to-host", () => {
     expect(status).toBe(200);
     expect(answer).toEqual({
       ...moved,
-      sourceHost: "this Mac",
+      sourceHost: "This machine",
       targetHostId: "box",
       targetHost: "me@box",
     });

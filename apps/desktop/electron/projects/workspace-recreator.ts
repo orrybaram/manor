@@ -41,6 +41,7 @@ import { createSessionScanner, processEnv, type SessionScanner } from "../sessio
 import type { SessionSummary } from "../sessions/types";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { AgentKind } from "../terminal-host/types";
+import { hostDisplayName } from "./host-records";
 import { buildHandoffPrompt, handoffFromPreview } from "./handoff-prompt";
 import type { ProjectManager } from "./project-manager";
 import type { RecreateContext, RecreateStep, WorkspaceRecreator } from "./workspace-host-move";
@@ -402,13 +403,6 @@ function sessionReads(server: RecreatorServer): SessionReads {
       return (await proxyOf(hostId).invoke("sessions", "transcript", [ref])) as SessionPreview;
     },
   };
-}
-
-/** A host as the sidebar names it: "This machine", or the remote host's name. */
-function hostDisplayName(pm: Pick<ProjectManager, "hostLabel">, hostId: string): string {
-  // `hostLabel` is the remote host's `hostSpecLabel`, the name main reports
-  // for it (`BackendRegistry`), which the sidebar shows.
-  return hostId === LOCAL_HOST_ID ? "This machine" : pm.hostLabel(hostId);
 }
 
 /** The recreator a move runs in the desktop's Manor server (`createWorkspaceHostMoveDeps`). */

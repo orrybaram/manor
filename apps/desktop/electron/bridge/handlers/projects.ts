@@ -238,12 +238,17 @@ type WorkspaceMoveServer = Pick<
   | "paneContextMap"
 >;
 
-/** A workspace move over this server's own deps, layout and agents included. */
+/**
+ * A workspace move over this server's own deps, layout and agents included.
+ * It waits for the start script as long as any host allows one
+ * (`START_SCRIPT_MAX_WAIT_MS`); the CLI's wait for a move is that and more.
+ */
 export function workspaceMoveDeps(deps: WorkspaceMoveServer): WorkspaceHostMoveDeps {
   return createWorkspaceHostMoveDeps({
     projectManager: deps.projectManager,
     workspaceOps: deps.workspaceOps,
     backendRegistry: deps.backendRegistry,
+    setupTimeoutMs: START_SCRIPT_MAX_WAIT_MS,
     ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
     recreator: createWorkspaceRecreator({
       layoutStore: deps.layoutStore,

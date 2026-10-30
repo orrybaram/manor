@@ -10,6 +10,7 @@
  */
 
 import * as fs from "node:fs";
+import * as http from "node:http";
 import { webviewServerPortFile, webviewServerTokenFile } from "../paths";
 import type { Http } from "./types";
 import { HttpError } from "./types";
@@ -72,37 +73,31 @@ async function requestViaControlRelay(
   portFile: string,
   urlPath: string,
   init?: RequestInit,
+  long = false,
 ): Promise<unknown> {
   const target = readControlPortFile(portFile);
   if (!target) throw new Error(REMOTE_UNREACHABLE_MESSAGE);
 
-  let res: Response;
+  let res: Answer;
   try {
-    res = await fetch(`http://127.0.0.1:${target.port}${urlPath}`, {
-      ...init,
-      headers: {
-        ...(init?.headers as Record<string, string> | undefined),
-        [CONTROL_TOKEN_HEADER]: target.token,
+    res = await send(
+      `http://127.0.0.1:${target.port}${urlPath}`,
+      {
+        ...init,
+        headers: {
+          ...(init?.headers as Record<string, string> | undefined),
+          [CONTROL_TOKEN_HEADER]: target.token,
+        },
       },
-    });
+      long,
+    );
   } catch (err) {
     if (isConnectionError(err)) {
       throw new Error(REMOTE_UNREACHABLE_MESSAGE, { cause: err });
     }
     throw err;
   }
-
-  if (!res.ok) {
-    const rawBody = await res.text();
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(rawBody);
-    } catch {
-      // not JSON; body stays null
-    }
-    throw new HttpError(res.status, parsed, rawBody);
-  }
-  return await res.json();
+  return bodyOf(res);
 }
 
 // Candidate targets to reach Manor's webview server, in priority order, each
@@ -153,50 +148,131 @@ function readTokenFile(): string | null {
  * `handleTool` does.
  */
 export function isConnectionError(err: unknown): boolean {
-  return err instanceof TypeError && Boolean((err as NodeJS.ErrnoException).cause);
+  if (!(err instanceof TypeError)) return false;
+  const cause = (err as NodeJS.ErrnoException).cause;
+  // undici's headers and body timeouts come as the same `TypeError`, but a
+  // server was there and may be working on the request still.
+  return Boolean(cause) && !TIMEOUT_CODES.has(codeOf(cause) ?? "");
 }
 
-// Try each candidate port until one answers. Connection-level failures and a
-// refused token fall through to the next candidate; any other HTTP error from
-// a live server is surfaced as-is (don't mask a real error by retrying a
-// different instance).
-async function request(urlPath: string, init?: RequestInit): Promise<unknown> {
+/** undici's timeouts: a live server that took too long, not a missing one. */
+const TIMEOUT_CODES = new Set(["UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"]);
+
+function codeOf(err: unknown): string | undefined {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * Whether a failed request may go to the next candidate port. A read may,
+ * whatever broke its connection. A write only when nothing was listening
+ * (`ECONNREFUSED`), so the request was never sent: anything else may have
+ * reached a server that is still carrying it out, and sending it again
+ * would do it twice.
+ */
+function retryOnNextPort(err: unknown, method: string): boolean {
+  if (!isConnectionError(err)) return false;
+  if (method === "GET") return true;
+  return codeOf((err as NodeJS.ErrnoException).cause) === "ECONNREFUSED";
+}
+
+/** What a request's answer gives: `fetch`'s `Response`, or `nodeRequest`'s. */
+interface Answer {
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}
+
+/**
+ * A request over `node:http`, for one that may run for minutes (`long`).
+ * Node's `fetch` gives up on a server that sends no headers for five
+ * minutes (undici's `headersTimeout`), and a control route answers only
+ * when its work is done; `node:http` waits until the request's own
+ * `signal` says to stop. A refused connection fails as `fetch`'s does, so
+ * callers tell it apart the same way.
+ */
+function nodeRequest(url: string, init: RequestInit): Promise<Answer> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      url,
+      {
+        method: init.method ?? "GET",
+        headers: init.headers as http.OutgoingHttpHeaders | undefined,
+        ...(init.signal ? { signal: init.signal } : {}),
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("error", reject);
+        res.on("end", () => {
+          const status = res.statusCode ?? 0;
+          const body = Buffer.concat(chunks).toString("utf-8");
+          resolve({ ok: status >= 200 && status < 300, status, text: async () => body });
+        });
+      },
+    );
+    req.on("error", (err) => {
+      reject(codeOf(err) === "ECONNREFUSED" ? new TypeError("fetch failed", { cause: err }) : err);
+    });
+    if (typeof init.body === "string") req.write(init.body);
+    req.end();
+  });
+}
+
+function send(url: string, init: RequestInit | undefined, long: boolean): Promise<Answer> {
+  return long ? nodeRequest(url, init ?? {}) : fetch(url, init);
+}
+
+/** A 2xx answer's JSON, or the `HttpError` a live server's error is. */
+async function bodyOf(res: Answer): Promise<unknown> {
+  const rawBody = await res.text();
+  if (res.ok) return JSON.parse(rawBody);
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    // not JSON; body stays null
+  }
+  throw new HttpError(res.status, parsed, rawBody);
+}
+
+// Try each candidate port until one answers. A port with nothing on it
+// (`retryOnNextPort`) and a refused token fall through to the next candidate;
+// any other HTTP error from a live server is surfaced as-is (don't mask a real
+// error by retrying a different instance).
+async function request(urlPath: string, init?: RequestInit, long = false): Promise<unknown> {
   const controlPortFile = process.env.MANOR_CONTROL_PORT_FILE;
   if (controlPortFile) {
-    return requestViaControlRelay(controlPortFile, urlPath, init);
+    return requestViaControlRelay(controlPortFile, urlPath, init, long);
   }
 
   let lastErr: unknown;
   for (const { port, token } of candidateTargets()) {
+    let res: Answer;
     try {
-      const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, {
-        ...init,
-        headers: {
-          ...(init?.headers as Record<string, string> | undefined),
-          [CONTROL_TOKEN_HEADER]: token,
+      res = await send(
+        `http://127.0.0.1:${port}${urlPath}`,
+        {
+          ...init,
+          headers: {
+            ...(init?.headers as Record<string, string> | undefined),
+            [CONTROL_TOKEN_HEADER]: token,
+          },
         },
-      });
-      // A refused token may be a stale env pairing; the next candidate
-      // (the files, always current) may still get through.
-      if (res.status === 401) {
-        lastErr = new Error(TOKEN_REFUSED_MESSAGE);
-        continue;
-      }
-      if (!res.ok) {
-        const rawBody = await res.text();
-        let parsed: unknown = null;
-        try {
-          parsed = JSON.parse(rawBody);
-        } catch {
-          // not JSON; body stays null
-        }
-        throw new HttpError(res.status, parsed, rawBody);
-      }
-      return await res.json();
+        long,
+      );
     } catch (err) {
       lastErr = err;
-      if (!isConnectionError(err)) throw err;
+      if (!retryOnNextPort(err, init?.method ?? "GET")) throw err;
+      continue;
     }
+    // A refused token may be a stale env pairing; the next candidate
+    // (the files, always current) may still get through.
+    if (res.status === 401) {
+      lastErr = new Error(TOKEN_REFUSED_MESSAGE);
+      continue;
+    }
+    return bodyOf(res);
   }
   throw lastErr;
 }
@@ -217,8 +293,11 @@ async function httpPost(
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   };
+  // A caller that names a timeout expects to wait (a move, an automation
+  // run, a push): that timeout alone ends the wait (`nodeRequest`).
   if (timeoutMs !== undefined) {
     init.signal = AbortSignal.timeout(timeoutMs);
+    return request(urlPath, init, true);
   }
   return request(urlPath, init);
 }

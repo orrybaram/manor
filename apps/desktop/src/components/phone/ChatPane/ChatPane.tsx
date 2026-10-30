@@ -117,6 +117,13 @@ export function ChatPane(props: ChatPaneProps) {
     /** The last fetch answered `host-offline`: fetch again on a sign of life. */
     let offline = false;
     let fetching = false;
+    /**
+     * The history changed in place (`ChatReset`): the next history that
+     * answers replaces the entries shown rather than merging under them.
+     */
+    let replace = false;
+    /** A reset arrived during a fetch, which may predate it: fetch again after. */
+    let again = false;
     /** The chat is showing a history: the last fetch that answered had one. */
     let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
@@ -137,14 +144,21 @@ export function ChatPane(props: ChatPaneProps) {
     function fetchHistory(): Promise<void> {
       if (fetching) return Promise.resolve();
       fetching = true;
+      const replacing = replace;
       return chat.getHistory(paneId).then(
         (history) => {
           fetching = false;
           if (!alive) return;
+          if (again) {
+            again = false;
+            void fetchHistory();
+            return;
+          }
           if (history.ok) {
             shown = true;
+            if (replacing) replace = false;
             noteChatEntries(paneId, transcript, history.entries);
-            setEntries((prev) => mergeHistory(history.entries, prev));
+            setEntries((prev) => (replacing ? history.entries : mergeHistory(history.entries, prev)));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
@@ -177,6 +191,11 @@ export function ChatPane(props: ChatPaneProps) {
         setContextTokens(entry.contextTokens);
       } else if (entry.kind === "turn") {
         turnSettle.setTurn(entry.state);
+      } else if (entry.kind === "reset") {
+        replace = true;
+        if (fetching) again = true;
+        else void fetchHistory();
+        return;
       } else {
         setEntries((prev) => upsertEntry(prev, entry));
         noteChatEntries(paneId, transcript, [entry]);

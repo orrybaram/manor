@@ -161,8 +161,23 @@ export type ChatTurn = {
   state: ChatTurnState;
 };
 
-/** What the `chat.entry` channel carries: an entry, a context-size or a turn-state update. */
-export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
+/**
+ * The transcript's history changed in place, not just at its end (opencode
+ * deleted the rows `/undo` reverted): what was pushed before may be gone.
+ * Published once the mirror has read the changed history; a subscriber
+ * fetches the history again and replaces what it shows. Never a `ChatEntry`.
+ */
+export type ChatReset = {
+  kind: "reset";
+  id: "reset";
+  ts: string;
+};
+
+/**
+ * What the `chat.entry` channel carries: an entry, a context-size or a
+ * turn-state update, or word that the history changed.
+ */
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn | ChatReset;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };

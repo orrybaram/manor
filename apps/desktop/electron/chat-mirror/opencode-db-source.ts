@@ -18,9 +18,13 @@
  * after it (the boundary millisecond again, since rows are snapshots the
  * parser upserts by id), and `next` and `size` are the newest `time_updated`
  * now. Before reading rows, a cheap probe (row counts and newest
- * `time_updated`) answers "nothing changed" without reading any. A session
- * whose rows went backwards (fewer of them, or older) reads as `size` below
- * the cursor, which the stream takes as "rewritten" and reads afresh.
+ * `time_updated`) answers "nothing changed" without reading any.
+ *
+ * Rows are deleted too: `/undo` and then a prompt drop the reverted turn's
+ * rows. The source keeps the ids of the rows it has returned, so a count
+ * that isn't those plus the new ones means rows went (or came in under the
+ * cursor); that, an older newest row or another schema reads as `replaced`,
+ * and the stream reads the session afresh and tells its subscribers.
  *
  * A session is read from v2 when `session_message` has rows for it, else
  * from v1. The database is opened as `sessions/sqlite-store.ts` opens it,
@@ -47,6 +51,8 @@ interface Seen {
   stamp: string;
   cursor: number;
   probe: Probe;
+  /** Every row returned since the read from 0, as `<table>:<id>`. */
+  ids: Set<string>;
 }
 
 /**
@@ -94,8 +100,14 @@ function probe(db: DatabaseSync, sessionId: string, names: Set<string>): Probe {
 }
 
 /** The session's rows updated at or after `cursor`, as lines, in order. */
-function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], cursor: number): string[] {
+function rows(
+  db: DatabaseSync,
+  sessionId: string,
+  schema: Probe["schema"],
+  cursor: number,
+): { lines: string[]; ids: string[] } {
   const lines: string[] = [];
+  const ids: string[] = [];
   if (schema === "v2") {
     const found = db
       .prepare(
@@ -104,6 +116,7 @@ function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], curs
       )
       .all(sessionId, cursor) as Row[];
     for (const r of found) {
+      ids.push(`session_message:${String(r.id)}`);
       lines.push(
         JSON.stringify({
           t: "session_message",
@@ -116,9 +129,9 @@ function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], curs
         }),
       );
     }
-    return lines;
+    return { lines, ids };
   }
-  if (schema !== "v1") return lines;
+  if (schema !== "v1") return { lines, ids };
   const messages = db
     .prepare(
       `SELECT id, time_created, time_updated, data FROM message
@@ -126,6 +139,7 @@ function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], curs
     )
     .all(sessionId, cursor) as Row[];
   for (const r of messages) {
+    ids.push(`message:${String(r.id)}`);
     lines.push(
       JSON.stringify({
         t: "message",
@@ -145,6 +159,7 @@ function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], curs
     )
     .all(sessionId, cursor) as Row[];
   for (const r of parts) {
+    ids.push(`part:${String(r.id)}`);
     const data = json(r.data);
     if (data && typeof data === "object" && typeof r.output === "string") {
       const state = (data as Row).state;
@@ -161,7 +176,7 @@ function rows(db: DatabaseSync, sessionId: string, schema: Probe["schema"], curs
       }),
     );
   }
-  return lines;
+  return { lines, ids };
 }
 
 export interface OpencodeDbSourceOptions {
@@ -202,28 +217,44 @@ export class OpencodeDbSource implements TranscriptSource {
   }
 
   private readSession(db: DatabaseSync, locator: string, sessionId: string, cursor: number): TranscriptRead {
+    // One read transaction: the probe and the rows see the same database.
+    db.exec("BEGIN");
+    try {
+      return this.readSnapshot(db, locator, sessionId, cursor);
+    } finally {
+      db.exec("COMMIT");
+    }
+  }
+
+  private readSnapshot(db: DatabaseSync, locator: string, sessionId: string, cursor: number): TranscriptRead {
     const now = probe(db, sessionId, tables(db));
     const stamp = `${now.schema}:${now.count}:${now.newest}`;
-    const last = this.seen.get(locator);
-    // Fewer rows, older ones, or another schema: start over from the top.
-    const back =
-      last !== undefined &&
-      cursor > 0 &&
-      (now.schema !== last.probe.schema || now.count < last.probe.count || now.newest < last.probe.newest);
-    if (back || now.schema === "none") {
+    // A read from 0 starts afresh; any other continues the last one.
+    const last = cursor > 0 ? this.seen.get(locator) : undefined;
+    if (cursor === 0) this.seen.delete(locator);
+    const replaced = (): TranscriptRead => {
       this.seen.delete(locator);
-      return { ok: true, size: 0, data: "" };
+      return { ok: true, size: 0, data: "", replaced: true };
+    };
+    // Nothing known of what the stream read before, another schema, or older rows.
+    if (cursor > 0 && (!last || now.schema !== last.probe.schema || now.newest < last.probe.newest)) {
+      return replaced();
     }
+    if (now.schema === "none") return { ok: true, size: 0, data: "" }; // Not written yet.
     if (last && last.stamp === stamp && last.cursor === cursor) {
       return { ok: true, size: cursor, next: cursor, data: "" };
     }
-    const lines = rows(db, sessionId, now.schema, cursor);
-    this.seen.set(locator, { stamp, cursor: now.newest, probe: now });
+    const read = rows(db, sessionId, now.schema, cursor);
+    const ids = new Set(last?.ids);
+    for (const id of read.ids) ids.add(id);
+    // Rows went, or came in under the cursor: what was read before is not the session now.
+    if (cursor > 0 && ids.size !== now.count) return replaced();
+    this.seen.set(locator, { stamp, cursor: now.newest, probe: now, ids });
     return {
       ok: true,
       size: now.newest,
       next: now.newest,
-      data: lines.length > 0 ? `${lines.join("\n")}\n` : "",
+      data: read.lines.length > 0 ? `${read.lines.join("\n")}\n` : "",
     };
   }
 

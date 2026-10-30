@@ -510,7 +510,7 @@ export class ChatMirror {
 
   /** What the pane's stream found: publish it, and settle what it answers. */
   private onPanePush(paneId: string, m: PaneMirror, push: ChatPush, publish: boolean): void {
-    if (push.kind === "usage" || push.kind === "turn") {
+    if (push.kind === "usage" || push.kind === "turn" || push.kind === "reset") {
       if (publish) this.deps.publish(paneId, push);
       return;
     }

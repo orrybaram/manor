@@ -124,16 +124,40 @@ describe("OpencodeDbSource", () => {
     expect(read.next).toBe(150);
   });
 
-  it("reads a session whose rows went backwards as rewritten", async () => {
+  it("reads a session whose rows went backwards as replaced", async () => {
     v1Schema(db);
     message("msg_1", "ses_a", 100, { role: "user" });
     message("msg_2", "ses_a", 200, { role: "user" });
     const locator = opencodeLocator(dbPath, "ses_a");
     await source.read(locator, 0);
     db.prepare("DELETE FROM message WHERE id = 'msg_2'").run();
-    expect(await source.read(locator, 200)).toEqual({ ok: true, size: 0, data: "" });
+    expect(await source.read(locator, 200)).toEqual({ ok: true, size: 0, data: "", replaced: true });
     const again = await source.read(locator, 0);
     expect(again.ok && lines(again.data).map((r) => r.id)).toEqual(["msg_1"]);
+  });
+
+  it("sees rows deleted while more were added, though the count grew", async () => {
+    v1Schema(db);
+    message("msg_1", "ses_a", 100, { role: "user" });
+    part("prt_1", "msg_1", "ses_a", 100, 100, { type: "text", text: "one" });
+    message("msg_2", "ses_a", 200, { role: "user" });
+    part("prt_2", "msg_2", "ses_a", 200, 200, { type: "text", text: "undone" });
+    const locator = opencodeLocator(dbPath, "ses_a");
+    await source.read(locator, 0);
+    // /undo, then a prompt: the reverted rows go, the new turn's come.
+    db.prepare("DELETE FROM part WHERE id = 'prt_2'").run();
+    db.prepare("DELETE FROM message WHERE id = 'msg_2'").run();
+    message("msg_3", "ses_a", 300, { role: "user" });
+    part("prt_3", "msg_3", "ses_a", 300, 300, { type: "text", text: "redo" });
+    message("msg_4", "ses_a", 310, { role: "assistant" });
+    part("prt_4", "msg_4", "ses_a", 310, 310, { type: "text", text: "ok" });
+    expect(await source.read(locator, 200)).toEqual({ ok: true, size: 0, data: "", replaced: true });
+    const again = await source.read(locator, 0);
+    expect(again.ok && lines(again.data).map((r) => r.id)).toEqual(["msg_1", "msg_3", "msg_4", "prt_1", "prt_3", "prt_4"]);
+    // And reads on from there as usual.
+    part("prt_5", "msg_4", "ses_a", 320, 320, { type: "text", text: "more" });
+    const next = await source.read(locator, 310);
+    expect(next.ok && lines(next.data).map((r) => r.id)).toEqual(["msg_4", "prt_4", "prt_5"]);
   });
 
   it("reads nothing yet for a missing database or session, and refuses a non-locator", async () => {
@@ -204,6 +228,36 @@ describe("OpencodeDbSource", () => {
       ]);
       expect(pushes[0].entry).toMatchObject({ id: "prt_2", status: "ok", detail: "contents" });
       expect(stream.parser.turnState()).toBe("done");
+    });
+
+    it("tells subscribers when rows were deleted, and reads the session as it is now", async () => {
+      v1Schema(db);
+      message("msg_1", "ses_a", 100, { role: "user" });
+      part("prt_1", "msg_1", "ses_a", 100, 100, { type: "text", text: "Fix it" });
+      message("msg_2", "ses_a", 200, { role: "assistant", time: { created: 200, completed: 210 }, finish: "stop" });
+      part("prt_2", "msg_2", "ses_a", 200, 210, { type: "text", text: "Reverted reply" });
+      stream.point({ path: opencodeLocator(dbPath, "ses_a"), adapter: opencodeAdapter, source }, false);
+      await stream.read();
+      expect(stream.parser.turnState()).toBe("done");
+
+      // /undo, then a new prompt.
+      db.prepare("DELETE FROM part WHERE message_id = 'msg_2'").run();
+      db.prepare("DELETE FROM message WHERE id = 'msg_2'").run();
+      message("msg_3", "ses_a", 300, { role: "user" });
+      part("prt_3", "msg_3", "ses_a", 300, 300, { type: "text", text: "Try again" });
+      pushes = [];
+      await stream.read();
+      // The re-read is history; the reset says to fetch it.
+      expect(pushes.filter((p) => p.publish).map((p) => p.entry.kind)).toEqual(["reset"]);
+      expect(stream.parser.entries().map((e) => e.id)).toEqual(["prt_1", "prt_3"]);
+      expect(stream.parser.turnState()).toBe("working");
+
+      // Later rows publish as usual.
+      pushes = [];
+      message("msg_4", "ses_a", 400, { role: "assistant", time: { created: 400 } });
+      part("prt_4", "msg_4", "ses_a", 400, 400, { type: "text", text: "On it" });
+      await stream.read();
+      expect(pushes.filter((p) => p.publish).map((p) => p.entry.id)).toEqual(["prt_4"]);
     });
   });
 });

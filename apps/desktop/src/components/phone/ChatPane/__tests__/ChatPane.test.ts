@@ -215,6 +215,21 @@ describe("ChatPane — entries", () => {
     expect(container.querySelectorAll("[data-enter]")).toHaveLength(0);
   });
 
+  it("replaces what it shows with a fresh history on a reset push", async () => {
+    const user = (id: string, text: string): ChatEntry => ({ kind: "user", id, ts: "", text });
+    installChat({ ok: true, contextTokens: null, entries: [user("u1", "first"), user("u2", "undone")] });
+    await renderChat();
+    await act(async () => listener?.(PANE, user("u3", "live, then reverted")));
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["first", "undone", "live, then reverted"]);
+    chat.getHistory.mockResolvedValueOnce({ ok: true, contextTokens: null, entries: [user("u1", "first"), user("u4", "again")] });
+    await act(async () => listener?.(PANE, { kind: "reset", id: "reset", ts: "" }));
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["first", "again"]);
+    // A resync after it merges as before.
+    chat.getHistory.mockResolvedValueOnce({ ok: true, contextTokens: null, entries: [user("u1", "first")] });
+    await act(async () => emitBridgeResync());
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["first", "again"]);
+  });
+
   it("upserts live entries by id", async () => {
     installChat({ ok: true, contextTokens: null, entries: [] });
     await renderChat();

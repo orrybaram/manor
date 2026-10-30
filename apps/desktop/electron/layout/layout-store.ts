@@ -41,6 +41,7 @@
  */
 
 import * as crypto from "node:crypto";
+import type { WorkspaceLayoutOwner } from "../projects/context";
 
 import {
   applyLayoutCommand,
@@ -1601,4 +1602,22 @@ function persistedPanels(
     };
   }
   return panels;
+}
+
+/**
+ * The `WorkspaceLayoutOwner` `ProjectManager` tears a removed workspace's
+ * layout down through, over `store()`, read at call time (the store is built
+ * after the manager). Every argument goes on: a move's `PaneEnding` dropped
+ * here made its source's Agents count as killed (#529).
+ */
+export function workspaceLayoutOwner(
+  store: () => Pick<LayoutStore, "remove" | "adopt" | "release">,
+): WorkspaceLayoutOwner {
+  return {
+    remove: (key, ending) => store().remove(key, ending),
+    take: async (entries): Promise<void> => {
+      await store().adopt(entries, null);
+    },
+    release: (keys): Promise<void> => store().release(keys),
+  };
 }

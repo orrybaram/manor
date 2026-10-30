@@ -2,8 +2,10 @@
  * A moved workspace's source is removed through the normal removal path,
  * but its Agents go on in the target: ending them here must not count as a
  * kill (#529). The real chain, from the move's `removeWorkspace` down
- * through `ProjectManager.removeWorktree`, `LayoutStore.remove` and
- * `createAgentService`, against a normal removal that still counts one.
+ * through `ProjectManager.removeWorktree`, the server's
+ * `workspaceLayoutOwner` (which once dropped the move's ending),
+ * `LayoutStore.remove` and `createAgentService`, against a normal removal
+ * that still counts one.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -17,7 +19,7 @@ vi.mock("electron", () => ({
 }));
 
 import { ProjectManager } from "../persistence";
-import { LayoutStore, type LayoutStoreBackend } from "../layout/layout-store";
+import { LayoutStore, workspaceLayoutOwner, type LayoutStoreBackend } from "../layout/layout-store";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { GitBackend } from "../backend/types";
 import { createWorkspaceOps } from "../workspace-ops";
@@ -70,7 +72,8 @@ describe("removing a moved workspace's source", () => {
       undefined,
       createAgentService(agentDeps as never),
     );
-    pm = new ProjectManager(stubGit, tmpDir, { layout: store });
+    // As `createManorServer` wires it.
+    pm = new ProjectManager(stubGit, tmpDir, { layout: workspaceLayoutOwner(() => store) });
     projectId = (await pm.addProject("Main", PROJECT)).id;
     await store.apply(
       WORKTREE,

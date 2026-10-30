@@ -70,6 +70,7 @@ function ServerRow(props: { port: ActivePort; onOpen: (url: string) => void }) {
       type="button"
       className={styles.serverRow}
       title={`Open ${label}`}
+      aria-label={`Open ${label}`}
       onClick={() => onOpen(url)}
     >
       <span className={styles.serverDot} aria-hidden />

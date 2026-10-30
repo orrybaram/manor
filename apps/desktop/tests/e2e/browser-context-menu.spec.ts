@@ -48,10 +48,14 @@ test("a page link's Open Link in Split opens a browser split on it", async ({
       )
       .toBe(true);
 
-    // Keep the template instead of showing a native menu.
+    // Keep the page menu's template instead of showing a native menu. Only
+    // that one: the app menu rebuilds through the same call when focus moves
+    // to the new split, and must get a real menu.
     await app.evaluate(({ Menu }) => {
       const kept = globalThis as unknown as { __pageMenu?: Electron.MenuItemConstructorOptions[] };
+      const build = Menu.buildFromTemplate.bind(Menu);
       Menu.buildFromTemplate = ((template: Electron.MenuItemConstructorOptions[]) => {
+        if (!template.some((i) => i.label === "Inspect Element")) return build(template);
         kept.__pageMenu = template;
         return { popup: () => {} } as unknown as Electron.Menu;
       }) as typeof Menu.buildFromTemplate;

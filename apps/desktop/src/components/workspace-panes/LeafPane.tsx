@@ -155,6 +155,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
   const [urlFocused, setUrlFocused] = useState(false);
   const devToolsCombo = useKeybindingsStore((s) => s.bindings["browser-devtools"]);
+  const pickCombo = useKeybindingsStore((s) => s.bindings["browser-pick"]);
 
   const setPaneFavicon = useAppStore((s) => s.setPaneFavicon);
   const handleNavStateChange = useCallback((state: BrowserPaneNavState) => {
@@ -492,11 +493,13 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
                 onStop={() => browserRef.current?.stopRecording()}
               />
             )}
-            <Tooltip label="Pick element">
+            <Tooltip label={pickCombo ? `Pick elements (${formatCombo(pickCombo)})` : "Pick elements"}>
               <button
                 className={`${styles.paneStatusBtn} ${navState?.pickerActive ? styles.paneStatusBtnActive : ""}`}
-                onClick={() => navState?.pickerActive ? browserRef.current?.cancelPicker() : browserRef.current?.startPicker()}
-                title="Pick element"
+                onClick={() => browserRef.current?.togglePicker()}
+                title="Pick elements"
+                aria-pressed={navState?.pickerActive ?? false}
+                data-testid="browser-pick-toggle"
               >
                 <Crosshair size={12} />
               </button>

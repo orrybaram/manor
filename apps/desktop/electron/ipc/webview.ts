@@ -31,7 +31,6 @@ import {
 } from "electron";
 import { assertString } from "../ipc-validate";
 import { recordingManager } from "../recording-manager";
-import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { HostDeps } from "./types";
 import {
@@ -43,6 +42,7 @@ import { isDockRect } from "../../src/lib/devtools-dock";
 import { BrowserDevToolsDock, type DockTarget } from "../browser-devtools-dock";
 import { comboFromInputEvent, createPageKeyHandler } from "./webview-keys";
 import { attachPageDialogs, registerPageDialogIpc } from "../webview-dialogs";
+import { attachPagePins, registerPagePinsIpc } from "../webview-pins";
 import { buildPageContextMenu } from "../webview-context-menu";
 import {
   buildPopupWindowOptions,
@@ -92,6 +92,7 @@ const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
 const webviewDialogCleanup = new Map<string, () => void>();
+const webviewPinsCleanup = new Map<string, () => void>();
 
 // ── Docked DevTools ──
 
@@ -421,6 +422,11 @@ export function register(deps: HostDeps): void {
   });
 
   registerPageDialogIpc();
+  registerPagePinsIpc((paneId) => {
+    const id = webviewRegistry.get(paneId);
+    const page = id !== undefined ? webContents.fromId(id) : undefined;
+    return page && !page.isDestroyed() ? page : null;
+  }, deps.backendRegistry);
 
   ipcMain.handle(
     "webview:register",
@@ -644,6 +650,13 @@ export function register(deps: HostDeps): void {
           paneId,
           attachPageDialogs(paneId, wc, rendererWebContents),
         );
+
+        // Picks, pin clicks and pin positions — see webview-pins.ts.
+        webviewPinsCleanup.get(paneId)?.();
+        webviewPinsCleanup.set(
+          paneId,
+          attachPagePins(paneId, wc, rendererWebContents, deps.backendRegistry),
+        );
       }
     },
   );
@@ -669,6 +682,8 @@ export function register(deps: HostDeps): void {
     webviewPopupCleanup.delete(paneId);
     webviewDialogCleanup.get(paneId)?.();
     webviewDialogCleanup.delete(paneId);
+    webviewPinsCleanup.get(paneId)?.();
+    webviewPinsCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     deps.paneHosts.delete(paneId);
     webviewRegistry.delete(paneId);
@@ -683,58 +698,6 @@ export function register(deps: HostDeps): void {
       void recordingManager.stopForPane(paneId);
     }
     paneRenderers.delete(paneId);
-  });
-
-  ipcMain.handle("webview:start-picker", async (event, paneId: string) => {
-    assertString(paneId, "paneId");
-    const webContentsId = webviewRegistry.get(paneId);
-    if (!webContentsId) return;
-    const wc = webContents.fromId(webContentsId);
-    if (!wc || wc.isDestroyed()) return;
-
-    await wc.executeJavaScript(PICKER_SCRIPT);
-
-    // Route the pane-scoped picker result back to the window that started the
-    // picker (which owns the pane), not just the primary window — otherwise a
-    // detached window's browser pane would never receive its result.
-    const rendererWebContents = event.sender;
-    const listener = (
-      _ev: Electron.Event,
-      _level: number,
-      message: string,
-    ) => {
-      if (rendererWebContents.isDestroyed()) {
-        wc.off("console-message", listener);
-        return;
-      }
-      if (message.startsWith("__MANOR_PICK__:")) {
-        wc.off("console-message", listener);
-        try {
-          const result = JSON.parse(
-            message.slice("__MANOR_PICK__:".length),
-          );
-          rendererWebContents.send("webview:picker-result", paneId, result);
-        } catch {
-          // ignore parse errors
-        }
-      } else if (message === "__MANOR_PICK_CANCEL__") {
-        wc.off("console-message", listener);
-        rendererWebContents.send("webview:picker-cancel", paneId);
-      }
-    };
-
-    wc.on("console-message", listener);
-  });
-
-  ipcMain.handle("webview:cancel-picker", async (_event, paneId: string) => {
-    assertString(paneId, "paneId");
-    const webContentsId = webviewRegistry.get(paneId);
-    if (!webContentsId) return;
-    const wc = webContents.fromId(webContentsId);
-    if (!wc || wc.isDestroyed()) return;
-    await wc.executeJavaScript(
-      "if (window.__manor_picker_cancel__) window.__manor_picker_cancel__();",
-    );
   });
 
   ipcMain.handle("webview:open-devtools", (_event, paneId: string) => {

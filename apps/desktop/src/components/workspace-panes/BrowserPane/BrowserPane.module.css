@@ -504,3 +504,162 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+
+/* ── Page notes (picking, pins, the notes pill) ── */
+
+/* Over the top of the page while picking. Never takes a click from it. */
+.pickingHint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  color: var(--fg);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.kbd {
+  padding: 0 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font: 10px var(--font-mono);
+}
+
+/* Beside its pin; placed by `placeNotePopover`. */
+.notePopover {
+  position: absolute;
+  z-index: 3;
+  width: 240px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.noteHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The pin's own number, as the page shows it. */
+.noteNumber {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.noteSelector {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.noteIconButton {
+  flex-shrink: 0;
+  padding: 3px;
+}
+
+.noteInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.noteInput:focus {
+  border-color: var(--accent);
+}
+
+.noteInput::placeholder {
+  color: var(--text-dim);
+}
+
+.noteFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.noteKeys {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* The queue, floating over the bottom of the page. */
+.notesPill {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+
+.notesCount {
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.notesWhere {
+  color: var(--text-dim);
+}
+
+.notesSend {
+  border-radius: 999px;
+}
+
+/* The page's box: what its pin rects scale into. Only its children take clicks. */
+.notesLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.notesLayer > * {
+  pointer-events: auto;
+}
+
+.notesLayer > .pickingHint {
+  pointer-events: none;
+}

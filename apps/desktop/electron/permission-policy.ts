@@ -81,7 +81,10 @@ export interface PermissionPolicy<R> {
    * `Notification.permission`, device labels). Never prompts: a prompted
    * permission reads as granted only once the user allowed it.
    */
-  check(requester: R, ask: Omit<PermissionAsk, "mediaTypes"> & { mediaType?: string }): boolean;
+  check(
+    requester: R,
+    ask: Omit<PermissionAsk, "mediaTypes"> & { mediaType?: string },
+  ): boolean;
 }
 
 /** The origin of `url`, or null for an opaque one (`data:`, sandboxed `null`). */
@@ -139,27 +142,36 @@ function describe(
     case "openExternal": {
       const scheme = schemeOf(ask.externalUrl);
       if (!scheme) return null;
-      return { keys: [`openExternal:${scheme}`], action: () => `open ${scheme}: links in another app` };
+      return {
+        keys: [`openExternal:${scheme}`],
+        action: () => `open ${scheme}: links in another app`,
+      };
     }
     case "geolocation":
       return { keys: ["geolocation"], action: () => "know your location" };
     case "notifications":
       return { keys: ["notifications"], action: () => "show notifications" };
     case "clipboard-read":
-      return { keys: ["clipboard-read"], action: () => "see what you copy to the clipboard" };
+      return {
+        keys: ["clipboard-read"],
+        action: () => "see what you copy to the clipboard",
+      };
     case "local-network-access":
     case "local-network":
     case "loopback-network":
       return {
         keys: ["local-network"],
-        action: () => "connect to devices and services on your computer and local network",
+        action: () =>
+          "connect to devices and services on your computer and local network",
       };
     default:
       return null;
   }
 }
 
-export function createPermissionPolicy<R>(deps: PermissionPolicyDeps<R>): PermissionPolicy<R> {
+export function createPermissionPolicy<R>(
+  deps: PermissionPolicyDeps<R>,
+): PermissionPolicy<R> {
   /** `${origin} ${key}` → the user's answer, until Manor quits. */
   const answers = new Map<string, boolean>();
   /** The same, for prompts still open: one dialog per question. */
@@ -201,7 +213,9 @@ export function createPermissionPolicy<R>(deps: PermissionPolicyDeps<R>): Permis
       if (!origin || !described) return false;
 
       // Several devices asked at once (camera + microphone) share one prompt.
-      const undecided = described.keys.filter((k) => !answers.has(`${origin} ${k}`));
+      const undecided = described.keys.filter(
+        (k) => !answers.has(`${origin} ${k}`),
+      );
       if (undecided.length > 0) {
         const allowed = await promptFor(
           requester,
@@ -211,7 +225,9 @@ export function createPermissionPolicy<R>(deps: PermissionPolicyDeps<R>): Permis
         );
         for (const k of undecided) answers.set(`${origin} ${k}`, allowed);
       }
-      return described.keys.every((k) => answers.get(`${origin} ${k}`) === true);
+      return described.keys.every(
+        (k) => answers.get(`${origin} ${k}`) === true,
+      );
     },
 
     check(requester, ask) {
@@ -224,16 +240,22 @@ export function createPermissionPolicy<R>(deps: PermissionPolicyDeps<R>): Permis
       if (!origin) return false;
       if (ask.permission === "media") {
         const types =
-          ask.mediaType && ask.mediaType in MEDIA_NAMES ? [ask.mediaType] : Object.keys(MEDIA_NAMES);
+          ask.mediaType && ask.mediaType in MEDIA_NAMES
+            ? [ask.mediaType]
+            : Object.keys(MEDIA_NAMES);
         return types.some((t) => answers.get(`${origin} media:${t}`) === true);
       }
       if (ask.permission === "openExternal") {
         const scheme = schemeOf(ask.externalUrl);
-        return scheme !== null && answers.get(`${origin} openExternal:${scheme}`) === true;
+        return (
+          scheme !== null &&
+          answers.get(`${origin} openExternal:${scheme}`) === true
+        );
       }
       const described = describe({ ...ask, mediaTypes: undefined });
       return (
-        described !== null && described.keys.every((k) => answers.get(`${origin} ${k}`) === true)
+        described !== null &&
+        described.keys.every((k) => answers.get(`${origin} ${k}`) === true)
       );
     },
   };

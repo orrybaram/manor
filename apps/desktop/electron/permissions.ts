@@ -15,9 +15,20 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, session, type Session, type WebContents } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  session,
+  type Session,
+  type WebContents,
+} from "electron";
 
-import { createPermissionPolicy, type PermissionPolicy, type PromptRequest } from "./permission-policy";
+import {
+  createPermissionPolicy,
+  type PermissionPolicy,
+  type PromptRequest,
+} from "./permission-policy";
 
 /** `WebContents` ids of Manor's own windows. */
 const appWindowIds = new Set<number>();
@@ -38,7 +49,10 @@ function isRendererUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (devServer) return parsed.origin === new URL(devServer).origin;
-    return parsed.protocol === "file:" && path.resolve(fileURLToPath(parsed)) === RENDERER_FILE;
+    return (
+      parsed.protocol === "file:" &&
+      path.resolve(fileURLToPath(parsed)) === RENDERER_FILE
+    );
   } catch {
     return false;
   }
@@ -54,7 +68,10 @@ function windowOf(wc: WebContents | null): BrowserWindow | null {
   return BrowserWindow.fromWebContents(wc.hostWebContents ?? wc);
 }
 
-async function showPrompt(wc: WebContents | null, request: PromptRequest): Promise<boolean> {
+async function showPrompt(
+  wc: WebContents | null,
+  request: PromptRequest,
+): Promise<boolean> {
   const options: Electron.MessageBoxOptions = {
     type: "question",
     buttons: ["Block", "Allow"],
@@ -93,7 +110,10 @@ function checkedUrl(
   return requestingOrigin;
 }
 
-function install(ses: Session, policy: PermissionPolicy<WebContents | null>): void {
+function install(
+  ses: Session,
+  policy: PermissionPolicy<WebContents | null>,
+): void {
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
     const ask = {
       permission,

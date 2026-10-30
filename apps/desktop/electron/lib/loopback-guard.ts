@@ -20,11 +20,16 @@ export function mintToken(): string {
 }
 
 /** Whether `header` is exactly `token`, compared in constant time. */
-export function tokenMatches(header: string | string[] | undefined, token: string): boolean {
+export function tokenMatches(
+  header: string | string[] | undefined,
+  token: string,
+): boolean {
   if (typeof header !== "string") return false;
   const given = Buffer.from(header);
   const expected = Buffer.from(token);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
+  return (
+    given.length === expected.length && crypto.timingSafeEqual(given, expected)
+  );
 }
 
 /** A refusal: the status to answer with and why. */

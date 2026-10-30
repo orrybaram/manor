@@ -1,7 +1,12 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, openTerminalTab } from "../fixtures";
-import { localApiHeaders, localApiUrl, readSession, type AgentSummary } from "./local-api";
+import {
+  localApiHeaders,
+  localApiUrl,
+  readSession,
+  type AgentSummary,
+} from "./local-api";
 import {
   APP_TARGET,
   onRemote,

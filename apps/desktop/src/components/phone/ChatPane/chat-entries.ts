@@ -146,7 +146,9 @@ export type SummaryPart = { text: string; failed: number };
  * each first appears: "Ran 2 commands", "read a file". Failures are counted
  * per part so the view can mark them.
  */
-export function summarizeTools(tools: readonly ToolEntry[]): SummaryPart[] {
+export function summarizeTools(
+  tools: readonly { name: string; status?: ToolEntry["status"] }[],
+): SummaryPart[] {
   const counts = new Map<Phrase, { n: number; failed: number }>();
   for (const tool of tools) {
     const phrase = PHRASES.find((p) => p.names.includes(tool.name)) ?? OTHER;

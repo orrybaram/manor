@@ -67,7 +67,12 @@ function seed(tempHome: string) {
     { type: "assistant", sessionId: CLAUDE_ID, cwd: manor, gitBranch: "main", timestamp: iso(29), uuid: "a1", parentUuid: "u1",
       message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Looking at `ToastDeck` first. The deck is positioned from the viewport bottom and ignores the **bottom bar**." }] } },
     { type: "assistant", sessionId: CLAUDE_ID, cwd: manor, gitBranch: "main", timestamp: iso(28), uuid: "a2", parentUuid: "a1",
-      message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "pnpm test toast" } }] } },
+      message: { role: "assistant", model: "claude-opus-5-5", content: [
+        { type: "tool_use", id: "t1", name: "Bash", input: { command: "pnpm test toast" } },
+        { type: "tool_use", id: "t2", name: "Bash", input: { command: "pnpm typecheck" } },
+        { type: "tool_use", id: "t3", name: "Read", input: { file_path: "/src/ToastDeck.tsx" } },
+        { type: "tool_use", id: "t4", name: "mcp__posthog__exec", input: {} },
+      ] } },
     { type: "assistant", sessionId: CLAUDE_ID, cwd: manor, gitBranch: "main", timestamp: iso(27), uuid: "a3", parentUuid: "a2",
       message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Fixed: the deck now sits above `--status-bar-height`. Tests pass." }] } },
     { type: "ai-title", sessionId: CLAUDE_ID, aiTitle: "Toasts above the phone bottom bar" },
@@ -194,7 +199,16 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await expect(preview).toContainText("Toasts above the phone bottom bar");
   await expect(window.getByTestId("agents-modal-turns")).toContainText("the toast stack overlaps the bottom bar", { timeout: 10_000 });
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.");
+  // Back-to-back tool calls fold into one line, which opens to list them.
+  const tools = window.getByTestId("agents-modal-tool-group");
+  await expect(tools).toHaveCount(1);
+  await expect(tools).toHaveText("Ran 2 commands, read a file, used a tool");
   await shot(window, "dark-preview-claude");
+  await tools.getByRole("button").click();
+  await expect(tools).toContainText("Bash pnpm typecheck");
+  await expect(tools).toContainText("Read /src/ToastDeck.tsx");
+  await expect(tools.getByText("mcp__posthog__exec", { exact: true })).toBeVisible();
+  await shot(window, "dark-preview-claude-tools-open");
 
   // Arrow down to the Codex session; the preview follows.
   await window.keyboard.press("ArrowDown");

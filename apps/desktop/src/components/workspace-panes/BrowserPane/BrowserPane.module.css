@@ -12,8 +12,91 @@
 .webviewContainer {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   background: white;
   position: relative;
+}
+
+/* ── Docked DevTools ── */
+
+/* DevTools docked right: the page and DevTools side by side. */
+.containerDockRight {
+  flex-direction: row;
+}
+
+.devToolsHandle {
+  flex: 0 0 5px;
+  background: var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.containerDockRight .devToolsHandle {
+  cursor: col-resize;
+}
+
+.devToolsHandle:hover,
+.devToolsHandleActive {
+  background: var(--accent);
+}
+
+.devTools {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.devToolsHeader {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.devToolsTitle {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.devToolsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.devToolsBtn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Empty: main lays the native DevTools view over it. */
+.devToolsSlot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The hidden view's last frame, shown while Manor UI covers it. */
+.devToolsSnapshot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
 }
 
 .emptyState {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createPageKeyHandler } from "../webview-keys";
+import { comboFromInputEvent, createPageKeyHandler } from "../webview-keys";
 import { resolveBindings } from "../../../src/lib/keybinding-defs";
 import {
   addRendererBroadcastSink,
@@ -148,6 +148,19 @@ describe("createPageKeyHandler", () => {
         ["webview:go-forward", "pane-1"],
       ]);
     });
+
+    it("relays ⌥⌘I to the host pane to toggle its DevTools", () => {
+      const { press, host } = setup();
+      const event = press(input("i", { meta: true, alt: true }));
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(host.send.mock.calls).toEqual([["webview:toggle-devtools", "pane-1"]]);
+    });
+
+    it("matches ⌥⌘I by its letter key when Option makes it a dead key", () => {
+      const { press, host } = setup();
+      press({ ...input("Dead", { meta: true, alt: true }), code: "KeyI" });
+      expect(host.send.mock.calls).toEqual([["webview:toggle-devtools", "pane-1"]]);
+    });
   });
 
   describe("app shortcuts", () => {
@@ -229,5 +242,32 @@ describe("createPageKeyHandler", () => {
       press(input("k", { meta: true }));
       expect(forwarded()).toEqual([]);
     });
+  });
+});
+
+describe("comboFromInputEvent", () => {
+  const key = (
+    k: string,
+    modifiers: Electron.InputEvent["modifiers"],
+    type = "rawKeyDown",
+  ) => ({ type, key: k, modifiers }) as unknown as Electron.InputEvent;
+
+  it("reads a DevTools frontend's key press", () => {
+    expect(comboFromInputEvent(key("i", ["meta", "alt"]))).toEqual({
+      key: "i",
+      meta: true,
+      ctrl: false,
+      shift: false,
+      alt: true,
+    });
+    expect(comboFromInputEvent(key("i", ["control", "alt"]))?.ctrl).toBe(true);
+  });
+
+  it("ignores key-ups, repeats and pointer input", () => {
+    expect(comboFromInputEvent(key("i", ["meta"], "keyUp"))).toBeNull();
+    expect(comboFromInputEvent(key("i", ["meta", "isautorepeat"]))).toBeNull();
+    expect(
+      comboFromInputEvent({ type: "mouseDown", modifiers: [] } as unknown as Electron.InputEvent),
+    ).toBeNull();
   });
 });

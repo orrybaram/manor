@@ -22,7 +22,7 @@ export function GhostsOverlay() {
   const ghosts = useMemo(() => generateGhostStyles(), []);
 
   return (
-    <div className={styles.ghostOverlay} aria-hidden>
+    <div className={styles.ghostOverlay} aria-hidden data-floats-over-panes>
       {ghosts.map((ghost, i) => (
         <span
           key={i}

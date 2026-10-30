@@ -6,6 +6,7 @@ import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import Crosshair from "lucide-react/dist/esm/icons/crosshair";
 import ZoomIn from "lucide-react/dist/esm/icons/zoom-in";
 import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
+import CodeXml from "lucide-react/dist/esm/icons/code-xml";
 import Search from "lucide-react/dist/esm/icons/search";
 import X from "lucide-react/dist/esm/icons/x";
 import Lock from "lucide-react/dist/esm/icons/lock";
@@ -51,6 +52,8 @@ import {
   returnToPrimaryWindow,
 } from "../../lib/detach";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { useKeybindingsStore } from "../../store/keybindings-store";
+import { formatCombo } from "../../lib/keybindings";
 import { Row } from "../ui/Layout/Layout";
 import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pane-registry";
 import { isRemoteHost } from "../../lib/hosts";
@@ -151,6 +154,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
   const [urlFocused, setUrlFocused] = useState(false);
+  const devToolsCombo = useKeybindingsStore((s) => s.bindings["browser-devtools"]);
 
   const setPaneFavicon = useAppStore((s) => s.setPaneFavicon);
   const handleNavStateChange = useCallback((state: BrowserPaneNavState) => {
@@ -515,6 +519,17 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
                 <ZoomOut size={12} />
               </button>
             </Tooltip>
+            <Tooltip label={devToolsCombo ? `DevTools (${formatCombo(devToolsCombo)})` : "DevTools"}>
+              <button
+                className={`${styles.paneStatusBtn} ${navState?.devToolsOpen ? styles.paneStatusBtnActive : ""}`}
+                onClick={() => browserRef.current?.toggleDevTools()}
+                title="DevTools"
+                aria-pressed={navState?.devToolsOpen ?? false}
+                data-testid="browser-devtools-toggle"
+              >
+                <CodeXml size={12} />
+              </button>
+            </Tooltip>
           </div>
         ) : (
           <PaneHeaderTitle paneId={paneId} className={styles.paneStatusTitle} />
@@ -657,7 +672,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         </div>
       )}
       {contentType === "browser" && navState && navState.suggestions.length > 0 && (
-        <div className={browserStyles.autocompleteDropdown}>
+        <div className={browserStyles.autocompleteDropdown} data-floats-over-panes>
           {navState.suggestions.map((entry, idx) => (
             <div
               key={entry.url}

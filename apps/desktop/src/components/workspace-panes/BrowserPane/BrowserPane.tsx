@@ -8,6 +8,8 @@ import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
 import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
+import { DEFAULT_DOCK_FRACTION, type DevToolsDockSide } from "../../../lib/devtools-dock";
+import { DevToolsDock } from "./DevToolsDock";
 
 import styles from "./BrowserPane.module.css";
 
@@ -54,6 +56,8 @@ export interface BrowserPaneNavState {
   findTotalMatches: number;
   audible: boolean;
   muted: boolean;
+  /** The page's DevTools are open, docked in the pane. */
+  devToolsOpen: boolean;
 }
 
 export interface BrowserPaneRef {
@@ -72,6 +76,8 @@ export interface BrowserPaneRef {
   stopFind(): void;
   toggleFindBar(): void;
   toggleMute(): void;
+  /** Open or close the page's DevTools, docked in the pane. */
+  toggleDevTools(): void;
   /** Stop this pane's active recording, if any. */
   stopRecording(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
@@ -151,6 +157,23 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
 
     const isDragActive = useDragOverlayStore(selectIsDragActive);
 
+    // Docked DevTools. Whether they are open is main's to say
+    // (`webview:devtools-changed`): Inspect Element and the page's own ⌥⌘I
+    // open them without asking here. Side and size are this pane's, kept for
+    // its lifetime; each side remembers its own size.
+    const [devToolsOpen, setDevToolsOpen] = useState(false);
+    const [dockSide, setDockSide] = useState<DevToolsDockSide>("bottom");
+    const [dockFractions, setDockFractions] = useState<Record<DevToolsDockSide, number>>({
+      bottom: DEFAULT_DOCK_FRACTION,
+      right: DEFAULT_DOCK_FRACTION,
+    });
+    const [dockResizing, setDockResizing] = useState(false);
+    const splitRef = useRef<HTMLDivElement>(null);
+    const setDockFraction = useCallback(
+      (fraction: number) => setDockFractions((prev) => ({ ...prev, [dockSide]: fraction })),
+      [dockSide],
+    );
+
     const setPaneTitle = useAppStore((s) => s.setPaneTitle);
     const setPaneUrl = useAppStore((s) => s.setPaneUrl);
     const setPickedElement = useAppStore((s) => s.setPickedElement);
@@ -175,6 +198,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       findTotalMatches: 0,
       audible: false,
       muted: false,
+      devToolsOpen: false,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -367,6 +391,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         fireNavStateChange({ muted: newMuted });
         useAppStore.getState().setPaneAudioMuted(paneId, newMuted);
       },
+      toggleDevTools() {
+        if (navStateRef.current.devToolsOpen) {
+          void window.electronAPI.webview.closeDevTools(paneId);
+        } else {
+          void window.electronAPI.webview.openDevTools(paneId);
+        }
+      },
       stopRecording() {
         void window.electronAPI.webview.stopRecording(paneId);
       },
@@ -545,7 +576,29 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubDevToolsChanged = window.electronAPI.webview.onDevToolsChanged(
+        (devToolsPaneId: string, open: boolean) => {
+          if (devToolsPaneId !== paneId) return;
+          setDevToolsOpen(open);
+          fireNavStateChange({ devToolsOpen: open });
+        },
+      );
+
+      // ⌥⌘I pressed in the page itself.
+      const unsubToggleDevTools = window.electronAPI.webview.onToggleDevTools(
+        (devToolsPaneId: string) => {
+          if (devToolsPaneId !== paneId) return;
+          if (navStateRef.current.devToolsOpen) {
+            void window.electronAPI.webview.closeDevTools(paneId);
+          } else {
+            void window.electronAPI.webview.openDevTools(paneId);
+          }
+        },
+      );
+
       return () => {
+        unsubDevToolsChanged();
+        unsubToggleDevTools();
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
@@ -570,8 +623,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     });
 
     return (
-      <div className={styles.container}>
-        <div className={styles.webviewContainer}>
+      <div
+        ref={splitRef}
+        className={`${styles.container} ${devToolsOpen && dockSide === "right" ? styles.containerDockRight : ""}`}
+      >
+        <div
+          className={styles.webviewContainer}
+          style={devToolsOpen ? { flex: `${1 - dockFractions[dockSide]} 1 0` } : undefined}
+        >
           {isLoading && <div className={styles.loadingBar} />}
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
@@ -597,8 +656,19 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           ) : (
             isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>
           )}
-          {isDragActive && <div className={styles.dragOverlay} />}
+          {(isDragActive || dockResizing) && <div className={styles.dragOverlay} />}
         </div>
+        {devToolsOpen && (
+          <DevToolsDock
+            paneId={paneId}
+            side={dockSide}
+            fraction={dockFractions[dockSide]}
+            splitRef={splitRef}
+            onFractionChange={setDockFraction}
+            onSideChange={setDockSide}
+            onResizingChange={setDockResizing}
+          />
+        )}
       </div>
     );
   },

@@ -5,6 +5,7 @@ import type {
 } from "../src/electron";
 import type { MenuContext } from "../src/lib/menu-commands";
 import type { RecordingCommand } from "../src/lib/webview-recorder";
+import type { DockRect } from "../src/lib/devtools-dock";
 import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
 import type { BridgeEvents } from "./bridge/events";
 import {
@@ -242,6 +243,27 @@ const nativeApi = {
     zoomIn: (paneId: string) => invoke("webview:zoom-in", paneId),
     zoomOut: (paneId: string) => invoke("webview:zoom-out", paneId),
     zoomReset: (paneId: string) => invoke("webview:zoom-reset", paneId),
+    /** Open the pane's DevTools docked in it (`browser-devtools-dock.ts`). */
+    openDevTools: (paneId: string) =>
+      invoke<boolean>("webview:open-devtools", paneId),
+    closeDevTools: (paneId: string) => invoke("webview:close-devtools", paneId),
+    /**
+     * Where the pane's DevTools slot is, in window CSS pixels, or null to hide
+     * the native view. With `snapshot`, resolves to a data URL of its last
+     * frame, to paint while it is hidden under an overlay.
+     */
+    setDevToolsBounds: (
+      paneId: string,
+      slot: DockRect | null,
+      snapshot = false,
+    ) =>
+      invoke<string | null>("webview:set-devtools-bounds", paneId, slot, snapshot),
+    /** Main opened or closed the pane's docked DevTools. */
+    onDevToolsChanged: (callback: (paneId: string, open: boolean) => void) =>
+      onChannelArgs("webview:devtools-changed", callback),
+    /** ⌥⌘I pressed in the page: toggle its DevTools. */
+    onToggleDevTools: (callback: (paneId: string) => void) =>
+      onChannel("webview:toggle-devtools", callback),
     onPickerResult: (
       callback: (paneId: string, result: PickedElementResult) => void,
     ) => onChannelArgs("webview:picker-result", callback),

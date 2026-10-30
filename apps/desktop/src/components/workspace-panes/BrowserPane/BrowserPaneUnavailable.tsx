@@ -28,6 +28,7 @@ const UNAVAILABLE_REF: BrowserPaneRef = {
   stopFind: noop,
   toggleFindBar: noop,
   toggleMute: noop,
+  toggleDevTools: noop,
   stopRecording: noop,
   getUrlInputValue: () => "",
   urlInputHandlers: {

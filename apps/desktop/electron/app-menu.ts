@@ -11,7 +11,7 @@
  * (check for updates, open external links, reveal the data folder).
  */
 
-import { app, BrowserWindow, Menu, shell } from "electron";
+import { app, BrowserWindow, Menu, shell, webContents } from "electron";
 import { resolveBindings, type KeyCombo } from "../src/lib/keybinding-defs";
 import {
   SHARED_WINDOW_COMMANDS,
@@ -33,6 +33,11 @@ export interface AppMenuDeps {
   keybindingsManager: KeybindingsManager;
   checkForUpdates: () => void;
   saveZoomLevel: (factor: number) => void;
+  /**
+   * Toggle the docked DevTools of the browser pane `focused` belongs to (its
+   * page or its DevTools); false when it is neither.
+   */
+  toggleFocusedPageDevTools?: (focused: Electron.WebContents) => boolean;
 }
 
 export interface AppMenuController {
@@ -140,6 +145,11 @@ export function installAppMenu(deps: AppMenuDeps): AppMenuController {
     },
     revealDataFolder() {
       shell.showItemInFolder(manorDataDir());
+    },
+    toggleDevTools() {
+      const focused = webContents.getFocusedWebContents();
+      if (focused && deps.toggleFocusedPageDevTools?.(focused)) return;
+      BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools();
     },
   };
 

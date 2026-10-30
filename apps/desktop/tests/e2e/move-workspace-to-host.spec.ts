@@ -41,6 +41,13 @@ function installStub(): void {
     moveId: null as string | null,
     resolve: null as ((result: unknown) => void) | null,
     requests: [] as unknown[],
+    /** While set, preflights wait for `releasePreflight`. */
+    holdPreflight: false,
+    held: [] as Array<() => void>,
+    releasePreflight() {
+      state.holdPreflight = false;
+      for (const go of state.held.splice(0)) go();
+    },
     emit(event: Record<string, unknown>) {
       for (const l of state.listeners) l({ ...event, moveId: state.moveId });
     },
@@ -54,7 +61,10 @@ function installStub(): void {
     const projects = new Proxy(api.projects, {
       get(target, key, receiver) {
         if (key === "moveWorkspaceToHostPreflight") {
-          return async () => structuredClone(state.preflight);
+          return async () => {
+            if (state.holdPreflight) await new Promise<void>((go) => state.held.push(go));
+            return structuredClone(state.preflight);
+          };
         }
         if (key === "onMoveWorkspaceToHostProgress") {
           return (cb: Listener) => {
@@ -314,7 +324,7 @@ test("Move to Host: menu, confirm, lane, failure, success, palette", async ({
       error: "git worktree add failed: fatal: 'search-filters' is already checked out at '/srv/manor/search-filters'",
     });
     await expect(window.getByTestId("move-to-host-failed")).toHaveText(
-      "Creating workspace on devbox failed. Nothing changed on This machine.",
+      "Creating workspace on devbox failed. Nothing changed on this machine.",
     );
     await expect(dialog(window)).toContainText(`Couldn’t move “${WS}”`);
     await shot(window, `failed-${theme}`);
@@ -322,16 +332,27 @@ test("Move to Host: menu, confirm, lane, failure, success, palette", async ({
     await expect(window.getByTestId("move-to-host-error")).toContainText("already checked out");
     await shot(window, `failed-details-${theme}`);
 
-    // Retry: preflight, then the move again; this time it succeeds.
+    // Retry: the failed view holds, pending and undismissable, while the
+    // preflight runs again; then straight on to the move, which succeeds.
     await setPreflight(window, preflight());
+    await window.evaluate(() => {
+      (window as unknown as { __move: { holdPreflight: boolean } }).__move.holdPreflight = true;
+    });
     await window.getByTestId("move-to-host-retry").click();
+    await expect(window.getByTestId("move-to-host-retry")).toHaveText("Retrying…");
+    await expect(window.getByTestId("move-to-host-retry")).toBeDisabled();
+    await window.keyboard.press("Escape");
+    await expect(dialog(window)).toHaveAttribute("data-phase", "failed");
+    await window.evaluate(() => {
+      (window as unknown as { __move: { releasePreflight(): void } }).__move.releasePreflight();
+    });
     await expect(window.getByTestId("move-to-host-moving")).toBeVisible();
     await emit(window, { type: "plan", steps: STEPS });
     for (let i = 0; i < STEPS.length; i++) {
       await emit(window, { type: "step", index: i, step: STEPS[i].id, status: "running" });
       if (i === 6) {
         await expect(window.getByTestId("move-to-host-source")).toHaveAttribute("data-dim", "true");
-        await expect(window.getByTestId("move-to-host-step")).toHaveText("Removing from This machine");
+        await expect(window.getByTestId("move-to-host-step")).toHaveText("Removing from this machine");
         if (theme === "dark") await shot(window, "removing-dark");
       }
       await emit(window, { type: "step", index: i, step: STEPS[i].id, status: "done" });
@@ -361,6 +382,52 @@ test("Move to Host: menu, confirm, lane, failure, success, palette", async ({
       window.locator(`[data-testid="workspace-item"][data-workspace-path="${wsPath}"]`),
     ).toHaveAttribute("aria-current", "true");
   }
+
+  // A Retry the preflight now refuses goes to the confirm view, not the move.
+  await setPreflight(window, preflight());
+  await openFromMenu(window);
+  await window.getByTestId("move-to-host-move").click();
+  await emit(window, { type: "plan", steps: STEPS });
+  await emit(window, { type: "step", index: 0, step: "push", status: "running" });
+  await finish(window, { ok: false, step: "push", error: "rejected" });
+  await expect(window.getByTestId("move-to-host-failed")).toHaveText(
+    "Pushing branch failed. Nothing changed on this machine.",
+  );
+  await setPreflight(window, preflight({ refusals: [{ code: "no-origin" }] }));
+  await window.getByTestId("move-to-host-retry").click();
+  await expect(window.getByTestId("move-to-host-confirm")).toBeVisible();
+  await expect(window.getByTestId("move-to-host-refusal")).toBeVisible();
+  await expect(window.getByTestId("move-to-host-move")).toBeDisabled();
+  const before = await window.evaluate(
+    () => (window as unknown as { __move: { requests: unknown[] } }).__move.requests.length,
+  );
+  await window.keyboard.press("Escape");
+  await expect(dialog(window)).toHaveCount(0);
+  // The refused Retry started no move.
+  expect(
+    await window.evaluate(
+      () => (window as unknown as { __move: { requests: unknown[] } }).__move.requests.length,
+    ),
+  ).toBe(before);
+
+  // A failed removal: the workspace is on the target, and closing opens it.
+  for (const theme of ["dark", "light"] as const) {
+    await useTheme(window, theme);
+    await setPreflight(window, preflight());
+    await openFromMenu(window);
+    await window.getByTestId("move-to-host-move").click();
+    await emit(window, { type: "plan", steps: STEPS });
+    await emit(window, { type: "step", index: 6, step: "removeSource", status: "running" });
+    await finish(window, { ok: false, step: "removeSource", error: "teardown script exited 1" });
+    await expect(window.getByTestId("move-to-host-failed")).toHaveText(
+      "The workspace is ready on devbox, but removing it from this machine failed.",
+    );
+    await expect(window.getByTestId("move-to-host-close")).toHaveText("Open on devbox");
+    await shot(window, `failed-remove-${theme}`);
+    await window.getByTestId("move-to-host-close").click();
+    await expect(dialog(window)).toHaveCount(0);
+  }
+  await useTheme(window, "dark");
 
   // The request carried Remove's answer.
   const requests = await window.evaluate(

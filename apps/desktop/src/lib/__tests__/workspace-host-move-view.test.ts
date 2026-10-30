@@ -66,6 +66,15 @@ describe("refusalSentence", () => {
       "devbox",
     );
   });
+
+  it("capitalises \"this machine\" at the start of a sentence, and nothing else", () => {
+    expect(refusalSentence({ code: "target-main-on-branch" }, "this machine", "devbox")).toBe(
+      "This machine's main checkout is on this branch. Switch it to another branch first.",
+    );
+    expect(refusalSentence({ code: "target-main-on-branch" }, "devbox", "this machine")).toMatch(
+      /^devbox's/,
+    );
+  });
 });
 
 describe("dirtySentence", () => {
@@ -79,6 +88,12 @@ describe("failureBody", () => {
   it("names the step and both hosts", () => {
     expect(failureBody("create", STEPS, "devbox", "This machine")).toBe(
       "Creating workspace on devbox failed. Nothing changed on This machine.",
+    );
+  });
+
+  it("doesn't put a step that runs on the source on the target", () => {
+    expect(failureBody("push", STEPS, "devbox", "this machine")).toBe(
+      "Pushing branch failed. Nothing changed on this machine.",
     );
   });
 
@@ -127,6 +142,15 @@ describe("laneView", () => {
     expect(laneView(creating).targetLit).toBe(true);
     const removing = lane({ type: "plan", steps: STEPS }, { type: "step", index: 6, status: "running" });
     expect(laneView(removing)).toMatchObject({ targetLit: true, sourceDim: true, count: "7 of 7" });
+  });
+
+  it("names the next step, not a skipped one, and keeps the count", () => {
+    const skipped = lane(
+      { type: "plan", steps: STEPS },
+      { type: "step", index: 3, status: "running" },
+      { type: "step", index: 3, status: "skipped" },
+    );
+    expect(laneView(skipped)).toMatchObject({ current: { id: "restore" }, count: "4 of 7" });
   });
 
   it("never moves backwards", () => {

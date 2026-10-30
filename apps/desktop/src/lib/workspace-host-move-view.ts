@@ -44,6 +44,23 @@ export function refusalSentence(
   target: string,
   source: string,
 ): string | null {
+  const sentence = refusalText(refusal, target, source);
+  return sentence && sentenceCase(sentence);
+}
+
+/**
+ * A sentence that opens with "this machine" (`hostSentenceName`) starts
+ * with a capital. A remote host's name is left as it is written: "devbox".
+ */
+export function sentenceCase(text: string): string {
+  return text.startsWith("this machine") ? `T${text.slice(1)}` : text;
+}
+
+function refusalText(
+  refusal: WorkspaceMoveRefusal,
+  target: string,
+  source: string,
+): string | null {
   switch (refusal.code) {
     case "dirty":
       return null;
@@ -69,9 +86,13 @@ export function dirtySentence(count: number): string {
   return `Commit or discard ${count} changed ${count === 1 ? "file" : "files"} first.`;
 }
 
+/** Steps that run on the source, which are not "on <target>". */
+const SOURCE_STEPS: ReadonlySet<WorkspaceMoveStepId> = new Set(["push", "removeSource"]);
+
 /**
  * The failed dialog's body. A step that already names the target ("Setting
- * up on devbox") isn't named twice; a failure with no step is the move's.
+ * up on devbox") isn't named twice, and one that runs on the source (the
+ * push) isn't put on the target; a failure with no step is the move's.
  */
 export function failureBody(
   step: WorkspaceMoveStepId | null,
@@ -85,7 +106,8 @@ export function failureBody(
   let where = `Moving to ${target}`;
   if (step) {
     const label = stepLabel(steps.find((s) => s.id === step) ?? { id: step }, target, source);
-    where = label.endsWith(` on ${target}`) ? label : `${label} on ${target}`;
+    where =
+      SOURCE_STEPS.has(step) || label.endsWith(` on ${target}`) ? label : `${label} on ${target}`;
   }
   return `${where} failed. Nothing changed on ${source}.`;
 }
@@ -97,6 +119,8 @@ export interface LaneProgress {
   index: number;
   /** Whether `index` has finished. */
   indexDone: boolean;
+  /** Whether `index` was skipped: planned, but it didn't apply. */
+  indexSkipped: boolean;
   succeeded: boolean;
 }
 
@@ -104,6 +128,7 @@ export const LANE_START: LaneProgress = {
   steps: [],
   index: -1,
   indexDone: false,
+  indexSkipped: false,
   succeeded: false,
 };
 
@@ -124,6 +149,7 @@ export function advanceLane(lane: LaneProgress, event: LaneEvent): LaneProgress 
     ...lane,
     index: event.index,
     indexDone: event.status === "done" || event.status === "skipped",
+    indexSkipped: event.status === "skipped",
   };
 }
 
@@ -156,7 +182,9 @@ export function laneView(lane: LaneProgress): LaneView {
     return { fill: 0, current: null, count: null, targetLit: false, sourceDim: false };
   }
   const index = Math.min(lane.index, n - 1);
-  const current = lane.steps[index];
+  // A skipped step is never named: the label moves on to the next one,
+  // though the count stays where the events have got to.
+  const current = lane.steps[lane.indexSkipped && index + 1 < n ? index + 1 : index];
   const createAt = lane.steps.findIndex((s) => s.id === "create");
   return {
     fill: (index + (lane.indexDone ? 1 : 0)) / n,

@@ -5,7 +5,8 @@ import Server from "lucide-react/dist/esm/icons/server";
 import { useProjectStore } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
 import { useAppStore } from "../../store/app-store";
-import { memberDisplayName } from "../../bridge/server-set";
+import { hostSentenceName, memberDisplayName } from "../../bridge/server-set";
+import { branchesEqual } from "../../utils/branch-name";
 import { isRemoteHost } from "../../lib/hosts";
 import { ipcErrorMessage } from "../../lib/ipc-error";
 import { workspaceMoveTargets } from "../../lib/transfer-targets";
@@ -17,6 +18,7 @@ import {
   failureBody,
   laneView,
   refusalSentence,
+  sentenceCase,
   stepLabel,
   type LaneProgress,
 } from "../../lib/workspace-host-move-view";
@@ -99,6 +101,31 @@ interface MoveWorkspaceToHostDialogProps {
   onClose: () => void;
 }
 
+/**
+ * Open the target's workspace on `branch` after a move that failed only at
+ * removing the source, so its result named no path: the project on
+ * `hostId` that is the source's (its group member) and its workspace there.
+ */
+async function openTargetWorkspace(
+  sourceProjectId: string,
+  groupId: string | null,
+  hostId: string,
+  branch: string,
+): Promise<void> {
+  await useProjectStore.getState().loadProjects().catch(() => {});
+  const project = useProjectStore
+    .getState()
+    .projects.find(
+      (p) =>
+        p.hostId === hostId &&
+        p.id !== sourceProjectId &&
+        groupId !== null &&
+        p.group?.id === groupId,
+    );
+  const ws = project?.workspaces.find((w) => !w.isMain && branchesEqual(w.branch, branch));
+  if (project && ws) openMovedWorkspace(project.id, ws.path, hostId);
+}
+
 /** Open the moved workspace, from a project list that has it. */
 function openMovedWorkspace(projectId: string, path: string, hostId: string): void {
   const store = useProjectStore.getState();
@@ -142,8 +169,13 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
   const [lane, setLane] = useState<LaneProgress>(LANE_START);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const lastStep = useRef<WorkspaceMoveStepId | null>(null);
   const preflightToken = useRef(0);
+  /** Set once the dialog closes: nothing it started may go on to move. */
+  const closed = useRef(false);
+  /** The branch the last preflight read, for opening the target after a partial move. */
+  const lastBranch = useRef<string | null>(null);
 
   const runPreflight = useCallback(
     async (target: string): Promise<WorkspaceMovePreflight | null> => {
@@ -156,6 +188,7 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
           targetHostId: target,
         });
         if (token !== preflightToken.current) return null;
+        lastBranch.current = pre.branch;
         setPreflight({ status: "ready", pre });
         return pre;
       } catch (err) {
@@ -174,13 +207,26 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
   useEffect(() => {
     if (!source) onClose();
   }, [source, onClose]);
+  useEffect(
+    () => () => {
+      closed.current = true;
+    },
+    [],
+  );
   if (!source || (hostId === null && phase !== "pick")) return null;
 
-  const sourceName = memberDisplayName(source.hostId, hosts);
-  const targetName = hostId ? memberDisplayName(hostId, hosts) : "";
-  const busy = phase === "moving";
+  // Mid-sentence names ("this machine"); the glyph captions are labels.
+  const sourceName = hostSentenceName(source.hostId, hosts);
+  const targetName = hostId ? hostSentenceName(hostId, hosts) : "";
+  const busy = phase === "moving" || retrying;
+
+  const dismiss = () => {
+    closed.current = true;
+    onClose();
+  };
 
   const startMove = async (target: string) => {
+    if (closed.current) return;
     const moveId = crypto.randomUUID();
     lastStep.current = null;
     setLane(LANE_START);
@@ -217,13 +263,13 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
         loaded,
         new Promise((resolve) => setTimeout(resolve, SUCCESS_HOLD_MS)),
       ]);
-      onClose();
+      dismiss();
       openMovedWorkspace(result.targetProjectId, result.targetPath, target);
       return;
     }
     if ("needsInput" in result) {
       // The set up wants the user: hand over to the Set up dialog.
-      onClose();
+      dismiss();
       useProjectStore.getState().openTransferDialog({
         projectId,
         hostId: target,
@@ -248,11 +294,31 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
     setPhase("failed");
   };
 
+  // The failed view stays up, its Retry pending and the dialog held open,
+  // until the preflight decides: straight on to the move, or to the
+  // confirm view for what refuses it now.
   const retry = async () => {
-    if (!hostId) return;
-    setPhase("confirm");
-    const pre = await runPreflight(hostId);
+    if (!hostId || retrying) return;
+    setRetrying(true);
+    let pre: WorkspaceMovePreflight | null;
+    try {
+      pre = await runPreflight(hostId);
+    } finally {
+      setRetrying(false);
+    }
+    if (closed.current) return;
     if (pre && pre.refusals.length === 0) await startMove(hostId);
+    else setPhase("confirm");
+  };
+
+  // After a failed removal the target workspace is there: closing opens it.
+  const partial = phase === "failed" && failure?.step === "removeSource";
+  const closeFailed = () => {
+    const branch = lastBranch.current;
+    dismiss();
+    if (partial && hostId && branch) {
+      void openTargetWorkspace(projectId, source.project.group?.id ?? null, hostId, branch);
+    }
   };
 
   const pickHost = (target: string) => {
@@ -262,7 +328,9 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
   };
 
   const close = () => {
-    if (!busy) onClose();
+    if (busy) return;
+    if (phase === "failed") closeFailed();
+    else dismiss();
   };
   const holdOpen = (e: Event) => {
     if (busy) e.preventDefault();
@@ -291,7 +359,7 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
               name={source.name}
               targets={workspaceMoveTargets(source.project, hosts)}
               onPick={pickHost}
-              onCancel={onClose}
+              onCancel={dismiss}
             />
           )}
           {phase === "confirm" && hostId && (
@@ -302,7 +370,7 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
               preflight={preflight}
               removeSource={removeSource}
               onRemoveSourceChange={setRemoveSource}
-              onCancel={onClose}
+              onCancel={dismiss}
               onMove={() => void startMove(hostId)}
             />
           )}
@@ -313,6 +381,8 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
               targetHostId={hostId}
               sourceName={sourceName}
               targetName={targetName}
+              sourceCaption={memberDisplayName(source.hostId, hosts)}
+              targetCaption={memberDisplayName(hostId, hosts)}
               lane={lane}
             />
           )}
@@ -342,15 +412,22 @@ function MoveWorkspaceToHostDialog(props: MoveWorkspaceToHostDialogProps) {
                 >
                   {showDetails ? "Hide details" : "Show details"}
                 </Button>
-                <Button variant="secondary" onClick={onClose}>
-                  Close
+                <Button
+                  variant="secondary"
+                  disabled={retrying}
+                  data-testid="move-to-host-close"
+                  onClick={closeFailed}
+                >
+                  {partial ? `Open on ${memberDisplayName(hostId!, hosts)}` : "Close"}
                 </Button>
                 <Button
                   variant="primary"
+                  disabled={retrying}
+                  aria-busy={retrying || undefined}
                   data-testid="move-to-host-retry"
                   onClick={() => void retry()}
                 >
-                  Retry
+                  {retrying ? "Retrying…" : "Retry"}
                 </Button>
               </div>
             </>
@@ -459,7 +536,8 @@ function Confirm(props: {
       )}
       {pre?.existingTargetWorktree && !refused && (
         <div className={styles.warning} data-testid="move-to-host-reuse">
-          {targetName} already has this branch checked out. The move will use it.
+          {sentenceCase(`${targetName} already has this branch checked out.`)} The move will
+          use it.
         </div>
       )}
       {!refused && (
@@ -496,6 +574,9 @@ function Moving(props: {
   targetHostId: string;
   sourceName: string;
   targetName: string;
+  /** The names under the glyphs: labels, so "This machine". */
+  sourceCaption: string;
+  targetCaption: string;
   lane: LaneProgress;
 }) {
   const { name, sourceHostId, targetHostId, sourceName, targetName, lane } = props;
@@ -522,7 +603,7 @@ function Moving(props: {
           <div className={styles.glyph}>
             <HostGlyph hostId={sourceHostId} />
           </div>
-          <div className={styles.hostName}>{sourceName}</div>
+          <div className={styles.hostName}>{props.sourceCaption}</div>
         </div>
         <div className={styles.rail}>
           <div className={styles.track}>
@@ -543,7 +624,7 @@ function Moving(props: {
           <div className={styles.glyph}>
             <HostGlyph hostId={targetHostId} />
           </div>
-          <div className={styles.hostName}>{targetName}</div>
+          <div className={styles.hostName}>{props.targetCaption}</div>
         </div>
       </div>
       <Dialog.Description asChild>

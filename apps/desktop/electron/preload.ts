@@ -260,6 +260,8 @@ const nativeApi = {
       ) => void,
     ) => onChannelArgs("webview:new-window", callback),
     stop: (paneId: string) => invoke("webview:stop", paneId),
+    /** Load `url` again after a failure; a new failure is the page's `did-fail-load`. */
+    loadUrl: (paneId: string, url: string) => invoke("webview:load-url", paneId, url),
     findInPage: (
       paneId: string,
       query: string,

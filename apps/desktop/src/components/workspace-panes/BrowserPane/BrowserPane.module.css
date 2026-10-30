@@ -54,6 +54,28 @@
   color: var(--text-dim);
 }
 
+.stateActions {
+  display: flex;
+  gap: 6px;
+}
+
+.stateSpinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: stateSpin 1s linear infinite;
+}
+
+@keyframes stateSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateSpinner { animation: none; }
+}
+
 .stateCode {
   font-family: var(--font-mono);
   font-size: 11px;

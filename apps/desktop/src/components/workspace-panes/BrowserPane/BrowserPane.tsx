@@ -24,7 +24,6 @@ interface WebviewElement extends HTMLElement {
   goBack(): void;
   goForward(): void;
   reload(): void;
-  loadURL(url: string): Promise<void>;
   getWebContentsId(): number;
 }
 
@@ -139,13 +138,17 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       webviewRef,
     });
     // The error and crash pages.
-    const loadProblem = useLoadProblem(webviewRef);
+    const loadProblem = useLoadProblem(paneId, webviewRef);
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The URL last asked for or shown as the page, as the pane names it (a
+    // remote pane's box URL): a load that fails never commits, so the
+    // remembered URL can still be the page before it.
+    const shownUrlRef = useRef<string | null>(null);
     // The page's open alert/confirm/prompt; the first is shown. The page is
     // blocked on it, so there is rarely more than one.
     const [dialogs, setDialogs] = useState<PageDialog[]>([]);
@@ -222,6 +225,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       // the box; main swaps in the port forward's local port when the
       // host's scan reports that port, and hands anything else back as is.
       remoteBrowserUrl.navigate(resolved);
+      shownUrlRef.current = resolved;
       setUrl(resolved);
       fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
     }, [fireNavStateChange, remoteBrowserUrl]);
@@ -388,7 +392,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
 
     /** A remote pane's remembered box URL, which names its forwarded pages. */
     const rememberedRemoteUrl = () =>
-      remoteHostId ? selectPaneUrl(useAppStore.getState(), paneId) : null;
+      remoteHostId ? (shownUrlRef.current ?? selectPaneUrl(useAppStore.getState(), paneId)) : null;
 
     const answerDialog = (dialog: PageDialog, ok: boolean, text?: string) => {
       void window.electronAPI.webview.replyDialog(dialog.id, ok, text);
@@ -409,6 +413,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       /** Record `shown` — the URL as the pane remembers it — as the page. */
       const applyNavigation = (shown: string, actual: string) => {
         const blank = shown === "about:blank";
+        shownUrlRef.current = shown;
         setUrl(blank ? "" : shown);
         setIsBlank(blank);
         setPaneUrl(paneId, shown);
@@ -605,11 +610,12 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             <LoadProblemPage
               problem={loadProblem.problem}
               site={
-                loadProblem.problem.kind === "failed"
-                  ? siteLabel(loadProblem.problem.url, rememberedRemoteUrl())
-                  : ""
+                loadProblem.problem.kind === "crashed"
+                  ? ""
+                  : siteLabel(loadProblem.problem.url, rememberedRemoteUrl())
               }
               onRetry={loadProblem.retry}
+              onCancel={loadProblem.cancelWait}
             />
           ) : (
             isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>

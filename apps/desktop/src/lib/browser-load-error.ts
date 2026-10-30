@@ -6,6 +6,8 @@
 
 /** Chromium's code for a load cut short by another (a new navigation, Stop). */
 export const ERR_ABORTED = -3;
+/** Nothing is listening on the port. */
+export const ERR_CONNECTION_REFUSED = -102;
 
 const DESCRIPTIONS: Record<string, string> = {
   ERR_NAME_NOT_RESOLVED: "The server's DNS address could not be found.",

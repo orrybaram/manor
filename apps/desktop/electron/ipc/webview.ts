@@ -694,6 +694,19 @@ export function register(deps: HostDeps): void {
     wc.stop();
   });
 
+  // The pane's error and waiting pages retry a load here rather than through
+  // the element, whose `loadURL` logs every failure as an IPC handler error.
+  ipcMain.handle("webview:load-url", (_event, paneId: string, url: string) => {
+    assertString(paneId, "paneId");
+    assertString(url, "url");
+    const webContentsId = webviewRegistry.get(paneId);
+    if (!webContentsId) return;
+    const wc = webContents.fromId(webContentsId);
+    if (!wc || wc.isDestroyed()) return;
+    // A failure is the page's `did-fail-load`, which the pane already hears.
+    wc.loadURL(url).catch(() => {});
+  });
+
   ipcMain.handle("webview:find-in-page", (_event, paneId: string, query: string, options?: { forward?: boolean; findNext?: boolean }) => {
     assertString(paneId, "paneId");
     const webContentsId = webviewRegistry.get(paneId);

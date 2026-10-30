@@ -1,8 +1,8 @@
 /*
- * The phone's chat view of a Claude pane. It sits over the
- * pane's terminal (which stays mounted and keeps its box), so it is absolutely
- * placed and opaque. Only ever rendered in phone mode, so these rules need no
- * `data-layout` scoping of their own.
+ * The chat view of an agent pane. It sits over the pane's terminal (which
+ * stays mounted and keeps its box), so it is absolutely placed and opaque.
+ * The rules are the phone's; the desk's few differences are the
+ * `[data-layout="desk"]` block at the end.
  */
 
 .chatPane {
@@ -1204,4 +1204,41 @@ button.editToggle {
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 16px;
+}
+
+/* ── Desk: a reading column ──
+   A desk pane can be far wider than a phone, so the transcript and the
+   composer keep to one centered column, and the composer floats on the chat
+   instead of sitting in a strip. The scroller stays full width, so its
+   scrollbar is at the pane's edge. */
+.chatPane[data-layout="desk"] .entries,
+.chatPane[data-layout="desk"] .needsYou,
+.chatPane[data-layout="desk"] .composer {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.chatPane[data-layout="desk"] .entries {
+  padding: 16px 16px 24px;
+  font-size: 14px;
+}
+
+.chatPane[data-layout="desk"] .needsYou {
+  /* Inside the composer's 16px gutters, so the two line up. */
+  width: calc(100% - 32px);
+  max-width: 728px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+
+.chatPane[data-layout="desk"] .composer {
+  padding: 0 16px 12px;
+  border-top: none;
+  background: transparent;
+}
+
+.chatPane[data-layout="desk"] .composerField {
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.12);
 }

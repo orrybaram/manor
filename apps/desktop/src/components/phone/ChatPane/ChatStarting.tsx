@@ -1,3 +1,4 @@
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { ChatComposer } from "./ChatComposer";
 import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
@@ -7,22 +8,24 @@ type ChatStartingProps = {
   paneId: string;
   /** The terminal is showing instead. */
   hidden: boolean;
+  layout?: LayoutMode;
 };
 
 /**
- * Holds a new Claude pane's chat on a phone until its transcript is known.
+ * Holds a new Claude pane's chat until its transcript is known.
  * The session's Agent, and with it the transcript, only exists once the
  * first prompt is sent, so this offers the composer: that prompt goes to the
  * pty like any other, and the real `ChatPane` takes over from there. An
  * agent launched with a prompt shows that prompt while Claude starts.
  */
 export function ChatStarting(props: ChatStartingProps) {
-  const { paneId, hidden } = props;
+  const { paneId, hidden, layout = "phone" } = props;
   const prompt = useStartingPrompt(paneId);
   return (
     <div
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
       data-chat-pane
+      data-layout={layout}
       data-testid="chat-starting"
       aria-hidden={hidden || undefined}
     >

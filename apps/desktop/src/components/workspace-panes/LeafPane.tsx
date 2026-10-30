@@ -9,6 +9,7 @@ import ZoomOut from "lucide-react/dist/esm/icons/zoom-out";
 import CodeXml from "lucide-react/dist/esm/icons/code-xml";
 import Search from "lucide-react/dist/esm/icons/search";
 import X from "lucide-react/dist/esm/icons/x";
+import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import Lock from "lucide-react/dist/esm/icons/lock";
 import Unlock from "lucide-react/dist/esm/icons/unlock";
 import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
@@ -77,6 +78,7 @@ import {
 import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
+import { deskChatDefault, togglePaneChat } from "../phone/ChatPane/pane-chat-toggle";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -120,27 +122,38 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // and create/attach its session again. 0 for every local pane.
   const reattachEpoch = useRemotePaneStore((s) => s.panes[paneId]?.reattachEpoch ?? 0);
 
-  // On a phone, a Claude pane with a transcript can be read as a
-  // chat. The desk never offers it. Keyed off the transcript, so `/clear` or a
-  // resume remounts the chat with the new session's history.
-  const phone = useLayoutMode() === "phone";
+  // An agent pane with a transcript can be read as a chat: the phone opens
+  // on it, the desk on whatever the pane last chose (the terminal by
+  // default), and each layout keeps its own choice. Keyed off the transcript,
+  // so `/clear` or a resume remounts the chat with the new session's history.
+  const layoutMode = useLayoutMode();
   const chatTranscript = useAgentStore((s) =>
-    phone ? chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)) : null,
+    chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)),
   );
   // A Claude agent the phone just started opens on the chat while it boots,
   // and a `/clear` sent from the chat shows a fresh one until the new
   // session's transcript is known (its Agent only exists after a prompt).
-  const chatStarting = usePaneChatStarting(paneId, chatTranscript) && phone;
-  const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript);
-  const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
+  const chatStarting = usePaneChatStarting(paneId, chatTranscript);
+  const hasChat = chatTranscript !== null || chatStarting;
+  const [paneView, setPaneView] = usePaneChatView(
+    paneId,
+    chatTranscript,
+    layoutMode,
+    deskChatDefault(),
+  );
+  const showChat = hasChat && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   // While the chat has handed the terminal a TUI menu, a key bar
   // drives it. The handoff covers the pane's view until it ends; a new
   // transcript (`/resume` picked a session) ends it on that session's chat.
   const handoff = usePaneMenuHandoff(paneId, chatTranscript);
-  const showKeyBar = phone && handoff !== null;
+  const showKeyBar = handoff !== null;
   const backToChat = useCallback(() => endMenuHandoff(paneId), [paneId]);
+  // The desk's header button and menu item: what the pane will flip to.
+  const chatToggleLabel = showChat || showKeyBar ? "Show Terminal" : "Show as Chat";
+  const toggleChat = useCallback(() => togglePaneChat(paneId, layoutMode), [paneId, layoutMode]);
+  const chatToggleCombo = useKeybindingsStore((s) => s.bindings["toggle-pane-chat"]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -549,6 +562,19 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
               />
             </>
           )}
+          {hasChat && (
+            <Tooltip label={chatToggleCombo ? `${chatToggleLabel} (${formatCombo(chatToggleCombo)})` : chatToggleLabel}>
+              <button
+                className={`${styles.paneStatusBtn} ${showChat ? styles.paneStatusBtnChat : ""}`}
+                onClick={toggleChat}
+                aria-label={chatToggleLabel}
+                aria-pressed={showChat}
+                data-testid="pane-chat-toggle"
+              >
+                <MessageSquare size={12} />
+              </button>
+            </Tooltip>
+          )}
           <button
             className={styles.paneStatusBtn}
             onClick={handleSplit}
@@ -609,6 +635,22 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           terminal's belongs to the terminal. */}
       <ContextMenu.Portal>
         <ContextMenu.Content className={styles.contextMenu}>
+          {hasChat && (
+            <>
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={toggleChat}
+                data-testid="pane-chat-toggle-menu"
+              >
+                <MessageSquare size={14} />
+                {chatToggleLabel}
+                {chatToggleCombo && (
+                  <span className={styles.contextMenuShortcut}>{formatCombo(chatToggleCombo)}</span>
+                )}
+              </ContextMenu.Item>
+              <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            </>
+          )}
           <PaneWindowMenuItems paneId={paneId} workspaceKey={workspaceKey} />
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
@@ -742,10 +784,11 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
               transcript={chatTranscript}
               hidden={!showChat}
               onShowTerminal={showTerminal}
+              layout={layoutMode}
             />
           </Suspense>
         )}
-        {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} />}
+        {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} layout={layoutMode} />}
         {showKeyBar && <MenuKeyBar paneId={paneId} onBackToChat={backToChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
@@ -49,10 +50,12 @@ type ChatPaneProps = {
   /** The terminal is showing instead. The chat stays mounted and subscribed. */
   hidden: boolean;
   onShowTerminal: () => void;
+  /** Which layout the pane is in: the desk keeps the chat to a column. */
+  layout?: LayoutMode;
 };
 
 /**
- * A phone's chat view of a Claude pane: the pane's transcript as
+ * The chat view of an agent pane, on a phone or a desk: the pane's transcript as
  * a conversation, its pickers as cards that answer through the PTY, and a
  * composer. The terminal stays the truth; this is a reader of the transcript
  * and a writer of keystrokes.
@@ -82,7 +85,7 @@ type ChatPaneProps = {
  * everywhere and this does it).
  */
 export function ChatPane(props: ChatPaneProps) {
-  const { paneId, transcript, hidden, onShowTerminal } = props;
+  const { paneId, transcript, hidden, onShowTerminal, layout = "phone" } = props;
 
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -289,6 +292,7 @@ export function ChatPane(props: ChatPaneProps) {
     <div
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
       data-chat-pane
+      data-layout={layout}
       data-testid="chat-pane"
       aria-hidden={hidden || undefined}
     >

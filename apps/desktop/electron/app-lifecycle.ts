@@ -27,6 +27,7 @@ import {
 } from "./remote-control/controller";
 import type { HostDeps } from "./ipc/types";
 import { createWindow, saveZoomLevel } from "./window";
+import { installPermissionPolicy } from "./permissions";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import { Notifier, playNotificationSound } from "./notifications";
 import { wireStatsBroadcast } from "./bridge/handlers/stats";
@@ -504,6 +505,9 @@ export function initApp(devTitle: string | null): void {
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
+    // Before any window or page exists to ask: Electron grants every
+    // permission until a handler is set.
+    installPermissionPolicy();
     // Decrypt the secrets the stores keep in memory before any window can ask
     // for them. A store that cannot be read stays unread (and its file
     // untouched) rather than keeping the app from starting.

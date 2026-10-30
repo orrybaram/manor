@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { windowBoundsFile, zoomLevelFile } from "./paths";
+import { trustAppWindow } from "./permissions";
 import { e2eBackground, e2eWindowOptions, showE2eWindow } from "./e2e-background";
 
 interface WindowBounds {
@@ -194,6 +195,7 @@ export function createWindow(): BrowserWindow {
 
   attachWindowOpenHandler(mainWindow);
   attachWebviewHardening(mainWindow);
+  trustAppWindow(mainWindow.webContents);
   loadRenderer(mainWindow);
 
   return mainWindow;
@@ -254,6 +256,7 @@ export function createDetachedWindow(
 
   attachWindowOpenHandler(win);
   attachWebviewHardening(win);
+  trustAppWindow(win.webContents);
   loadRenderer(win);
 
   return win;

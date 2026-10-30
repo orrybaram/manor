@@ -55,7 +55,10 @@ describe("server-side launches", () => {
   let deps: SpawnPaneDeps;
   let launches: ReturnType<typeof createServerLaunches>;
   /** What `ProjectManager.workspaceProject` knows. */
-  let projects: Record<string, { projectId: string; projectName: string; agentCommand: string | null }>;
+  let projects: Record<
+    string,
+    { projectId: string; projectName: string; projectPath: string; agentCommand: string | null }
+  >;
 
   beforeEach(() => {
     sessions = new Set();
@@ -63,7 +66,12 @@ describe("server-side launches", () => {
     typed = [];
     progress = [];
     projects = {
-      [`local:${WS}`]: { projectId: "p1", projectName: "demo", agentCommand: "codex --yolo" },
+      [`local:${WS}`]: {
+        projectId: "p1",
+        projectName: "demo",
+        projectPath: "/repos/demo",
+        agentCommand: "codex --yolo",
+      },
     };
     const backend = {
       pty: {
@@ -278,6 +286,46 @@ describe("server-side launches", () => {
     await store.apply(WS, { type: "reopen-closed-pane", newTabId: "reopened" }, { kind: "window", id: "1" });
     const reopened = Object.values(store.get(WS)!.layout.panels).flatMap((p) => p.tabs);
     expect(reopened).toEqual([]);
+  });
+
+  it("gives a setup script's shell the workspace and the project's main checkout in its env", async () => {
+    const ops = createWorkspaceOps({
+      projectManager: {
+        createWorktree: async () =>
+          ({
+            id: "p1",
+            hostId: "local",
+            worktreeStartScript: "bash scripts/setup-worktree.sh",
+            group: null,
+            workspaces: [{ path: WS, branch: "feat", isMain: false, name: "feat" }],
+          }) as unknown as ProjectInfo,
+        createWorkspacesFromIssues: async () => [],
+        removeWorktree: async () => {},
+        quickMergeWorktree: async () => {},
+        setGroupLastUsedHost: () => {},
+      },
+      statsStore: { record: () => {} },
+      notifyProjectsChanged: () => {},
+      runSetupScript: launches.runSetupScript,
+    });
+
+    await ops.create({ projectId: "p1", name: "feat" });
+    await settle();
+
+    expect(creates).toHaveLength(1);
+    expect((creates[0].opts as { env?: Record<string, string> }).env).toEqual({
+      MANOR_AGENT_KIND: "codex",
+      MANOR_WORKSPACE_PATH: WS,
+      MANOR_PROJECT_PATH: "/repos/demo",
+      ROOT_WORKTREE_PATH: "/repos/demo",
+    });
+
+    // An agent's launch in the same workspace is not a setup script's.
+    await openAgentTab("claude");
+    await settle();
+    expect((creates[1].opts as { env?: Record<string, string> }).env).toEqual({
+      MANOR_AGENT_KIND: "claude",
+    });
   });
 
   it("reports a setup script that exits non-zero as failed", async () => {

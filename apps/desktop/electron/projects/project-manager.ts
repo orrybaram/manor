@@ -591,21 +591,27 @@ export class ProjectManager {
 
   /**
    * The project a workspace on `hostId` belongs to, as an agent's record
-   * names it: its id, and the name and agent command the
-   * renderer sees — a linked group's shared values where it has them. Null
+   * names it: its id and main checkout's path, and the name and agent
+   * command the renderer sees — a linked group's shared values where it has them. Null
    * when no project owns the path. Synchronous, from what is already known
    * (`PathRouter.projectForPath`): the agent pipeline asks on every hook.
    */
   workspaceProject(
     hostId: string,
     workspacePath: string,
-  ): { projectId: string; projectName: string; agentCommand: string | null } | null {
+  ): {
+    projectId: string;
+    projectName: string;
+    projectPath: string;
+    agentCommand: string | null;
+  } | null {
     const project = this.paths.projectForPath(hostId, workspacePath);
     if (!project) return null;
     const shared = groups.resolveShared(groups.groupOf(this.store.state, project.id), project);
     return {
       projectId: project.id,
       projectName: shared.name,
+      projectPath: project.path,
       agentCommand: shared.agentCommand,
     };
   }

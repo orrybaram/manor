@@ -205,15 +205,15 @@ test("a dialog request with a stale token or from another origin is refused", as
     await expect.poll(() => guest(base, "true"), { timeout: 10_000 }).toBe(true);
     const dialog = window.locator('[data-testid="page-dialog"]');
 
+    await expect.poll(() => shimToken(`${base}/first`), { timeout: 10_000 }).toEqual(expect.any(String));
     const first = await shimToken(`${base}/first`);
-    expect(first).toEqual(expect.any(String));
 
     // The pane moves on to another document: it has a new token, and the
     // first one opens nothing, even from the pane's own origin.
     await guest(base, `location.href = "${base}/second"; true`);
     await expect.poll(() => guest(`${base}/second`, "true"), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => shimToken(`${base}/second`), { timeout: 10_000 }).toEqual(expect.any(String));
     const second = await shimToken(`${base}/second`);
-    expect(second).toEqual(expect.any(String));
     expect(second).not.toBe(first);
     expect(await request(base, first!)).toBe("refused");
     await expect(dialog).toHaveCount(0);

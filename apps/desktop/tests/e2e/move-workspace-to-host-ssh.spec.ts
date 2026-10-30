@@ -334,6 +334,7 @@ test("move workspace to host over ssh: dirty refusal, move, keep, reuse", async 
   let agentPane = "";
   let codeTerminalPane = "";
   let cwdObserved = false;
+  let keepShape: LayoutShape[] = [];
 
   await test.step("1. a local project and two workspaces, one with tabs and an agent", async () => {
     // Cloned from the box's own bare origin over the side channel, so both
@@ -539,6 +540,12 @@ test("move workspace to host over ssh: dirty refusal, move, keep, reuse", async 
   });
 
   await test.step("3. move with Remove ticked", async () => {
+    const kills = async () =>
+      (await window.evaluate(() => window.electronAPI.stats.getSummary())) as {
+        allTime: { agentsKilled?: number; agentsKilledMidThought?: number };
+      };
+    const killsBefore = (await kills()).allTime;
+
     const localHead = git(wsA, "rev-parse HEAD");
     const sourceEntry = (await layouts(window))[wsA];
     const sourceShape = shapeOf(sourceEntry);
@@ -592,6 +599,12 @@ test("move workspace to host over ssh: dirty refusal, move, keep, reuse", async 
     // The window is on the box's workspace.
     await expect(row(window, targetPath)).toHaveAttribute("aria-current", "true", { timeout: 20_000 });
     await snap(window, "after-move");
+    // A moved agent goes on over there: removing the source is not a kill.
+    await window.waitForTimeout(2_000);
+    const killsAfter = (await kills()).allTime;
+    expect(killsAfter.agentsKilled ?? 0, "kills counted by the move").toBe(killsBefore.agentsKilled ?? 0);
+    expect(killsAfter.agentsKilledMidThought ?? 0).toBe(killsBefore.agentsKilledMidThought ?? 0);
+    await expect(window.getByText("First Blood")).toHaveCount(0);
 
     // The layout: the same tabs, titles, split, file and url.
     const targetKey = workspaceKey(hostId, targetPath);
@@ -666,7 +679,7 @@ test("move workspace to host over ssh: dirty refusal, move, keep, reuse", async 
       [boxProject.id, START_SCRIPT] as const,
     );
     const localHead = git(wsB, "rev-parse HEAD");
-    const keepShape = shapeOf((await layouts(window))[wsB]);
+    keepShape = shapeOf((await layouts(window))[wsB]);
 
     await openMoveDialog(window, wsB, hostId);
     await setRemoveSource(window, false);
@@ -718,6 +731,8 @@ test("move workspace to host over ssh: dirty refusal, move, keep, reuse", async 
     // The source went this time; its branch stays.
     expect(fs.existsSync(wsB)).toBe(false);
     expect(git(local, `rev-parse --verify -q refs/heads/${KEEP_BRANCH}`)).toBe(localHead);
+    // Moving it onto the copy it already has doesn't add its tab again.
+    await settledLayout(window, workspaceKey(hostId, boxBefore), keepShape);
     await snap(window, "after-reuse");
   });
 });

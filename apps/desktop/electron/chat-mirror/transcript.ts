@@ -167,7 +167,8 @@ export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
 
-const MAX_DETAIL = 4000;
+/** The most of a tool's result or a command's output an entry keeps. */
+export const MAX_DETAIL = 4000;
 /** An edit card's caps: hunks, lines per hunk, characters per line. */
 const MAX_HUNKS = 40;
 const MAX_HUNK_LINES = 400;
@@ -418,7 +419,21 @@ function editEntry(
   info: Json,
   cwd?: string,
 ): ChatEntry | null {
-  const all = editHunks(info);
+  return landedEdit(tool, editHunks(info), str(info.filePath) ?? str(info.notebook_path), cwd);
+}
+
+/**
+ * A tool's landed edit as an edit entry in its place: `all` counted over
+ * the whole patch, then capped to an edit card's limits. `filePath` is the
+ * file it wrote, else the tool's summary names it. Null when there is no
+ * diff to show. Any agent's adapter builds its edit cards with this.
+ */
+export function landedEdit(
+  tool: Extract<ChatEntry, { kind: "tool" }>,
+  all: ChatDiffHunk[],
+  filePath: string | undefined,
+  cwd?: string,
+): Extract<ChatEntry, { kind: "edit" }> | null {
   if (all.length === 0) return null;
   let added = 0;
   let removed = 0;
@@ -454,8 +469,7 @@ function editEntry(
     }
   }
   if (hunks.length === 0) return null;
-  const written = str(info.filePath) ?? str(info.notebook_path);
-  const path = written || (tool.summary !== tool.name ? tool.summary : "");
+  const path = filePath || (tool.summary !== tool.name ? tool.summary : "");
   return {
     kind: "edit",
     id: tool.id,

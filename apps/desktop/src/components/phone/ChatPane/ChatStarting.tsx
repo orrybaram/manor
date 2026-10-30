@@ -7,7 +7,7 @@ import { useStartingPrompt } from "./usePaneChatView";
 type ChatStartingProps = {
   paneId: string;
   /** The pane's **Agent kind**, if known yet. A chat starts only for a kind
-   *  in `CHAT_KINDS`, so one not known yet is Claude's, the only such kind. */
+   *  in `CHAT_KINDS`; one not known yet is taken for Claude's. */
   agentKind: string | null;
   /** The terminal is showing instead. */
   hidden: boolean;

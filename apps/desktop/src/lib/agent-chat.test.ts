@@ -37,9 +37,10 @@ describe("agentChat", () => {
 });
 
 describe("hasChat", () => {
-  it("is true only for kinds in CHAT_KINDS (Claude, for now)", () => {
-    expect([...CHAT_KINDS]).toEqual(["claude"]);
+  it("is true only for kinds in CHAT_KINDS (Claude and pi, for now)", () => {
+    expect([...CHAT_KINDS]).toEqual(["claude", "pi"]);
     expect(hasChat("claude")).toBe(true);
+    expect(hasChat("pi")).toBe(true);
     expect(hasChat("codex")).toBe(false);
     expect(hasChat(null)).toBe(false);
     expect(hasChat(undefined)).toBe(false);

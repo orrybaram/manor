@@ -219,7 +219,8 @@ export function SearchableSelect(props: SearchableSelectProps) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (rowCount === 0) return;
+      // While loading, the list shows none of its rows.
+      if (rowCount === 0 || loading) return;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -232,7 +233,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
         pickRow(rows[active]);
       }
     },
-    [rowCount, rows, active, pickRow],
+    [rowCount, loading, rows, active, pickRow],
   );
 
   const handleSearchChange = useCallback(
@@ -250,7 +251,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
   }, [active]);
 
   const highlightedId =
-    rowCount > 0 ? `searchable-select-option-${active}` : undefined;
+    rowCount > 0 && !loading ? `searchable-select-option-${active}` : undefined;
 
   /** One row of the list, named by its index for aria-activedescendant. */
   const renderRow = (row: ListRow, index: number) => {
@@ -292,7 +293,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
       const first = index === rowCount - (actions?.length ?? 0);
       return (
         <div
-          key={`action-${row.action.label}`}
+          key={`action-${index}`}
           {...common}
           className={classes(first && index > 0 && styles.actionFirst)}
           data-testid={row.action["data-testid"]}

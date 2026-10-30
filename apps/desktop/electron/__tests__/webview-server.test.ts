@@ -233,6 +233,17 @@ describe("WebviewServer", () => {
       expect(fs.existsSync(portFile)).toBe(false);
     });
 
+    it("stop() leaves the files alone once another Manor has rewritten them", () => {
+      const home = path.join(process.env.HOME || "/tmp", ".manor");
+      const portFile = path.join(home, "webview-server-port");
+      const tokenFile = path.join(home, "webview-server-token");
+      fs.writeFileSync(portFile, String(server.serverPort + 1));
+      fs.writeFileSync(tokenFile, "the-other-manors-token");
+      server.stop();
+      expect(fs.readFileSync(portFile, "utf-8")).toBe(String(server.serverPort + 1));
+      expect(fs.readFileSync(tokenFile, "utf-8")).toBe("the-other-manors-token");
+    });
+
     it("supports multiple start/stop cycles", async () => {
       server.stop();
 

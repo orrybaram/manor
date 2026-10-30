@@ -17,6 +17,11 @@
 
 - Automations: Each automation in Settings → Automations is now a card that shows its full name over its schedule, project and agent. The next run shows as a pill, or Paused, above the last run's status.
 
+### Security
+
+- Fixes for several security issues found in an audit. Details follow in GitHub security advisories; update to this version.
+
+
 ## [0.24.0] - 2026-10-29
 
 ### Features

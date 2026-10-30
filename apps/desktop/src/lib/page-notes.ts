@@ -77,9 +77,32 @@ export function notesWhereLabel(notes: PageNote[], currentUrl: string): string {
 /** How much of an element's HTML the prompt carries: enough to recognise it. */
 export const HTML_SNIPPET_MAX = 300;
 
+/** C0 and C1 control characters and DEL: Enter, ^C and escape sequences to a pty. */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+const CONTROL_BUT_NEWLINE = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
+
+/** Caps on each page-sourced field the prompt quotes. */
+export const PROMPT_FIELD_MAX = { selector: 300, url: 500, name: 100, fileName: 300, note: 4000 } as const;
+
+/**
+ * Text the page chose (a selector, a component's `displayName`, a source
+ * path), safe to type into an agent: no control characters, which would
+ * submit, interrupt or end a bracketed paste, and no longer than `max`.
+ */
+export function pageText(text: string, max: number): string {
+  const clean = String(text).replace(CONTROL, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+}
+
+/** The user's own note: its newlines stay (delivery flattens them), other control characters go. */
+function noteText(text: string): string {
+  const clean = String(text).replace(CONTROL_BUT_NEWLINE, " ").trim();
+  return clean.length > PROMPT_FIELD_MAX.note ? `${clean.slice(0, PROMPT_FIELD_MAX.note)}…` : clean;
+}
+
 /** `html` on one line, cut to `HTML_SNIPPET_MAX` characters. */
 export function htmlSnippet(html: string): string {
-  const flat = html.replace(/\s+/g, " ").trim();
+  const flat = String(html).replace(CONTROL, " ").replace(/\s+/g, " ").trim();
   return flat.length > HTML_SNIPPET_MAX ? `${flat.slice(0, HTML_SNIPPET_MAX)}…` : flat;
 }
 
@@ -88,7 +111,10 @@ function componentLine(components: PageNoteComponent[] | undefined): string | nu
   if (!components || components.length === 0) return null;
   const sourced = components.find((c) => c.source);
   const c = sourced ?? components[0];
-  return c.source ? `${c.name} (${c.source.fileName}:${c.source.lineNumber})` : c.name;
+  const name = pageText(c.name, PROMPT_FIELD_MAX.name);
+  if (!c.source) return name;
+  const file = pageText(c.source.fileName, PROMPT_FIELD_MAX.fileName);
+  return `${name} (${file}:${Math.trunc(Number(c.source.lineNumber)) || 0})`;
 }
 
 /**
@@ -104,24 +130,25 @@ export function pageNotesPrompt(
   notes: PageNote[],
   screenshotPaths: Record<string, string | undefined>,
 ): string {
-  const urls = [...new Set(notes.map((n) => n.url))];
+  const urls = [...new Set(notes.map((n) => pageText(n.url, PROMPT_FIELD_MAX.url)))];
   const where = urls.length === 1 ? `on the page at ${urls[0]}` : `across ${urls.length} pages`;
   const lines: string[] = [
     notes.length === 1
       ? `I left a note ${where}. Take it on its own terms — it may be a question about the page rather than a request to change it. Answer a question directly, and only edit code if the note actually asks for that.`
       : `I left ${notes.length} notes ${where}. Take each on its own terms — some may be questions about the page, others requests to change it. Answer the questions directly, and only edit code where a note actually asks for that.`,
   ];
-  if (notes.some((n) => !n.note.trim())) {
+  if (notes.some((n) => !noteText(n.note))) {
     lines.push("An element with no note is one I picked out for you to look at.");
   }
 
   notes.forEach((n, i) => {
-    lines.push(`[${i + 1}] ${n.selector} — ${n.note.trim() || "(no note)"}`);
-    if (urls.length > 1) lines.push(`    Page: ${n.url}`);
+    const selector = pageText(n.selector, PROMPT_FIELD_MAX.selector);
+    lines.push(`[${i + 1}] ${selector} — ${noteText(n.note) || "(no note)"}`);
+    if (urls.length > 1) lines.push(`    Page: ${pageText(n.url, PROMPT_FIELD_MAX.url)}`);
     const component = componentLine(n.reactComponents);
     if (component) lines.push(`    Component: ${component}`);
     const shot = screenshotPaths[n.id];
-    if (shot) lines.push(`    Screenshot: ${shot}`);
+    if (shot) lines.push(`    Screenshot: ${pageText(shot, 1000)}`);
     const html = htmlSnippet(n.outerHTML);
     if (html) lines.push(`    HTML: ${html}`);
   });

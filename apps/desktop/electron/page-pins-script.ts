@@ -18,8 +18,8 @@
  *   - `__MANOR_PINS__:<json>` — where each pin's element is now
  *
  * And `window.__manor_pins__` takes: `start()`, `stop()`, `sync(list)` (the
- * pins to show, `{ id, label }`, in order), `release()` (show the pins again
- * after a screenshot) and `setTheme(accent, bg)`.
+ * pins to show, `{ id, label }`, in order), `release(pickId)` (that pick's
+ * screenshot is taken; the pins show again once no other is pending) and `setTheme(accent, bg)`.
  */
 
 import { PICKER_HELPERS } from "./picker-script";
@@ -79,7 +79,8 @@ ${PICKER_HELPERS}
   var hoverEl = null;
   var seq = 0;
   var lastReport = '';
-  var releaseTimer = null;
+  /** Picks whose screenshot is still to come, each with its fallback timer: the pins stay hidden until none is left. */
+  var hiddenFor = {};
 
   function report(prefix, payload) {
     console.debug(prefix + payload);
@@ -199,12 +200,27 @@ ${PICKER_HELPERS}
     schedule();
   }
 
-  function release() {
-    if (releaseTimer !== null) { clearTimeout(releaseTimer); releaseTimer = null; }
-    host.style.visibility = '';
+  function hideFor(pickId) {
+    host.style.visibility = 'hidden';
+    hiddenFor[pickId] = setTimeout(function() { release(pickId); }, 2000);
+  }
+
+  function release(pickId) {
+    if (!(pickId in hiddenFor)) return;
+    clearTimeout(hiddenFor[pickId]);
+    delete hiddenFor[pickId];
+    if (Object.keys(hiddenFor).length === 0) host.style.visibility = '';
   }
 
   // ── Picking ───────────────────────────────────────────────────────────────
+
+  /**
+   * While an agent's one-shot picker (\`pick_element\`) is on the page, its
+   * clicks and Escape are its own: picking here stands aside until it's done.
+   */
+  function standingDown() {
+    return !!window.__manor_picker_active__;
+  }
 
   /** Whether \`e\` happened on a pin rather than the page. */
   function onPins(e) {
@@ -212,6 +228,7 @@ ${PICKER_HELPERS}
   }
 
   function onMouseOver(e) {
+    if (standingDown()) { hoverBox.style.display = 'none'; return; }
     var target = e.target;
     if (!target || onPins(e) || target === document.body || target === document.documentElement) {
       hoverBox.style.display = 'none';
@@ -228,6 +245,7 @@ ${PICKER_HELPERS}
 
   /** Presses on the page are picks, not clicks: the page never sees them. */
   function swallowPress(e) {
+    if (standingDown()) return;
     if (onPins(e)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -235,6 +253,7 @@ ${PICKER_HELPERS}
   }
 
   async function onClick(e) {
+    if (standingDown()) return;
     // A pin: its own handler opens its note.
     if (onPins(e)) return;
     swallowPress(e);
@@ -258,9 +277,7 @@ ${PICKER_HELPERS}
     // Out of the screenshot: the hover box and every pin. Two frames, so the
     // hidden layer has painted before main captures.
     hoverBox.style.display = 'none';
-    host.style.visibility = 'hidden';
-    if (releaseTimer !== null) clearTimeout(releaseTimer);
-    releaseTimer = setTimeout(release, 2000);
+    hideFor(id);
     requestAnimationFrame(function() {
       requestAnimationFrame(function() {
         var rect = el.getBoundingClientRect();
@@ -272,7 +289,7 @@ ${PICKER_HELPERS}
   }
 
   function onKeyDown(e) {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || standingDown()) return;
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();

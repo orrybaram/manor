@@ -13,6 +13,7 @@ import {
 type Pins = {
   start(): void;
   stop(): void;
+  release(pickId: string): void;
   sync(list: Array<{ id: string; label: string }>): void;
 };
 
@@ -99,6 +100,44 @@ describe("page pins script", () => {
 
     (shadow!.querySelector(".pin") as HTMLElement).click();
     expect(reports(PIN_OPEN_PREFIX)).toEqual([`${PIN_OPEN_PREFIX}${pick.pickId}`]);
+  });
+
+  const click = (id: string) => {
+    const el = document.getElementById(id)!;
+    el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  };
+  const pickIds = () =>
+    reports(PIN_PICK_PREFIX).map((m: string) => JSON.parse(m.slice(PIN_PICK_PREFIX.length)).pickId as string);
+  const layerShown = () => (document.querySelector("manor-pins") as HTMLElement).style.visibility !== "hidden";
+
+  it("keeps the pins hidden until every pending screenshot is taken", async () => {
+    pins().start();
+    click("one");
+    click("two");
+    await frames();
+    const [a, b] = pickIds();
+    expect(layerShown()).toBe(false);
+    pins().release(a);
+    expect(layerShown()).toBe(false);
+    pins().release(b);
+    expect(layerShown()).toBe(true);
+  });
+
+  it("stands aside while an agent's one-shot picker is on the page", async () => {
+    const page = window as unknown as { __manor_picker_active__?: boolean };
+    pins().start();
+    page.__manor_picker_active__ = true;
+    const seen = vi.fn();
+    document.addEventListener("click", seen, true);
+    click("one");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await frames();
+    document.removeEventListener("click", seen, true);
+    delete page.__manor_picker_active__;
+    expect(seen).toHaveBeenCalled();
+    expect(pickIds()).toEqual([]);
+    expect(reports(PIN_STOP_MESSAGE)).toEqual([]);
   });
 
   it("stops on Escape and says so", () => {

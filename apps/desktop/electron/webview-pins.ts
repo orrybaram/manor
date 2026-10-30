@@ -21,10 +21,12 @@ import {
   PINS_SCRIPT,
   PIN_OPEN_PREFIX,
   PIN_PICK_PREFIX,
+  PIN_REPORT_PREFIX,
   PIN_STOP_MESSAGE,
   pinsCall,
 } from "./page-pins-script";
 import type { PickedElementResult } from "../src/electron";
+import { parsePickReport, parsePinOpen, parsePinsLayout, type PickReport } from "./page-pin-reports";
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -36,11 +38,7 @@ export interface PagePick extends PickedElementResult {
   screenshot: { id: string; path: string } | null;
 }
 
-/** Where each pin's element is, in the page's CSS pixels. */
-export interface PagePinsLayout {
-  pins: Array<Box & { id: string; gone: boolean }>;
-  viewport: { width: number; height: number };
-}
+export type { PagePinsLayout } from "./page-pin-reports";
 
 /**
  * The part of `box` inside the viewport, in the device pixels
@@ -80,10 +78,9 @@ function rememberShot(path: string): string {
 
 async function takeScreenshot(
   page: WebContents,
-  pick: PickedElementResult & { viewport?: { width: number; height: number } | null },
+  pick: PickReport,
   registry: Pick<BackendRegistry, "get">,
 ): Promise<PagePick["screenshot"]> {
-  if (!pick.boundingBox || !pick.viewport) return null;
   const rect = screenshotRect(pick.boundingBox, pick.viewport, page.getZoomFactor());
   if (!rect) return null;
   try {
@@ -97,8 +94,29 @@ async function takeScreenshot(
 }
 
 /**
- * Listen to `page`'s pin reports and pass them to `host`, the renderer that
- * owns `paneId`. Returns the cleanup.
+ * Panes whose page is picking: set by `start-pins`, cleared by `stop-pins`,
+ * by the page's own Escape and by a new document. A pick reported while a
+ * pane isn't armed is the page talking, not the user clicking, and is dropped.
+ */
+const armed = new Set<string>();
+/** Panes with a screenshot being taken: one at a time, so a page can't flood the disk. */
+const capturing = new Set<string>();
+
+/** Whether a console line came from `page`'s main frame; a subframe's are its own. */
+function fromMainFrame(page: WebContents, details: { frame?: Electron.WebFrameMain | null }): boolean {
+  const frame = details?.frame;
+  if (!frame) return false;
+  try {
+    return frame.frameTreeNodeId === page.mainFrame.frameTreeNodeId;
+  } catch {
+    // The frame is gone already.
+    return false;
+  }
+}
+
+/**
+ * Listen to `page`'s pin reports and pass them, checked, to `host`, the
+ * renderer that owns `paneId`. Returns the cleanup.
  */
 export function attachPagePins(
   paneId: string,
@@ -109,39 +127,58 @@ export function attachPagePins(
   const send = (channel: string, ...args: unknown[]) => {
     if (!host.isDestroyed()) host.send(channel, paneId, ...args);
   };
+  const release = (pickId: string) => {
+    if (!page.isDestroyed()) void page.executeJavaScript(pinsCall("release", pickId)).catch(() => {});
+  };
 
-  const listener = (details: { message?: string }, _level?: number, legacyMessage?: string) => {
+  const listener = (
+    details: { message?: string; frame?: Electron.WebFrameMain | null },
+    _level?: number,
+    legacyMessage?: string,
+  ) => {
     const message = details?.message ?? legacyMessage ?? "";
+    if (!message.startsWith(PIN_REPORT_PREFIX) || !fromMainFrame(page, details)) return;
+
     if (message.startsWith(PIN_PICK_PREFIX)) {
-      let pick: PagePick & { viewport?: { width: number; height: number } | null };
-      try {
-        pick = JSON.parse(message.slice(PIN_PICK_PREFIX.length));
-      } catch {
+      if (!armed.has(paneId)) return;
+      const pick = parsePickReport(message.slice(PIN_PICK_PREFIX.length));
+      if (!pick) return;
+      if (capturing.has(paneId)) {
+        // Too quick after the last one: dropped, but its page shows its pins again.
+        release(pick.pickId);
         return;
       }
-      if (typeof pick?.pickId !== "string") return;
+      capturing.add(paneId);
       void takeScreenshot(page, pick, registry).then((screenshot) => {
+        capturing.delete(paneId);
         // The pins come back whether or not the capture worked.
-        if (!page.isDestroyed()) void page.executeJavaScript(pinsCall("release")).catch(() => {});
+        release(pick.pickId);
         const { viewport: _viewport, ...rest } = pick;
         send("webview:pin-picked", { ...rest, screenshot } satisfies PagePick);
       });
     } else if (message === PIN_STOP_MESSAGE) {
+      armed.delete(paneId);
       send("webview:pins-stopped");
     } else if (message.startsWith(PIN_OPEN_PREFIX)) {
-      send("webview:pin-opened", message.slice(PIN_OPEN_PREFIX.length));
+      const pinId = parsePinOpen(message.slice(PIN_OPEN_PREFIX.length));
+      if (pinId) send("webview:pin-opened", pinId);
     } else if (message.startsWith(PINS_PREFIX)) {
-      try {
-        send("webview:pins-moved", JSON.parse(message.slice(PINS_PREFIX.length)) as PagePinsLayout);
-      } catch {
-        // A page logging our prefix itself; nothing to pass on.
-      }
+      const layout = parsePinsLayout(message.slice(PINS_PREFIX.length));
+      if (layout) send("webview:pins-moved", layout);
     }
   };
+  // A new document has no pins script, so nothing to pick with.
+  const onNavigate = () => armed.delete(paneId);
 
   page.on("console-message", listener as never);
+  page.on("did-navigate", onNavigate);
   return () => {
-    if (!page.isDestroyed()) page.off("console-message", listener as never);
+    armed.delete(paneId);
+    capturing.delete(paneId);
+    if (!page.isDestroyed()) {
+      page.off("console-message", listener as never);
+      page.off("did-navigate", onNavigate);
+    }
   };
 }
 
@@ -169,6 +206,7 @@ export function registerPagePinsIpc(
       assertString(paneId, "paneId");
       const page = pageOf(paneId);
       if (!page) return false;
+      armed.add(paneId);
       await page.executeJavaScript(PINS_SCRIPT);
       await page.executeJavaScript(
         pinsCall("setTheme", String(theme?.accent ?? ""), String(theme?.bg ?? "")) + pinsCall("start"),
@@ -179,6 +217,7 @@ export function registerPagePinsIpc(
 
   ipcMain.handle("webview:stop-pins", async (_event, paneId: string) => {
     assertString(paneId, "paneId");
+    armed.delete(paneId);
     await pageOf(paneId)?.executeJavaScript(pinsCall("stop")).catch(() => {});
   });
 

@@ -236,4 +236,40 @@ test.describe("Settings › Theme", () => {
       timeout: 5_000,
     });
   });
+
+  test("opens with the selected tile in view, and arrows move by row", async ({ app, window, tempHome }) => {
+    // Enough themes that the wall scrolls.
+    installGhosttyThemes(tempHome);
+    const dir = path.join(tempHome, "Library", "Application Support", "ghostty", "themes");
+    for (let i = 0; i < 40; i++) {
+      const shade = (20 + i * 4).toString(16).padStart(2, "0");
+      fs.writeFileSync(
+        path.join(dir, `Zz Spectrum ${String(i).padStart(2, "0")}`),
+        `background = #${shade}${shade}30\nforeground = #f0f0f0\n`,
+      );
+    }
+    await app.evaluate(({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win?.isMaximized()) win.unmaximize();
+      win?.setSize(1280, 800);
+    });
+    await importSeededProject(app, window, tempHome);
+    await window.evaluate(() => window.electronAPI.theme.setSelected("Zz Spectrum 39"));
+
+    await openThemes(window);
+    const last = tile(window, "Zz Spectrum 39");
+    await expect(last).toHaveAttribute("aria-selected", "true");
+    await expect(last).toBeInViewport();
+
+    // Columns as laid out, then one row down from the first tile.
+    const columns = await window
+      .getByTestId("theme-wall")
+      .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+    expect(columns).toBeGreaterThanOrEqual(4);
+    await window.getByTestId("theme-wall").focus();
+    await window.keyboard.press("ArrowDown");
+    await window.keyboard.press("Enter");
+    const names = await tileNames(window);
+    await expect(tile(window, names[columns])).toHaveAttribute("aria-selected", "true", { timeout: 5_000 });
+  });
 });

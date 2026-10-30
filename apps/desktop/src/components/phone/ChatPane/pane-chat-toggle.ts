@@ -2,6 +2,7 @@ import { currentLayoutMode, type LayoutMode } from "../../../hooks/useLayoutMode
 import { selectPaneChatAgent } from "../../../lib/pane-agent";
 import { useAgentStore } from "../../../store/agent-store";
 import { selectPaneContentType, useAppStore } from "../../../store/app-store";
+import { usePreferencesStore } from "../../../store/preferences-store";
 import { chatTranscriptPath, type ChatView } from "./chat-view";
 import { liveMenuHandoff } from "./menu-handoff";
 import {
@@ -17,9 +18,14 @@ import {
  * command all come through here, so they agree with what `LeafPane` shows.
  */
 
-/** What a desk pane shows when it has no choice of its own. */
+/** What a desk pane shows when it has no choice of its own: the setting's pick. */
 export function deskChatDefault(): ChatView {
-  return "terminal";
+  return usePreferencesStore.getState().preferences.deskChatByDefault ? "chat" : "terminal";
+}
+
+/** `deskChatDefault`, as a hook that follows the setting. */
+export function useDeskChatDefault(): ChatView {
+  return usePreferencesStore((s) => (s.preferences.deskChatByDefault ? "chat" : "terminal"));
 }
 
 /**

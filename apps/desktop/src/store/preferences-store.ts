@@ -25,6 +25,7 @@ const defaultPreferences: AppPreferences = {
   defaultEditor: "",
   editorIsTerminal: false,
   diffOpensInNewPanel: true,
+  deskChatByDefault: false,
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
   statsEnabled: true,

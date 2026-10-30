@@ -20,6 +20,8 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   diffOpensInNewPanel: boolean;
+  /** Desk agent panes open on the chat unless they chose otherwise. */
+  deskChatByDefault: boolean;
   /** Days to retain non-active agents. Set to 0 to disable pruning. */
   agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */

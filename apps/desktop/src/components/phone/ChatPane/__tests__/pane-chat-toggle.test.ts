@@ -13,7 +13,8 @@ import type { AgentInfo } from "../../../../electron.d";
 import { useAgentStore } from "../../../../store/agent-store";
 import { useAppStore } from "../../../../store/app-store";
 import { readChatView, readStoredChatView, writeChatView } from "../chat-view";
-import { paneHasChat, togglePaneChat } from "../pane-chat-toggle";
+import { usePreferencesStore } from "../../../../store/preferences-store";
+import { deskChatDefault, paneHasChat, togglePaneChat } from "../pane-chat-toggle";
 import {
   selectPaneChatView,
   startMenuHandoff,
@@ -79,7 +80,14 @@ beforeEach(() => {
   usePaneChatViewStore.setState({ views: {}, deskViews: {}, handoffs: {}, starting: {} });
   seedPane();
   seedAgent({});
+  setDeskChatByDefault(false);
 });
+
+function setDeskChatByDefault(on: boolean): void {
+  usePreferencesStore.setState((s) => ({
+    preferences: { ...s.preferences, deskChatByDefault: on },
+  }));
+}
 
 describe("the stored view, per layout", () => {
   it("keeps the phone's and the desk's choices apart", () => {
@@ -136,5 +144,26 @@ describe("togglePaneChat", () => {
     togglePaneChat(PANE, "desk");
     expect(usePaneChatViewStore.getState().handoffs).toEqual({});
     expect(deskView()).toBe("chat");
+  });
+});
+
+describe("Show agent panes as chat", () => {
+  it("opens desk panes with no choice of their own on the chat, and leaves chosen ones alone", () => {
+    setDeskChatByDefault(true);
+    expect(deskChatDefault()).toBe("chat");
+    const view = (paneId: string) =>
+      selectPaneChatView(usePaneChatViewStore.getState(), paneId, TRANSCRIPT, "desk", deskChatDefault());
+    expect(view(PANE)).toBe("chat");
+
+    writeChatView("pane-2", "terminal", "desk");
+    expect(view("pane-2")).toBe("terminal");
+
+    // The toggle flips from what the pane shows, the setting's chat.
+    togglePaneChat(PANE, "desk");
+    expect(view(PANE)).toBe("terminal");
+
+    setDeskChatByDefault(false);
+    expect(view(PANE)).toBe("terminal");
+    expect(view("pane-3")).toBe("terminal");
   });
 });

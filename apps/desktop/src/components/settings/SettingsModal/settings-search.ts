@@ -61,6 +61,11 @@ const PAGE_SECTIONS: {
         keywords: ["source control", "scm", "git", "diff", "panel", "side by side", "changes"],
       },
       {
+        id: "general-chat",
+        label: "Agent Chat",
+        keywords: ["chat", "agent", "conversation", "terminal", "transcript", "claude", "codex", "phone"],
+      },
+      {
         id: "general-stats",
         label: "Usage Stats",
         keywords: ["stats", "usage", "telemetry", "reset", "privacy"],

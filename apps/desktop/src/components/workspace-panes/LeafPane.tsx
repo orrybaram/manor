@@ -78,7 +78,7 @@ import {
 import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
-import { deskChatDefault, togglePaneChat } from "../phone/ChatPane/pane-chat-toggle";
+import { togglePaneChat, useDeskChatDefault } from "../phone/ChatPane/pane-chat-toggle";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -135,12 +135,8 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // session's transcript is known (its Agent only exists after a prompt).
   const chatStarting = usePaneChatStarting(paneId, chatTranscript);
   const hasChat = chatTranscript !== null || chatStarting;
-  const [paneView, setPaneView] = usePaneChatView(
-    paneId,
-    chatTranscript,
-    layoutMode,
-    deskChatDefault(),
-  );
+  const deskDefault = useDeskChatDefault();
+  const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript, layoutMode, deskDefault);
   const showChat = hasChat && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 

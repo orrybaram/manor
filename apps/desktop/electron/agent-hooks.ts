@@ -8,6 +8,11 @@
  * 3. PTY sessions get MANOR_HOOK_PORT env var so hooks can call back
  * 4. Hook script (curl) → HTTP server → IPC to renderer
  *
+ * The port file holds `<port>\n<token>` (mode 0600), the same shape as a
+ * remote daemon's `HookListener`, and only a request that sends the token in
+ * `HOOK_TOKEN_HEADER`, names this listener by its loopback `Host` and carries
+ * no `Origin` is heard.
+ *
  * Remote hosts never reach this server: their daemon journals
  * hooks itself, and the host's own server hands each one to its
  * `ingestHookPayload`, the same path the HTTP handler takes.
@@ -25,14 +30,17 @@ import {
 import type { HookPayload } from "./terminal-host/types";
 import { LOCAL_HOST_ID } from "./backend/types";
 import { writeFileAtomic } from "./lib/fs-atomic";
+import { mintToken, refuseLoopbackRequest } from "./lib/loopback-guard";
+import { HOOK_TOKEN_HEADER } from "./terminal-host/hook-listener";
 
 /**
- * Atomically write the port number to the hook port file.
- * Uses tmp + rename pattern to ensure the file is never in a half-written state,
- * preventing hook scripts from reading garbage if a write is interrupted.
+ * Atomically write `<port>\n<token>` to the hook port file, readable only by
+ * this user. Uses tmp + rename pattern to ensure the file is never in a
+ * half-written state, preventing hook scripts from reading garbage if a write
+ * is interrupted.
  */
-function writePortFileAtomic(port: number): void {
-  writeFileAtomic(HOOK_PORT_FILE, String(port));
+function writePortFileAtomic(port: number, token: string): void {
+  writeFileAtomic(HOOK_PORT_FILE, `${port}\n${token}\n`, { mode: 0o600 });
 }
 
 function fromHost(ctx: { hostId: string }): string {
@@ -44,6 +52,7 @@ export type RelayFn = (event: AgentHookEvent) => void;
 export class AgentHookServer {
   private server: http.Server | null = null;
   private port = 0;
+  private token = "";
   private relayFn: RelayFn | null = null;
   private pending: AgentHookEvent[] = [];
   static readonly MAX_PENDING = 1000;
@@ -108,7 +117,19 @@ export class AgentHookServer {
 
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
+    this.token = mintToken();
     this.server = http.createServer((req, res) => {
+      const refusal = refuseLoopbackRequest(req, {
+        port: this.port,
+        tokenHeader: HOOK_TOKEN_HEADER,
+        token: this.token,
+      });
+      if (refusal) {
+        req.resume();
+        res.writeHead(refusal.status);
+        res.end();
+        return;
+      }
       // Same parser as the remote daemon's HookListener: both
       // classify a request before either does anything with it.
       const verdict = classifyHookRequest(req.url);
@@ -137,7 +158,7 @@ export class AgentHookServer {
         const addr = this.server!.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
-          writePortFileAtomic(this.port);
+          writePortFileAtomic(this.port, this.token);
         }
         resolve();
       });
@@ -152,7 +173,8 @@ export class AgentHookServer {
     this.server?.close();
     this.server = null;
     try {
-      if (this.port && fs.readFileSync(HOOK_PORT_FILE, "utf-8").trim() === String(this.port)) {
+      const [portLine] = fs.readFileSync(HOOK_PORT_FILE, "utf-8").split("\n");
+      if (this.port && portLine?.trim() === String(this.port)) {
         fs.unlinkSync(HOOK_PORT_FILE);
       }
     } catch {

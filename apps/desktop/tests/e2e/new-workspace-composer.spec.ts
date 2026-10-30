@@ -241,6 +241,40 @@ test("the folder chip makes a folder from its search and picks it", async ({
   await expect(folder).toHaveText(/Backend/);
 });
 
+test("long folder and branch names keep the chips on one row, and the folder list stays narrow", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  const longBranch = "fix/confirm-dialog-keeps-focus-on-the-cancel-button-after-escape";
+  execFileSync("git", ["-C", path.join(tempHome, "test-project"), "branch", longBranch]);
+  await importSeededProject(app, window, tempHome);
+  await openDialog(window);
+
+  // The folder search caps the name, and the list doesn't stretch to fit it.
+  const folder = window.getByTestId("new-workspace-folder-select");
+  await folder.click();
+  const longName = "This is a super long folder name ".repeat(4);
+  await window.keyboard.type(longName);
+  const search = window.getByPlaceholder("Search or create...");
+  await expect(search).toHaveValue(longName.slice(0, 60));
+  const list = await window.getByRole("listbox").boundingBox();
+  expect(list!.width).toBeLessThanOrEqual(360);
+  await shotWithList(window, "long-folder-list");
+  await window.getByTestId("new-workspace-folder-select-create").click();
+
+  await branchChip(window).click();
+  await window.keyboard.type("confirm-dialog");
+  await window.getByRole("option", { name: longBranch }).last().click();
+
+  // Every chip sits on the same row.
+  const chips = window.getByTestId("new-workspace-chips").locator(":scope > *");
+  const tops = await chips.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+  expect(tops.length).toBeGreaterThanOrEqual(2);
+  expect(new Set(tops).size).toBe(1);
+  await shot(window, "long-names-one-row");
+});
+
 test("Set up on another host… opens the set-up dialog from the host chip", async ({
   app,
   window,

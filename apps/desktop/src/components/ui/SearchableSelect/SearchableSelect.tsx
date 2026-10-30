@@ -89,6 +89,8 @@ type SearchableSelectProps = {
   actions?: SearchableSelectAction[];
   /** The search field's placeholder, in place of "Search..." */
   searchPlaceholder?: string;
+  /** Caps the search text, and so the length of what `onCreate` can make. */
+  searchMaxLength?: number;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -112,6 +114,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     triggerLabel,
     actions,
     searchPlaceholder,
+    searchMaxLength,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -284,8 +287,10 @@ export function SearchableSelect(props: SearchableSelectProps) {
           className={classes()}
           data-testid={dataTestId ? `${dataTestId}-create` : undefined}
         >
-          <Plus size={12} />
-          {createLabel(row.query)}
+          <Plus size={12} className={styles.createIcon} />
+          <span className={styles.createLabel} title={row.query}>
+            {createLabel(row.query)}
+          </span>
         </div>
       );
     }
@@ -395,6 +400,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
             searchPlaceholder ?? (onCreate ? "Search or create..." : "Search...")
           }
           value={search}
+          maxLength={searchMaxLength}
           onChange={handleSearchChange}
           onKeyDown={handleKeyDown}
           aria-activedescendant={highlightedId}

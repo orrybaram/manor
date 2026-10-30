@@ -51,6 +51,8 @@ import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 type Mode = "new" | "existing";
 
 const NO_BRANCHES: string[] = [];
+/** A folder name past this is a sidebar label nobody can read. */
+const FOLDER_NAME_MAX = 60;
 
 /** The branch chip's values: a base branch to branch off, or a branch to check out. */
 const NEW_PREFIX = "new:";
@@ -711,7 +713,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       options={projectOptions}
                       icon={<Box size={12} />}
                       className={styles.chip}
-                      maxWidth={160}
+                      maxWidth={130}
                       aria-label="Project"
                       data-testid="new-workspace-project-select"
                     />
@@ -726,9 +728,10 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       }}
                       onCreate={(folderName) => void createFolder(folderName)}
                       createLabel={(q) => `New folder "${q}"`}
+                      searchMaxLength={FOLDER_NAME_MAX}
                       options={folderOptions}
                       icon={<Folder size={12} />}
-                      maxWidth={140}
+                      maxWidth={120}
                       placeholder="No folder"
                       aria-label="Folder"
                       className={
@@ -764,7 +767,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     searchPlaceholder="Search branches..."
                     icon={<GitBranch size={12} />}
                     className={styles.chip}
-                    maxWidth={200}
+                    maxWidth={170}
                     listMaxHeight={260}
                     aria-label="Branch"
                     data-testid="new-workspace-base-branch-select"

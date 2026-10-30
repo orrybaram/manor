@@ -129,7 +129,7 @@ export function HostPicker(props: HostPickerProps) {
       actions={actions}
       searchPlaceholder="Search hosts..."
       className={styles.chip}
-      maxWidth={180}
+      maxWidth={140}
       aria-label="Run on"
       data-testid="new-workspace-host-picker"
     />

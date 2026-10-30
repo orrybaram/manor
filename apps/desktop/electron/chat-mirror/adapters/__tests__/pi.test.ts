@@ -215,6 +215,21 @@ describe("piAdapter parser, line by line", () => {
       expect.objectContaining({ id: "c1", status: "error", detail: "Output too large to show" }),
     ]);
   });
+
+  it("takes the entry after a line too long to read as a continuation, not a branch", () => {
+    const at = (id: string, parentId: string | null) =>
+      line({ type: "message", id, parentId, message: { role: "user", content: id } });
+    for (const head of [
+      '{"type":"message","id":"r1","parentId":"u1","message":{"role":"toolResult","content":"aaa',
+      '{"type":"mess', // cut before its id
+    ]) {
+      const p = piAdapter.createParser();
+      p.push(at("u1", null));
+      p.oversized!({ head, tail: 'aaa"}}' }, 0);
+      p.push(at("u2", "r1"));
+      expect(p.entries().map((e) => e.kind)).toEqual(["user", "user"]);
+    }
+  });
 });
 
 describe("parseUnifiedPatch", () => {

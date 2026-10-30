@@ -65,6 +65,8 @@ const SKILL_BLOCK = /^<skill name="([^"]+)" location="[^"]*">\n[\s\S]*?\n<\/skil
 
 /** A skipped tool result names its call; quotes inside its content are escaped. */
 const OVERSIZED_CALL_ID = /"toolCallId"\s*:\s*"([^"\\]+)"/;
+/** An entry's own id: its first `"id"` key, which pi writes before the message. */
+const OVERSIZED_ENTRY_ID = /"id"\s*:\s*"([^"\\]+)"/;
 const TOO_LARGE = "Output too large to show";
 
 function firstLine(s: string): string {
@@ -164,6 +166,8 @@ class PiTranscriptParser implements TranscriptLineParser {
   private cwd: string | undefined;
   /** The entry written last: the next one's parent unless the session branched. */
   private lastEntryId: string | null = null;
+  /** Every entry id read so far, skipped lines included when their id could be read. */
+  private readonly seenIds = new Set<string>();
   private lastContextTokens: number | null = null;
   private turn: ChatTurnState | null = null;
 
@@ -177,6 +181,12 @@ class PiTranscriptParser implements TranscriptLineParser {
 
   /** A tool result too long to read settles its call as an error, so it doesn't spin. */
   oversized(record: OversizedRecord): ChatEntry[] {
+    // The skipped line is still the next entry's parent: not a branch.
+    const entryId = OVERSIZED_ENTRY_ID.exec(record.head)?.[1];
+    if (entryId) {
+      this.lastEntryId = entryId;
+      this.seenIds.add(entryId);
+    }
     const id = OVERSIZED_CALL_ID.exec(record.head)?.[1] ?? OVERSIZED_CALL_ID.exec(record.tail)?.[1];
     const existing = id ? this.byId.get(id) : undefined;
     if (!id || existing?.kind !== "tool" || existing.status !== "pending") return [];
@@ -241,15 +251,24 @@ class PiTranscriptParser implements TranscriptLineParser {
     const id = str(parsed.id) ?? (offset !== undefined ? `@${offset}` : `line-${this.order.length}`);
     const out: ChatEntry[] = [];
 
-    // Continuing from anything but the entry before it is a branch (`/tree`).
-    // A branch summary is its own notice.
+    // Continuing from an earlier entry than the one before it is a branch
+    // (`/tree`), and so is a new root. A parent never read is a line that was
+    // skipped, not a branch. A branch summary is its own notice.
     const parentId = parsed.parentId === null ? null : str(parsed.parentId);
-    if (parentId !== undefined && this.lastEntryId !== null && parentId !== this.lastEntryId) {
+    if (
+      parentId !== undefined &&
+      this.lastEntryId !== null &&
+      parentId !== this.lastEntryId &&
+      (parentId === null || this.seenIds.has(parentId))
+    ) {
       if (type !== "branch_summary") {
         this.add({ kind: "notice", id: `${id}:branch`, ts, text: "Branched from an earlier message", status: "ok" }, out);
       }
     }
-    if (str(parsed.id)) this.lastEntryId = str(parsed.id)!;
+    if (str(parsed.id)) {
+      this.lastEntryId = str(parsed.id)!;
+      this.seenIds.add(this.lastEntryId);
+    }
 
     if (type === "compaction") {
       this.add({ kind: "notice", id, ts, text: "Conversation compacted", status: "ok" }, out);

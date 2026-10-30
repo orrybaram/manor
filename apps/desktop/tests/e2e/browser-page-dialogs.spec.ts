@@ -186,13 +186,15 @@ test("a dialog request with a stale token or from another origin is refused", as
       }
     }, prefix);
   // Ask for a confirm straight from the page, as a stolen token would be used.
+  // A refusal is a failed fetch or an empty error response: either way the
+  // page learns nothing and no dialog opens.
   const request = (prefix: string, token: string) =>
     guest(
       prefix,
       `fetch("manor-dialog://${token}/", {
         method: "POST",
         body: JSON.stringify({ type: "confirm", message: "Re-enter your password", defaultText: "" }),
-      }).then((r) => r.json(), () => "refused")`,
+      }).then((r) => (r.ok ? r.json() : "refused"), () => "refused")`,
     );
 
   try {
@@ -227,7 +229,12 @@ test("a dialog request with a stale token or from another origin is refused", as
     expect(await answered).toEqual({ ok: true });
 
     // Another origin, in another tab, with the pane's current token: refused.
+    // The closed dialog handed focus back to the page; take it to the app.
+    await window.locator("[data-pane-url-input]:visible").click();
+    await window.keyboard.press("Escape");
     await window.keyboard.press("ControlOrMeta+Shift+b");
+    await expect(window.locator("webview:visible")).toHaveCount(1, { timeout: 10_000 });
+    await expect(window.locator("[data-pane-url-input]:visible")).toHaveValue("");
     await window.keyboard.press("ControlOrMeta+l");
     await window.keyboard.type(`${other}/`);
     await window.keyboard.press("Enter");

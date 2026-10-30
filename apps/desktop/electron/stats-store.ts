@@ -91,6 +91,11 @@ export interface PersistedStats {
    * Absent on a host server and on files written before merged stats.
    */
   hosts?: Record<string, StatsHistory>;
+  /**
+   * Hosts a reset has yet to reach: they were away when the desktop reset,
+   * and are cleared when next heard from. Their counts stay out until then.
+   */
+  pendingHostResets?: string[];
 }
 
 /**
@@ -153,6 +158,11 @@ export class StatsStore {
   private badges: Record<string, string>;
   /** Each host server's last-read history, summed into every total. */
   private hosts: Record<string, StatsHistory>;
+  /** `PersistedStats.pendingHostResets`. */
+  private pendingResets: Set<string>;
+  /** The hosts a reset is for (`opts.hostIds`). */
+  private hostIds: () => readonly string[];
+  private onReset: (() => void) | undefined;
   /** Badges `setHostHistory` awarded quietly (`StatsSummary.quietBadges`). */
   private quiet = new Set<string>();
   /** Insertion-ordered, so eviction drops the oldest token. */
@@ -178,6 +188,10 @@ export class StatsStore {
       monoNow?: () => number;
       /** Called once per newly-earned badge, after it has been persisted. */
       onBadge?: (badge: BadgeDef) => void;
+      /** The desktop's remote hosts, every one of which a reset clears too. */
+      hostIds?: () => readonly string[];
+      /** After a reset: the desktop sends it on to the hosts it can reach. */
+      onReset?: () => void;
     },
   ) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -186,11 +200,14 @@ export class StatsStore {
     this.monoNow =
       opts?.monoNow ?? (() => Number(process.hrtime.bigint() / 1_000_000n));
     this.onBadge = opts?.onBadge;
+    this.hostIds = opts?.hostIds ?? (() => []);
+    this.onReset = opts?.onReset;
     const state = this.loadState();
     this.days = state.days;
     this.badges = state.badges;
     this.once = state.once;
     this.hosts = state.hosts;
+    this.pendingResets = state.pendingResets;
     this.prune();
     this.grandfatherBadges();
   }
@@ -217,6 +234,7 @@ export class StatsStore {
     badges: Record<string, string>;
     once: Set<string>;
     hosts: Record<string, StatsHistory>;
+    pendingResets: Set<string>;
   } {
     try {
       const data = fs.readFileSync(this.statsFilePath(), "utf-8");
@@ -226,9 +244,14 @@ export class StatsStore {
         badges: sanitizeBadges(state.badges),
         once: sanitizeOnce(state.once),
         hosts: sanitizeHosts(state.hosts),
+        pendingResets: new Set(
+          Array.isArray(state.pendingHostResets)
+            ? state.pendingHostResets.filter((id): id is string => typeof id === "string")
+            : [],
+        ),
       };
     } catch {
-      return { days: {}, badges: {}, once: new Set(), hosts: {} };
+      return { days: {}, badges: {}, once: new Set(), hosts: {}, pendingResets: new Set() };
     }
   }
 
@@ -240,6 +263,7 @@ export class StatsStore {
       badges: this.badges,
       once: [...this.once],
       ...(Object.keys(this.hosts).length > 0 ? { hosts: this.hosts } : {}),
+      ...(this.pendingResets.size > 0 ? { pendingHostResets: [...this.pendingResets] } : {}),
     };
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(this.statsFilePath(), JSON.stringify(state, null, 2));
@@ -481,7 +505,7 @@ export class StatsStore {
    * today's totals may no longer show) is taken quietly, with its date.
    */
   setHostHistory(hostId: string, history: StatsHistory): void {
-    if (!this.isEnabled()) return;
+    if (!this.isEnabled() || this.pendingResets.has(hostId)) return;
     const was = this.hosts[hostId];
     const first = was === undefined;
     const host = sanitizeHost(history);
@@ -562,7 +586,12 @@ export class StatsStore {
     return true;
   }
 
-  /** Clears all collected stats in memory and removes the file from disk. */
+  /**
+   * Clears all collected stats in memory and removes the file from disk. On
+   * the desktop every remote host is cleared too: the ones it can reach now
+   * (`onReset`), and the rest when next heard from — until then the file
+   * stays, saying which.
+   */
   reset(): void {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
@@ -573,12 +602,30 @@ export class StatsStore {
     this.once = new Set();
     this.hosts = {};
     this.quiet.clear();
+    this.pendingResets = new Set(this.hostIds());
     try {
-      fs.rmSync(this.statsFilePath(), { force: true });
+      if (this.pendingResets.size > 0) this.writeStateSync();
+      else fs.rmSync(this.statsFilePath(), { force: true });
     } catch {
       // best effort: an unremovable file is not worth crashing over
     }
     this.emitChange();
+    try {
+      this.onReset?.();
+    } catch (error) {
+      console.error("[stats-store] onReset listener threw:", error);
+    }
+  }
+
+  /** Whether `hostId` was away for a reset and still has to be cleared. */
+  hostResetDue(hostId: string): boolean {
+    return this.pendingResets.has(hostId);
+  }
+
+  /** `hostId` has cleared its own stats: its history counts again. */
+  hostWasReset(hostId: string): void {
+    if (!this.pendingResets.delete(hostId)) return;
+    this.saveState();
   }
 }
 

@@ -473,4 +473,28 @@ describe("HostProxy and the host's usage stats", () => {
     expect(heard).toEqual([]);
     expect(warned).toEqual([]);
   });
+
+  it("clears the host's stats before reading them when the desktop reset while it was away", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    let due = true;
+    const heard: unknown[] = [];
+    proxyFor(h, client, desktopBus().bus, {
+      statsResetDue: () => due,
+      onStatsReset: () => (due = false),
+      onStatsHistory: (history) => heard.push(history),
+    });
+
+    await eventually(() => heard, (list) => list.length > 0, "the history");
+    expect(due).toBe(false);
+    expect(heard[0]).toEqual({ days: {}, badges: {} });
+  });
 });
+

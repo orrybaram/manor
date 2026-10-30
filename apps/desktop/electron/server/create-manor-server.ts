@@ -320,6 +320,8 @@ export function createManorServer<D extends BridgeServerDeps>(
             // A host's own stats, summed into this desktop's totals.
             onStatsHistory: (hostId: string, history: unknown): void =>
               statsStore.setHostHistory(hostId, history as StatsHistory),
+            statsResetDue: (hostId: string): boolean => statsStore.hostResetDue(hostId),
+            onStatsReset: (hostId: string): void => statsStore.hostWasReset(hostId),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
@@ -529,6 +531,19 @@ export function createManorServer<D extends BridgeServerDeps>(
       });
       notifier.sendNotificationsUpdate();
     },
+    // On the desktop a reset clears every remote host as well: the ones
+    // connected now, and each of the rest when it next connects.
+    ...(routing
+      ? {
+          hostIds: () =>
+            projectManager
+              .getHosts()
+              .flatMap(({ hostId }) => (projectManager.isHostAdopted(hostId) ? [hostId] : [])),
+          onReset: () => {
+            for (const proxy of routing.proxies()) proxy.syncStats();
+          },
+        }
+      : {}),
   });
   // Every server says when its stats move: a host's is how the desktop
   // knows to read its history again.

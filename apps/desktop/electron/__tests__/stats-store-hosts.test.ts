@@ -174,4 +174,33 @@ describe("StatsStore across hosts", () => {
     store.setHostHistory("box", { days: { "2026-10-30": { prompts: 2 } }, badges: {} });
     expect(store.getSummary().today).toEqual({});
   });
+
+  it("clears every host on reset, keeping an away host's counts out until it is cleared", () => {
+    const onReset = vi.fn();
+    const store = new StatsStore(tmpDir, { now, hostIds: () => ["box", "away"], onReset });
+    store.setHostHistory("box", { days: { "2026-10-30": { prompts: 2 } }, badges: {} });
+    store.reset();
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(store.hostResetDue("away")).toBe(true);
+
+    // A restart in between: the file remembers who is still due.
+    const reloaded = new StatsStore(tmpDir, { now, hostIds: () => ["box", "away"] });
+    expect(reloaded.hostResetDue("away")).toBe(true);
+    // Its old history, read before it was cleared, is not counted.
+    reloaded.setHostHistory("away", { days: { "2026-10-30": { prompts: 9 } }, badges: {} });
+    expect(reloaded.getSummary().today.prompts).toBeUndefined();
+
+    reloaded.hostWasReset("away");
+    reloaded.setHostHistory("away", { days: {}, badges: {} });
+    expect(reloaded.hostResetDue("away")).toBe(false);
+    expect(reloaded.getSummary().today).toEqual({});
+  });
+
+  it("removes the file on reset when there are no hosts, as before", () => {
+    const store = new StatsStore(tmpDir, { now });
+    store.record("prompts");
+    store.flushNow();
+    store.reset();
+    expect(fs.existsSync(path.join(tmpDir, "stats.json"))).toBe(false);
+  });
 });

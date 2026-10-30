@@ -1,5 +1,7 @@
 import { usePreferencesStore } from "../store/preferences-store";
 import { useAppStore } from "../store/app-store";
+import { toast } from "../toast";
+import { hasControlChars, shellQuote } from "./terminal-file-drop";
 
 const TERMINAL_EDITORS = new Set([
   "vi",
@@ -28,7 +30,12 @@ export function openInEditor(dirPath: string): void {
   const editor = preferences.defaultEditor;
 
   if (editor && preferences.editorIsTerminal) {
-    useAppStore.getState().addTerminalTab(`${editor} ${dirPath}`);
+    // The path is typed into a shell, and file names come from the repo.
+    if (hasControlChars(dirPath)) {
+      toast.error("This file's name has characters Manor won't type.", { id: "open-in-editor" });
+      return;
+    }
+    useAppStore.getState().addTerminalTab(`${editor} ${shellQuote(dirPath)}`);
     return;
   }
 

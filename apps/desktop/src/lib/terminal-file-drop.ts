@@ -24,6 +24,14 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
+/**
+ * C0 and C1 control characters and DEL: typed into a shell, Ctrl-U or
+ * Ctrl-C in a line defeats any quoting around it.
+ */
+export function hasControlChars(value: string): boolean {
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
 /** True when a drag carries files from outside the app (not a pane or tab). */
 export function isFileDrag(dt: DataTransfer | null): boolean {
   return !!dt && Array.from(dt.types).includes("Files");

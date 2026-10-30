@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { keyFor, toDesktop, toDesktopResult, toHostArgs } from "../host-rewrite";
+import { hostRecord, keyFor, toDesktop, toDesktopResult, toHostArgs } from "../host-rewrite";
 
 const HOST = "box";
 
@@ -24,10 +24,25 @@ describe("toDesktop", () => {
     expect(toDesktop(HOST, { id: "p", hostId: "local" })).toEqual({ id: "p", hostId: HOST });
   });
 
+  it("stamps over a host id naming any other host", () => {
+    expect(toDesktop(HOST, { id: "p", hostId: "other" })).toEqual({ id: "p", hostId: HOST });
+    expect(toDesktop(HOST, { id: "p", hostId: "" })).toEqual({ id: "p", hostId: HOST });
+  });
+
   it("leaves other values alone", () => {
-    expect(toDesktop(HOST, { id: "p", hostId: "other" })).toEqual({ id: "p", hostId: "other" });
+    expect(toDesktop(HOST, { id: "p" })).toEqual({ id: "p" });
     expect(toDesktop(HOST, "x")).toBe("x");
     expect(toDesktop(HOST, null)).toBeNull();
+  });
+});
+
+describe("hostRecord", () => {
+  it("stamps the host's id on a record that left it out", () => {
+    expect(hostRecord(HOST, { id: "p", path: "/Users/me/work" })).toEqual({
+      id: "p",
+      path: "/Users/me/work",
+      hostId: HOST,
+    });
   });
 });
 
@@ -113,8 +128,20 @@ describe("toDesktopResult", () => {
   it("stamps a record, or each record of a list", () => {
     expect(toDesktopResult(HOST, "projects", "getAll", [{ hostId: "local" }, { hostId: "x" }])).toEqual([
       { hostId: HOST },
-      { hostId: "x" },
+      { hostId: HOST },
     ]);
     expect(toDesktopResult(HOST, "agents", "get", { hostId: "local" })).toEqual({ hostId: HOST });
+  });
+
+  it("stamps a project the host answered with no host id", () => {
+    const project = { id: "p", workspaces: [], worktreeStartScript: "x" };
+    expect(toDesktopResult(HOST, "projects", "createWorktree", project)).toEqual({
+      ...project,
+      hostId: HOST,
+    });
+  });
+
+  it("leaves a non-record answer without a host id alone", () => {
+    expect(toDesktopResult(HOST, "git", "status", { branch: "main" })).toEqual({ branch: "main" });
   });
 });

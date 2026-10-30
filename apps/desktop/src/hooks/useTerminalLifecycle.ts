@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { osc52Clipboard } from "../terminal/osc52-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
@@ -343,7 +344,7 @@ export function useTerminalLifecycle(
       }
 
       try {
-        t.loadAddon(new ClipboardAddon());
+        t.loadAddon(new ClipboardAddon(undefined, osc52Clipboard));
       } catch {
         // ignored
       }

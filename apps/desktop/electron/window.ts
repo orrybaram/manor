@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { windowBoundsFile, zoomLevelFile } from "./paths";
-import { trustAppWindow } from "./permissions";
+import { isRendererUrl, trustAppWindow } from "./permissions";
 import { e2eBackground, e2eWindowOptions, showE2eWindow } from "./e2e-background";
 
 interface WindowBounds {
@@ -136,6 +136,19 @@ function attachWebviewHardening(win: BrowserWindow): void {
   });
 }
 
+/**
+ * Keep the window on the app. Its preload gives the page the whole bridge,
+ * so a link or file dropped where no pane takes it, or any other navigation,
+ * must not load another page in its place.
+ */
+function attachNavigationGuard(win: BrowserWindow): void {
+  const guard = (event: { preventDefault(): void }, url: string) => {
+    if (!isRendererUrl(url)) event.preventDefault();
+  };
+  win.webContents.on("will-navigate", guard);
+  win.webContents.on("will-redirect", guard);
+}
+
 /** Load the renderer (dev server in development, bundled file when packaged). */
 function loadRenderer(win: BrowserWindow): void {
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -196,6 +209,7 @@ export function createWindow(): BrowserWindow {
   attachWindowOpenHandler(mainWindow);
   attachWebviewHardening(mainWindow);
   trustAppWindow(mainWindow.webContents);
+  attachNavigationGuard(mainWindow);
   loadRenderer(mainWindow);
 
   return mainWindow;
@@ -257,6 +271,7 @@ export function createDetachedWindow(
   attachWindowOpenHandler(win);
   attachWebviewHardening(win);
   trustAppWindow(win.webContents);
+  attachNavigationGuard(win);
   loadRenderer(win);
 
   return win;

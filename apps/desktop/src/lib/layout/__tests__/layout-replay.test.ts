@@ -1,0 +1,212 @@
+import { describe, expect, it } from "vitest";
+import { applyLayoutCommand, type LayoutCommand } from "../commands";
+import {
+  bindPanelId,
+  layoutReplay,
+  mapUnderRoot,
+  TARGET_FIRST_PANEL,
+  type LayoutReplayInput,
+} from "../layout-replay";
+import { allPaneIds, type PaneNode } from "../pane-tree";
+import type { PanelNode } from "../panel-tree";
+import type { PersistedPaneSession } from "../protocol";
+import {
+  createSinglePanelLayout,
+  layoutPaneIds,
+  type Tab,
+  type WorkspaceLayout,
+} from "../workspace-layout";
+
+const SRC = "/Users/me/.manor/worktrees/app/feat";
+const DST = "/home/u/.manor/worktrees/app/feat";
+
+const leaf = (paneId: string, extra: Partial<Extract<PaneNode, { type: "leaf" }>> = {}): PaneNode => ({
+  type: "leaf",
+  paneId,
+  ...extra,
+});
+const tab = (id: string, title: string, rootNode: PaneNode): Tab => ({ id, title, rootNode });
+const session = (lastCwd: string | null): PersistedPaneSession => ({
+  daemonSessionId: "x",
+  lastCwd,
+  lastTitle: null,
+});
+
+/** Left: two tabs (one pinned, one a vertical split of a terminal and a file
+ *  pane). Right, split horizontally 0.3/0.7 from the left, then the right
+ *  split vertically 0.6: a browser tab on top, a terminal below. */
+function sourceLayout(): WorkspaceLayout {
+  const panelTree: PanelNode = {
+    type: "split",
+    direction: "horizontal",
+    ratio: 0.3,
+    first: { type: "leaf", panelId: "L" },
+    second: {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.6,
+      first: { type: "leaf", panelId: "RT" },
+      second: { type: "leaf", panelId: "RB" },
+    },
+  };
+  return {
+    panelTree,
+    panels: {
+      L: {
+        id: "L",
+        tabs: [
+          tab("t-pinned", "server", leaf("p-server")),
+          tab("t-split", "work", {
+            type: "split",
+            direction: "vertical",
+            ratio: 0.25,
+            first: leaf("p-shell"),
+            second: leaf("p-file", { contentType: "file", filePath: "src/app.ts" }),
+          }),
+        ],
+        pinnedTabIds: ["t-pinned"],
+      },
+      RT: {
+        id: "RT",
+        tabs: [tab("t-web", "localhost:3000", leaf("p-web", { contentType: "browser", url: "http://localhost:3000/" }))],
+        pinnedTabIds: [],
+      },
+      RB: { id: "RB", tabs: [tab("t-logs", "logs", leaf("p-logs"))], pinnedTabIds: [] },
+    },
+  };
+}
+
+const sessions: Record<string, PersistedPaneSession> = {
+  "p-server": session(SRC),
+  "p-shell": session(`${SRC}/packages/api`),
+  "p-logs": session("/var/log"),
+};
+
+/** Run the replay's commands through the reducer, as the server would. */
+function apply(commands: LayoutCommand[], target: WorkspaceLayout | null): WorkspaceLayout {
+  // The server mints the first panel of a workspace it has never heard of.
+  let layout = target ?? createSinglePanelLayout("panel-minted", [], []);
+  for (const [i, raw] of commands.entries()) {
+    const command = !target && i > 0 ? bindPanelId(raw, TARGET_FIRST_PANEL, "panel-minted") : raw;
+    const next = applyLayoutCommand({ layout, closedStack: [] }, command);
+    expect(next.layout, `command ${i} (${command.type}) changed nothing`).not.toBe(layout);
+    layout = next.layout;
+  }
+  return layout;
+}
+
+/** A layout without its ids: what a user would see. */
+function shape(layout: WorkspaceLayout): unknown {
+  const pane = (node: PaneNode): unknown =>
+    node.type === "leaf"
+      ? { ...node, paneId: undefined }
+      : { direction: node.direction, ratio: node.ratio, first: pane(node.first), second: pane(node.second) };
+  const panel = (node: PanelNode): unknown => {
+    if (node.type === "split") {
+      return { direction: node.direction, ratio: node.ratio, first: panel(node.first), second: panel(node.second) };
+    }
+    const p = layout.panels[node.panelId];
+    return p.tabs.map((t) => ({
+      title: t.title,
+      pinned: p.pinnedTabIds.includes(t.id),
+      root: pane(t.rootNode),
+    }));
+  };
+  return panel(layout.panelTree);
+}
+
+function input(target: LayoutReplayInput["target"]): LayoutReplayInput {
+  return { source: sourceLayout(), paneSessions: sessions, sourceRoot: SRC, targetRoot: DST, target };
+}
+
+describe("layoutReplay", () => {
+  it("rebuilds the panels, splits, ratios, tabs, pins, file and browser panes in a target with no layout", () => {
+    const replay = layoutReplay(input(null));
+    expect(replay.commands[0]).toMatchObject({ type: "new-tab" });
+    expect(replay.commands[0]).not.toHaveProperty("panelId");
+    expect(shape(apply(replay.commands, null))).toEqual(shape(sourceLayout()));
+  });
+
+  it("mints every pane, tab and panel id fresh, and maps each source pane to its new one", () => {
+    const replay = layoutReplay(input(null));
+    const built = apply(replay.commands, null);
+    const source = sourceLayout();
+    const oldIds = [
+      ...layoutPaneIds(source),
+      ...Object.keys(source.panels),
+      ...Object.values(source.panels).flatMap((p) => p.tabs.map((t) => t.id)),
+    ];
+    const newIds = [
+      ...layoutPaneIds(built),
+      ...Object.keys(built.panels),
+      ...Object.values(built.panels).flatMap((p) => p.tabs.map((t) => t.id)),
+    ];
+    for (const id of oldIds) expect(newIds).not.toContain(id);
+    expect(Object.keys(replay.paneIds).sort()).toEqual([...layoutPaneIds(source)].sort());
+    expect(new Set(Object.values(replay.paneIds))).toEqual(layoutPaneIds(built));
+  });
+
+  it("maps a terminal's cwd under the source root to the target root, and leaves the root and outside paths to the default", () => {
+    const { paneIds, cwds } = layoutReplay(input(null));
+    expect(cwds).toEqual({ [paneIds["p-shell"]]: `${DST}/packages/api` });
+  });
+
+  it("keeps the target's tabs (a running Setup tab) and puts the replay after them", () => {
+    const setup = createSinglePanelLayout("T", [tab("t-setup", "Setup", leaf("p-setup"))], []);
+    const replay = layoutReplay(input({ layout: setup, paneSessions: { "p-setup": session(DST) } }));
+    const built = apply(replay.commands, setup);
+    const first = built.panels.T;
+    expect(first.tabs.map((t) => t.title)).toEqual(["server", "Setup", "work"]);
+    expect(first.pinnedTabIds).toEqual([first.tabs[0].id]);
+    expect(Object.keys(built.panels)).toHaveLength(3);
+  });
+
+  it("replaces a lone default tab that never started", () => {
+    const fresh = createSinglePanelLayout("T", [tab("t-default", "Terminal", leaf("p-default"))], []);
+    const replay = layoutReplay(input({ layout: fresh, paneSessions: {} }));
+    expect(shape(apply(replay.commands, fresh))).toEqual(shape(sourceLayout()));
+  });
+
+  it("keeps a default-looking tab whose shell has started", () => {
+    const used = createSinglePanelLayout("T", [tab("t-default", "Terminal", leaf("p-default"))], []);
+    const replay = layoutReplay(input({ layout: used, paneSessions: { "p-default": session(DST) } }));
+    const built = apply(replay.commands, used);
+    expect(built.panels.T.tabs.map((t) => t.title)).toEqual(["server", "Terminal", "work"]);
+  });
+
+  it("moves an absolute file path under the source root", () => {
+    const source = createSinglePanelLayout(
+      "L",
+      [tab("t", "f", leaf("p", { contentType: "file", filePath: `${SRC}/README.md` }))],
+      [],
+    );
+    const replay = layoutReplay({ source, paneSessions: {}, sourceRoot: SRC, targetRoot: DST, target: null });
+    const built = apply(replay.commands, null);
+    const root = Object.values(built.panels)[0].tabs[0].rootNode;
+    expect(root).toMatchObject({ contentType: "file", filePath: `${DST}/README.md` });
+  });
+
+  it("answers nothing for a layout with no tabs", () => {
+    const empty = createSinglePanelLayout("L", [], []);
+    expect(
+      layoutReplay({ source: empty, paneSessions: {}, sourceRoot: SRC, targetRoot: DST, target: null }).commands,
+    ).toEqual([]);
+  });
+
+  it("drops a source panel that holds no tab", () => {
+    const source = sourceLayout();
+    source.panels.RB = { ...source.panels.RB, tabs: [] };
+    const built = apply(layoutReplay({ ...input(null), source }).commands, null);
+    expect(allPaneIds(Object.values(built.panels)[0].tabs[0].rootNode)).toHaveLength(1);
+    expect(Object.keys(built.panels)).toHaveLength(2);
+  });
+});
+
+describe("mapUnderRoot", () => {
+  it("maps the root, a path under it, and nothing else", () => {
+    expect(mapUnderRoot(SRC, SRC, DST)).toBe(DST);
+    expect(mapUnderRoot(`${SRC}/a/b`, `${SRC}/`, DST)).toBe(`${DST}/a/b`);
+    expect(mapUnderRoot(`${SRC}-other`, SRC, DST)).toBeNull();
+    expect(mapUnderRoot("C:\\src\\app\\lib", "C:\\src\\app", DST)).toBe(`${DST}/lib`);
+  });
+});

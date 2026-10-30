@@ -8,7 +8,7 @@ import { goToAgentPane, resumeAgent } from "../../../lib/agent-resume";
 import { isHomePath } from "../../../lib/home";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { isWithin, normalizePath } from "../../../lib/path-within";
-import { shellQuote } from "../../../lib/terminal-file-drop";
+import { hasControlChars, shellQuote } from "../../../lib/terminal-file-drop";
 import { allPaneIds, hasPaneId } from "../../../lib/layout/pane-tree";
 import { useLaunchedSessions } from "../../../store/launched-sessions-store";
 import { rowPaneId, type ModalRow } from "./agents-modal-list";
@@ -129,14 +129,6 @@ export function placeLaunch(
   }
   const first = onHost.find((p) => p.workspaces.length > 0)?.workspaces[0];
   return first ? { hostId, workspacePath: first.path, cdTo: cdFrom(first.path) } : null;
-}
-
-/**
- * C0 and C1 control characters and DEL: typed into a shell, Ctrl-U or
- * Ctrl-C in a line defeats any quoting around it.
- */
-export function hasControlChars(value: string): boolean {
-  return /[\u0000-\u001f\u007f-\u009f]/.test(value);
 }
 
 /** `command`, run after changing to `cdTo` when there is one. */

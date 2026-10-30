@@ -22,7 +22,7 @@ const byName = (a: { name: string }, b: { name: string }) =>
 
 /**
  * Collapse chains of directories that contain exactly one child directory
- * and no files ("tabbar/TabBar"), then sort dirs and files together
+ * and no files ("tabbar/TabBar"), then list dirs before files, each
  * alphabetically (case-insensitive), the way an editor's file tree does.
  */
 function finalize<T extends FileTreeEntry>(
@@ -50,7 +50,7 @@ function finalize<T extends FileTreeEntry>(
       entry,
     }),
   );
-  return [...dirs, ...files].sort(byName);
+  return [...dirs.sort(byName), ...files.sort(byName)];
 }
 
 export function buildFileTree<T extends FileTreeEntry>(

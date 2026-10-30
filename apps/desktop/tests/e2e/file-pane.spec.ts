@@ -112,6 +112,10 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "drawer-dark") });
 
+  // Folders are listed above files: src sorts after .gitignore and big.log
+  // by name, but comes first.
+  await expect(drawer.locator('[data-testid="file-pane-tree-row"]').first()).toHaveAttribute("data-path", /^src/);
+
   // .gitignore applies: nothing under node_modules or dist is listed, though
   // the files beside them are.
   await expect(treeRow(window, "big.log")).toBeVisible();

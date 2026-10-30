@@ -544,7 +544,15 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 const HOOK_PORT_FILE =
   process.env.MANOR_HOOK_PORT_FILE || process.env.HOME + "/.manor/hook-port";
 
-async function sendHook(eventType: string, sessionId?: string): Promise<void> {
+interface SessionRef {
+  sessionManager: { getSessionId(): string; getSessionFile(): string | undefined };
+}
+
+// The session file is the chat's transcript. pi creates it only once the
+// session has a message, and it is undefined for an in-memory session.
+async function sendHook(eventType: string, ctx: SessionRef): Promise<void> {
+  const sessionId = ctx.sessionManager.getSessionId();
+  const transcriptPath = ctx.sessionManager.getSessionFile();
   const paneId = process.env.MANOR_PANE_ID;
   if (!paneId) return;
 
@@ -568,6 +576,9 @@ async function sendHook(eventType: string, sessionId?: string): Promise<void> {
   url.searchParams.set("kind", "pi");
   if (sessionId) {
     url.searchParams.set("sessionId", sessionId);
+  }
+  if (transcriptPath) {
+    url.searchParams.set("transcriptPath", transcriptPath);
   }
 
   try {
@@ -597,42 +608,36 @@ function updateTitle(pi: ExtensionAPI, ctx: { ui: { setTitle: (title: string) =>
 export default function (pi: ExtensionAPI) {
   // Session lifecycle
   pi.on("session_start", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sendHook("SessionStart", sessionId);
+    await sendHook("SessionStart", ctx);
     // Set initial title if session has a name
     updateTitle(pi, ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sendHook("SessionEnd", sessionId);
+    await sendHook("SessionEnd", ctx);
   });
 
   // Agent lifecycle
   pi.on("agent_start", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sendHook("UserPromptSubmit", sessionId);
+    await sendHook("UserPromptSubmit", ctx);
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sendHook("Stop", sessionId);
+    await sendHook("Stop", ctx);
     // Check if session name changed (e.g., via /name command)
     updateTitle(pi, ctx);
   });
 
   // Tool execution
   pi.on("tool_execution_start", async (_event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
-    await sendHook("PreToolUse", sessionId);
+    await sendHook("PreToolUse", ctx);
   });
 
   pi.on("tool_execution_end", async (event, ctx) => {
-    const sessionId = ctx.sessionManager.getSessionId();
     if (event.isError) {
-      await sendHook("PostToolUseFailure", sessionId);
+      await sendHook("PostToolUseFailure", ctx);
     } else {
-      await sendHook("PostToolUse", sessionId);
+      await sendHook("PostToolUse", ctx);
     }
   });
 }

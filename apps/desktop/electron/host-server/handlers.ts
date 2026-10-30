@@ -152,7 +152,7 @@ import {
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
-import type { Theme, ThemeColors } from "../theme";
+import { themeScheme, type Theme, type ThemeCatalog, type ThemeColors } from "../theme";
 import type {
   PtyAttachResult,
   PtyCreateOptions,
@@ -384,6 +384,24 @@ function themePreview(ctx: Ctx, name: string): Theme {
 
 async function themeAllColors(): Promise<Record<string, ThemeColors>> {
   return {};
+}
+
+/** The one theme there is here, under the name `getSelectedName` gives. */
+async function themeCatalog(ctx: Ctx): Promise<ThemeCatalog> {
+  const theme = ctx.deps.theme();
+  return {
+    themes: [
+      {
+        name: "__default__",
+        displayName: "Catppuccin Mocha",
+        source: "builtin",
+        badge: "Default",
+        colors: theme,
+        scheme: themeScheme(theme.background),
+      },
+    ],
+    recent: [],
+  };
 }
 
 // ── the daemon ──
@@ -698,6 +716,7 @@ const METHODS = flatten({
     hasGhosttyConfig: method(themeHasGhosttyConfig),
     preview: method(themePreview),
     allColors: method(themeAllColors),
+    catalog: method(themeCatalog),
   },
   hosts: {
     list: method(hostsList),

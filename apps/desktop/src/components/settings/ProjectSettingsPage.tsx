@@ -10,7 +10,8 @@ import {
   type CustomCommand,
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
-import { useThemeStore, type Theme } from "../../store/theme-store";
+import { useThemeStore } from "../../store/theme-store";
+import type { ThemeListEntry } from "../../../electron/theme";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
 import { ProjectHostsSection } from "./ProjectHostsSection/ProjectHostsSection";
@@ -23,24 +24,6 @@ import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-type ThemeColors = Pick<
-  Theme,
-  | "red"
-  | "green"
-  | "yellow"
-  | "blue"
-  | "magenta"
-  | "cyan"
-  | "background"
-  | "foreground"
->;
-
-interface ThemeEntry {
-  name: string;
-  displayName: string;
-  badge?: string;
-}
-
 type ProjectThemeSelectorProps = {
   /** The project, or on a group's page its lead member (the theme is shared). */
   project: ProjectInfo;
@@ -51,46 +34,17 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
 
   const updateProject = useProjectStore((s) => s.updateProject);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
-  const [hasGhostty, setHasGhostty] = useState(false);
-  const [allColors, setAllColors] = useState<Record<string, ThemeColors>>({});
+  const [themes, setThemes] = useState<ThemeListEntry[]>([]);
 
   useMountEffect(() => {
-    Promise.all([
-      window.electronAPI.theme.hasGhosttyConfig(),
-      window.electronAPI.theme.allColors(),
-    ]).then(([ghostty, colors]) => {
-      setHasGhostty(ghostty);
-      setAllColors(colors);
-    }, (err: unknown) => {
-      // Not an empty list: say the themes couldn't be read.
-      toast.error("Couldn't load themes", { id: "project-theme-list", error: err });
-    });
+    window.electronAPI.theme.catalog().then(
+      (catalog) => setThemes(catalog.themes),
+      (err: unknown) => {
+        // Not an empty list: say the themes couldn't be read.
+        toast.error("Couldn't load themes", { id: "project-theme-list", error: err });
+      },
+    );
   });
-
-  const entries: ThemeEntry[] = useMemo(() => {
-    const result: ThemeEntry[] = [];
-    result.push({
-      name: "__global__",
-      displayName: "Global theme",
-      badge: "Default",
-    });
-    if (hasGhostty) {
-      result.push({
-        name: "__ghostty__",
-        displayName: "Match Ghostty",
-        badge: "Ghostty",
-      });
-    }
-    result.push({
-      name: "__default__",
-      displayName: "Catppuccin Mocha",
-      badge: "Built-in",
-    });
-    for (const n of Object.keys(allColors).sort()) {
-      result.push({ name: n, displayName: n });
-    }
-    return result;
-  }, [allColors, hasGhostty]);
 
   const selectedName = project.themeName ?? "__global__";
 
@@ -99,46 +53,55 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
       const themeValue = name === "__global__" ? null : name;
       updateProject(project.id, { themeName: themeValue });
       applyProjectTheme(themeValue);
+      if (themeValue) void window.electronAPI.theme.addRecent(themeValue);
     },
     [project.id, updateProject, applyProjectTheme],
   );
 
-  const options = useMemo(
-    () =>
-      entries.map((entry) => {
-        const colors = allColors[entry.name];
+  const options = useMemo(() => {
+    const badge = (text: string) => (
+      <span className={styles.themeItemBadge}>{text}</span>
+    );
+    return [
+      { value: "__global__", label: "Global theme", trailing: badge("Default") },
+      ...themes.map((entry) => {
+        const { colors } = entry;
+        // "Default" here is the global theme, so the built-in Catppuccin
+        // reads as what it is.
+        const label =
+          entry.source === "custom"
+            ? "Yours"
+            : entry.name === "__default__"
+              ? "Built-in"
+              : entry.badge;
         return {
           value: entry.name,
           label: entry.displayName,
           trailing: (
             <>
-              {entry.badge && (
-                <span className={styles.themeItemBadge}>{entry.badge}</span>
-              )}
-              {colors && (
-                <Row gap="xs" className={styles.themePreview}>
-                  {[
-                    colors.red,
-                    colors.green,
-                    colors.yellow,
-                    colors.blue,
-                    colors.magenta,
-                    colors.cyan,
-                  ].map((c, k) => (
-                    <div
-                      key={k}
-                      className={styles.colorDot}
-                      style={{ background: c }}
-                    />
-                  ))}
-                </Row>
-              )}
+              {label && badge(label)}
+              <Row gap="xs" className={styles.themePreview}>
+                {[
+                  colors.red,
+                  colors.green,
+                  colors.yellow,
+                  colors.blue,
+                  colors.magenta,
+                  colors.cyan,
+                ].map((c, k) => (
+                  <div
+                    key={k}
+                    className={styles.colorDot}
+                    style={{ background: c }}
+                  />
+                ))}
+              </Row>
             </>
           ),
         };
       }),
-    [entries, allColors],
-  );
+    ];
+  }, [themes]);
 
   return (
     <Stack gap="xs">

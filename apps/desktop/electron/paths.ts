@@ -35,6 +35,14 @@ export function manorHomeDir(): string {
 
 // ── Data-dir getters ──
 
+/**
+ * Custom themes, one Ghostty-format file each. Under ~/.manor because the
+ * user is its other reader: they can drop theme files in by hand.
+ */
+export function customThemesDir(): string {
+  return path.join(manorHomeDir(), "themes");
+}
+
 export function projectsFile(): string {
   return path.join(manorDataDir(), "projects.json");
 }

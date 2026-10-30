@@ -1,0 +1,276 @@
+/* ── Filter rail + swatch wall ── */
+
+.picker {
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 104px;
+  flex-shrink: 0;
+}
+
+.railButton {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.railButton:hover {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.railButtonActive,
+.railButtonActive:hover {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.railCount {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.railNew {
+  composes: railButton;
+  margin-top: 8px;
+  justify-content: flex-start;
+  color: var(--accent);
+}
+
+.wallColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+  max-height: 340px;
+  overflow-y: auto;
+  /* Room for the selected tile's outline inside the scroller. */
+  padding: 3px;
+  margin: -3px;
+  align-content: start;
+  outline: none;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.tile:hover {
+  outline: 1px solid var(--fg-a50);
+  outline-offset: 1px;
+}
+
+/* The keyboard's place in the wall; the pointer has :hover. */
+.wall:focus-visible .tileHighlighted {
+  outline: 2px solid var(--fg-a70);
+  outline-offset: 1px;
+}
+
+.tileSelected,
+.tileSelected:hover,
+.wall:focus-visible .tileSelected.tileHighlighted {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tileFace {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2px;
+  height: 52px;
+  padding: 6px 7px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.tileName {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+
+.tileBadge {
+  font-size: 9.5px;
+  opacity: 0.6;
+}
+
+.tileStripe {
+  display: flex;
+  height: 6px;
+}
+
+.tileStripe span {
+  flex: 1;
+}
+
+.tileEdit {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.tile:hover .tileEdit,
+.wall:focus-visible .tileHighlighted .tileEdit,
+.tileEdit:focus-visible {
+  visibility: visible;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  padding: 20px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* ── Editor ── */
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 16px;
+}
+
+.preview {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: hidden;
+  align-self: start;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.groupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 6px;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 54px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.swatchColor {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.swatchColor:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.swatchColor input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ansi {
+  display: grid;
+  grid-template-columns: repeat(8, 28px);
+  gap: 6px;
+}
+
+.ansi .swatch {
+  width: 28px;
+}
+
+.error {
+  font-size: 12px;
+  color: var(--red);
+}
+
+.footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.footerSpacer {
+  flex: 1;
+}

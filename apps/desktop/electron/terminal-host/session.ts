@@ -62,6 +62,9 @@ export function spawnArgsFor(
  *                 to set it themselves from a clean slate.
  *   - ELECTRON_* — Electron-runtime vars with no meaning in a user shell.
  *
+ * And gives the shell a UTF-8 locale when it would otherwise have none; see
+ * {@link UTF8_CTYPE}.
+ *
  * The pty-subprocess.js fork() is intentionally excluded from this filtering; it
  * is a Node.js subprocess that legitimately needs the full process environment.
  *
@@ -71,6 +74,7 @@ export function spawnArgsFor(
 export function buildShellEnv(
   base: NodeJS.ProcessEnv,
   overrides: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(base)) {
@@ -79,8 +83,32 @@ export function buildShellEnv(
     if (key.startsWith("ELECTRON_")) continue;
     env[key] = value;
   }
-  return { ...env, ...overrides };
+  const merged = { ...env, ...overrides };
+  if (!merged.LC_ALL && !merged.LC_CTYPE && !merged.LANG) {
+    merged.LC_CTYPE = UTF8_CTYPE[platform] ?? "C.UTF-8";
+  }
+  return merged;
 }
+
+/**
+ * The character set a shell gets when nothing chose one (issue #511).
+ *
+ * An app launched from the Dock or Finder inherits launchd's environment,
+ * which sets no locale, so the shell ran in the C locale and counted every
+ * byte of a multi-byte character as a column: af-magic's `»` prompt measured
+ * two wide and drew one. zsh then placed the cursor a column past where it
+ * was on screen, and backspacing over the first character typed left it
+ * behind. Terminal.app, iTerm2 and VS Code all set a locale for this reason.
+ *
+ * Only `LC_CTYPE`: character width is all that was wrong, and `LANG` would
+ * also pick the language of messages and the format of dates for someone
+ * who never asked. A locale the user set, in any of the three, wins.
+ * `C.UTF-8` is the one UTF-8 locale every current glibc ships; macOS has no
+ * `C.UTF-8`, so it gets the locale its own terminal falls back to.
+ */
+const UTF8_CTYPE: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "en_US.UTF-8",
+};
 
 /**
  * Prepend `~/.manor/bin` to PATH so `manor` is reachable from every

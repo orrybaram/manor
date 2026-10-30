@@ -774,6 +774,24 @@ describe("buildShellEnv", () => {
     expect(result.LANG).toBe("en_US.UTF-8");
   });
 
+  it("gives a shell with no locale a UTF-8 character set", () => {
+    expect(buildShellEnv({ HOME: "/Users/test" }, {}, "darwin").LC_CTYPE).toBe(
+      "en_US.UTF-8",
+    );
+    expect(buildShellEnv({ HOME: "/home/test" }, {}, "linux").LC_CTYPE).toBe(
+      "C.UTF-8",
+    );
+  });
+
+  it.each(["LC_ALL", "LC_CTYPE", "LANG"])(
+    "leaves the locale alone when %s is set",
+    (key) => {
+      const result = buildShellEnv({ [key]: "de_DE.UTF-8" }, {}, "darwin");
+      expect(result[key]).toBe("de_DE.UTF-8");
+      if (key !== "LC_CTYPE") expect(result).not.toHaveProperty("LC_CTYPE");
+    },
+  );
+
   it("merges overrides last, overrides take precedence over base", () => {
     const result = buildShellEnv(
       { TERM: "dumb", PATH: "/usr/bin" },

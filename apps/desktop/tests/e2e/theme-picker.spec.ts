@@ -129,18 +129,21 @@ test.describe("Settings › Theme", () => {
     expect(dark.some((n) => LIGHT.has(n))).toBe(false);
     await shot(window, testInfo, "05-filter-dark");
 
-    // ── Recent: newest first ──
+    // ── Recent: only the theme left on when Settings closes, newest first ──
     await window.getByTestId("theme-filter-all").click();
     await pick(window, "Dracula");
     await pick(window, "Tokyo Night");
-    await pick(window, "__manor__");
     await window.getByTestId("theme-filter-recent").click();
-    await expect.poll(() => tileNames(window)).toEqual([
-      "__manor__",
-      "Tokyo Night",
-      "Dracula",
-    ]);
+    // Browsing doesn't count: just Manor, kept when Settings last closed.
+    await expect.poll(() => tileNames(window)).toEqual(["__manor__"]);
+    await shot(window, testInfo, "06a-filter-recent-browsing");
+    await closeSettings(window);
+    await openThemes(window);
+    await window.getByTestId("theme-filter-recent").click();
+    await expect.poll(() => tileNames(window)).toEqual(["Tokyo Night", "__manor__"]);
     await shot(window, testInfo, "06-filter-recent");
+    await pick(window, "__manor__");
+    await window.getByTestId("theme-filter-all").click();
 
     // ── New theme: a copy of Manor, repainted live, saved to disk ──
     await window.getByTestId("theme-new").click();
@@ -237,7 +240,11 @@ test.describe("Settings › Theme", () => {
     });
   });
 
-  test("opens with the selected tile in view, and arrows move by row", async ({ app, window, tempHome }) => {
+  test("opens with the selected tile in view, arrows pick by row, sort by color", async ({
+    app,
+    window,
+    tempHome,
+  }, testInfo) => {
     // Enough themes that the wall scrolls.
     installGhosttyThemes(tempHome);
     const dir = path.join(tempHome, "Library", "Application Support", "ghostty", "themes");
@@ -266,10 +273,36 @@ test.describe("Settings › Theme", () => {
       .getByTestId("theme-wall")
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
     expect(columns).toBeGreaterThanOrEqual(4);
+    // The keyboard picks as it moves: no Enter.
     await window.getByTestId("theme-wall").focus();
     await window.keyboard.press("ArrowDown");
-    await window.keyboard.press("Enter");
     const names = await tileNames(window);
     await expect(tile(window, names[columns])).toHaveAttribute("aria-selected", "true", { timeout: 5_000 });
+    await window.keyboard.press("ArrowRight");
+    await expect(tile(window, names[columns + 1])).toHaveAttribute("aria-selected", "true", { timeout: 5_000 });
+    // The wall itself draws no focus ring; the highlighted tile shows the place.
+    expect(
+      await window.getByTestId("theme-wall").evaluate((el) => getComputedStyle(el).outlineStyle),
+    ).toBe("none");
+    await shot(window, testInfo, "20-keyboard-picks");
+
+    // Hover only highlights.
+    await tile(window, names[0]).hover();
+    await expect(tile(window, names[columns + 1])).toHaveAttribute("aria-selected", "true");
+
+    // Sort by background colour: greys first, then round the hue wheel.
+    await window.getByTestId("theme-sort-color").click();
+    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-checked", "true");
+    const byColor = await tileNames(window);
+    expect(byColor).not.toEqual(names);
+    expect([...byColor].sort()).toEqual([...names].sort());
+    await window.getByTestId("theme-wall").evaluate((el) => (el.scrollTop = 0));
+    await shot(window, testInfo, "21-sort-by-color");
+    // Remembered across opens.
+    await closeSettings(window);
+    await openThemes(window);
+    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-checked", "true");
+    await window.getByTestId("theme-sort-name").click();
+    await expect.poll(() => tileNames(window)).toEqual(names);
   });
 });

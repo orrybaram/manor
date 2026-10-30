@@ -10,15 +10,26 @@ import { SectionTitle } from "./SectionTitle";
 import { ThemeEditor } from "./ThemePicker/ThemeEditor";
 import {
   THEME_FILTERS,
+  THEME_SORTS,
   copyName,
   filterCounts,
   gridMove,
   visibleThemes,
   type ThemeFilter,
+  type ThemeSort,
 } from "./ThemePicker/theme-picker";
 import styles from "./ThemePicker/ThemePicker.module.css";
 
 const EMPTY: ThemeCatalog = { themes: [], recent: [] };
+const SORT_KEY = "manor.themeSort";
+
+function savedSort(): ThemeSort {
+  try {
+    return localStorage.getItem(SORT_KEY) === "color" ? "color" : "name";
+  } catch {
+    return "name";
+  }
+}
 
 type Editing = {
   initial: Theme;
@@ -36,6 +47,7 @@ export function ThemeSection() {
   const [catalog, setCatalog] = useState<ThemeCatalog>(EMPTY);
   const [filter, setFilter] = useState<ThemeFilter>("all");
   const [query, setQuery] = useState("");
+  const [sort, setSortState] = useState<ThemeSort>(savedSort);
   // By name, not index: a reload (recents reorder, a theme saved) moves tiles.
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -66,8 +78,8 @@ export function ThemeSection() {
   });
 
   const visible = useMemo(
-    () => visibleThemes(catalog, filter, query),
-    [catalog, filter, query],
+    () => visibleThemes(catalog, filter, query, sort),
+    [catalog, filter, query, sort],
   );
   const counts = useMemo(() => filterCounts(catalog), [catalog]);
   const highlight = visible.findIndex((t) => t.name === highlighted);
@@ -87,6 +99,15 @@ export function ThemeSection() {
     },
     [setTheme, reload],
   );
+
+  const setSort = (next: ThemeSort) => {
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT_KEY, next);
+    } catch {
+      // Not saved; the choice holds until Settings closes.
+    }
+  };
 
   const startNew = () => {
     const shown = useThemeStore.getState().theme;
@@ -118,7 +139,11 @@ export function ThemeSection() {
     const next = gridMove(highlight, key, columns(), visible.length);
     setHighlight(next);
     const name = visible[next]?.name;
-    if (name) tileRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
+    if (!name) return;
+    tileRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
+    // The keyboard picks as it moves (the pointer only hovers); a recent
+    // pick is still only what's on when Settings closes.
+    if (name !== selected) void select(name);
   };
 
   const onWallKeyDown = (e: React.KeyboardEvent) => {
@@ -204,18 +229,35 @@ export function ThemeSection() {
           </button>
         </nav>
         <div className={styles.wallColumn}>
-          <Input
-            type="text"
-            placeholder="Search all themes…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setHighlight(-1);
-            }}
-            onKeyDown={onSearchKeyDown}
-            autoFocus
-            aria-label="Search themes"
-          />
+          <div className={styles.searchRow}>
+            <Input
+              type="text"
+              placeholder="Search all themes…"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setHighlight(-1);
+              }}
+              onKeyDown={onSearchKeyDown}
+              autoFocus
+              aria-label="Search themes"
+            />
+            <div className={styles.sort} role="radiogroup" aria-label="Sort themes">
+              {THEME_SORTS.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={sort === o.id}
+                  className={`${styles.sortButton} ${sort === o.id ? styles.sortButtonActive : ""}`}
+                  onClick={() => setSort(o.id)}
+                  data-testid={`theme-sort-${o.id}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div
             ref={wallRef}
             className={styles.wall}

@@ -65,6 +65,7 @@ import type {
 import type { SetupStep, StepStatus } from "./project-store";
 import type { Location } from "./navigation-history-store";
 import { isHomePath } from "../lib/home-path";
+import { forgetDevTools } from "../lib/remembered-devtools";
 import { LOCAL_HOST_ID, type HostId } from "../lib/hosts";
 import type { TaskProvider } from "../lib/tasks";
 import { hostForPath } from "../lib/workspace-directory";
@@ -1470,8 +1471,9 @@ export function sendPendingCommand(
 
 /**
  * What a replica change reaches outside the store with: a closed pane's host
- * is no longer this window's to badge, or to recover when the host comes back
- * and a popout whose tab went has nothing left to show.
+ * is no longer this window's to badge, or to recover when the host comes back,
+ * nor its DevTools to reopen; and a popout whose tab went has nothing left to
+ * show.
  */
 function afterReplicaChange(
   gone: readonly string[],
@@ -1479,7 +1481,10 @@ function afterReplicaChange(
   removed: readonly string[],
 ): void {
   const remote = useRemotePaneStore.getState();
-  for (const paneId of gone) remote.forgetPane(paneId);
+  for (const paneId of gone) {
+    remote.forgetPane(paneId);
+    forgetDevTools(paneId);
+  }
   const state = useAppStore.getState();
   for (const workspacePath of adopted) {
     checkOwnClaim(

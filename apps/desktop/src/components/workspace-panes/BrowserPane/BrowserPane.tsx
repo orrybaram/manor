@@ -17,6 +17,11 @@ import { splitDirectionBeside } from "../../../lib/open-in-file-pane";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { DEFAULT_DOCK_FRACTION, type DevToolsDockSide } from "../../../lib/devtools-dock";
 import { DevToolsDock } from "./DevToolsDock";
+import {
+  forgetDevTools,
+  rememberDevTools,
+  rememberedDevTools,
+} from "../../../lib/remembered-devtools";
 import { PageNotesOverlay } from "./PageNotes";
 import { usePageNotes } from "./usePageNotes";
 
@@ -181,14 +186,27 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
 
     // Docked DevTools. Whether they are open is main's to say
     // (`webview:devtools-changed`): Inspect Element and the page's own ⌥⌘I
-    // open them without asking here. Side and size are this pane's, kept for
-    // its lifetime; each side remembers its own size.
+    // open them without asking here. Side and size are this pane's; each
+    // side remembers its own size. A pane that moved mounts afresh with a new
+    // page, and main closed the old page's DevTools: if they were open, they
+    // are reopened as they were once the new page registers.
+    const [restoreDevTools] = useState(() => rememberedDevTools(paneId));
     const [devToolsOpen, setDevToolsOpen] = useState(false);
-    const [dockSide, setDockSide] = useState<DevToolsDockSide>("bottom");
-    const [dockFractions, setDockFractions] = useState<Record<DevToolsDockSide, number>>({
-      bottom: DEFAULT_DOCK_FRACTION,
-      right: DEFAULT_DOCK_FRACTION,
-    });
+    const [dockSide, setDockSide] = useState<DevToolsDockSide>(
+      restoreDevTools?.side ?? "bottom",
+    );
+    const [dockFractions, setDockFractions] = useState<Record<DevToolsDockSide, number>>(
+      restoreDevTools?.fractions ?? {
+        bottom: DEFAULT_DOCK_FRACTION,
+        right: DEFAULT_DOCK_FRACTION,
+      },
+    );
+    // Until the reopened DevTools report open, a close reported for this
+    // pane is the previous mount's, closed by its unregister: not the user's.
+    const restoringDevToolsRef = useRef(restoreDevTools !== undefined);
+    useEffect(() => {
+      if (devToolsOpen) rememberDevTools(paneId, { side: dockSide, fractions: dockFractions });
+    }, [paneId, devToolsOpen, dockSide, dockFractions]);
     const [dockResizing, setDockResizing] = useState(false);
     const splitRef = useRef<HTMLDivElement>(null);
     const setDockFraction = useCallback(
@@ -504,7 +522,20 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const onDidAttach = () => {
         const webContentsId = wv.getWebContentsId();
         // The host lets an agent's `navigate` reach the box's dev servers.
-        window.electronAPI.webview.register(paneId, webContentsId, remoteHostIdRef.current);
+        const registered = window.electronAPI.webview.register(
+          paneId,
+          webContentsId,
+          remoteHostIdRef.current,
+        );
+        if (!restoringDevToolsRef.current) return;
+        void registered
+          .then(() => window.electronAPI.webview.openDevTools(paneId))
+          .catch(() => false)
+          .then((opened) => {
+            if (opened || !restoringDevToolsRef.current) return;
+            restoringDevToolsRef.current = false;
+            forgetDevTools(paneId);
+          });
       };
 
       wv.addEventListener("did-navigate", onNavigate);
@@ -636,6 +667,12 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const unsubDevToolsChanged = window.electronAPI.webview.onDevToolsChanged(
         (devToolsPaneId: string, open: boolean) => {
           if (devToolsPaneId !== paneId) return;
+          if (open) {
+            restoringDevToolsRef.current = false;
+          } else {
+            if (restoringDevToolsRef.current) return;
+            forgetDevTools(paneId);
+          }
           setDevToolsOpen(open);
           fireNavStateChange({ devToolsOpen: open });
         },

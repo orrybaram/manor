@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.24.2] - 2026-10-30
+
+### Features
+
+- Move to Host: Move a workspace to another host from its menu (**Move to Host**) or the command palette. Manor rebuilds the workspace on the other host with its tabs and splits, then removes the old copy. Code travels through `origin`.
+- Move to Host: Each agent restarts on the new host and picks up from a handoff of its conversation. A workspace moved onto a fresh host runs the project's start script there.
+- Move to Host: A confirm dialog opens before the move starts, and a lane steps through the move as it runs. If a step fails, you can **Retry**.
+- Move to Host: `manor move-workspace-to-host` moves a workspace to another host from the CLI.
+- Stats: The Stats page and badges now count every adopted host's history together with the desktop's own. Badges are awarded once on the total, and only the desktop announces them.
+- Stats: Reset clears stats on every machine. A host that was away is cleared when it next connects.
+- Settings → General → Code Editor has a **Manor / Other app** choice, and Manor is the default. Cmd-clicking a workspace file in a terminal opens it in the editor you chose.
+
+### Fixes
+
+- A file you open from Go to File or a terminal link now gets keyboard focus, so the file pane's shortcuts work right away. Before, your keys kept going to the terminal.
+
+### Improvements
+
+- File pane: The diff highlights behind changed lines and words are fainter, which makes the code easier to read. The gutter bars stay full colour.
+- New Workspace: Long folder and branch names stay on one row of smaller chips. The folder list caps its width and shows names up to 60 characters.
+
 ## [0.24.1] - 2026-10-29
 
 ### Features

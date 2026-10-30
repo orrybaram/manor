@@ -7,8 +7,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ChatEntry } from "../../transcript";
-import { codexAdapter, CodexRolloutParser, parseUnifiedDiff } from "../codex";
+import { parseUnifiedPatch, type ChatEntry } from "../../transcript";
+import { codexAdapter, CodexRolloutParser } from "../codex";
 
 const FIXTURES = path.join(__dirname, "..", "..", "__fixtures__", "codex");
 const FIXTURE = "codex-cli-0.130.0-shell-patch-interrupt.jsonl";
@@ -145,6 +145,62 @@ describe("CodexRolloutParser", () => {
     ]);
   });
 
+  it("settles an apply_patch whose output isn't a success as an error, with no patch event", () => {
+    for (const output of [
+      "apply_patch verification failed: Failed to find expected lines in src/a.ts",
+      "patch rejected by user",
+      JSON.stringify({ output: "error: invalid hunk at line 3", metadata: { exit_code: 1 } }),
+    ]) {
+      const p = new CodexRolloutParser();
+      p.push(item({ type: "custom_tool_call", call_id: "c1", name: "apply_patch", input: "*** Begin Patch\n*** Update File: src/a.ts\n*** End Patch" }));
+      p.push(item({ type: "custom_tool_call_output", call_id: "c1", output }));
+      expect(p.entry("c1")).toMatchObject({ kind: "tool", status: "error" });
+      expect((p.entry("c1") as { detail?: string }).detail).toBeTruthy();
+    }
+  });
+
+  it("settles a refused shell call as an error, but not a command that printed the words", () => {
+    const p = new CodexRolloutParser();
+    const call = (id: string) =>
+      item({ type: "function_call", call_id: id, name: "exec_command", arguments: JSON.stringify({ cmd: "rm -rf build" }) });
+    p.push(call("c1"));
+    p.push(item({ type: "function_call_output", call_id: "c1", output: "exec command rejected by user" }));
+    p.push(call("c2"));
+    p.push(item({ type: "function_call_output", call_id: "c2", output: "rejected by configuration" }));
+    p.push(call("c3"));
+    p.push(
+      item({
+        type: "function_call_output",
+        call_id: "c3",
+        output: "Process exited with code 0\nOutput:\nrequest rejected by user\n",
+      }),
+    );
+    expect([p.entry("c1"), p.entry("c2"), p.entry("c3")].map((e) => e?.kind === "tool" && e.status)).toEqual([
+      "error",
+      "error",
+      "ok",
+    ]);
+  });
+
+  it("keeps a multi-file patch's cards together, ahead of a call that ran alongside it", () => {
+    const p = new CodexRolloutParser();
+    p.push(item({ type: "custom_tool_call", call_id: "c1", name: "apply_patch", input: "" }));
+    p.push(item({ type: "function_call", call_id: "c2", name: "shell", arguments: JSON.stringify({ command: ["ls"] }) }));
+    p.push(
+      event({
+        type: "patch_apply_end",
+        call_id: "c1",
+        success: true,
+        changes: {
+          "a.txt": { type: "add", content: "a\n" },
+          "b.txt": { type: "add", content: "b\n" },
+          "c.txt": { type: "add", content: "c\n" },
+        },
+      }),
+    );
+    expect(p.entries().map((e) => e.id)).toEqual(["c1", "c1#1", "c1#2", "c2"]);
+  });
+
   it("settles a failed patch as an error with its stderr", () => {
     const p = new CodexRolloutParser();
     p.push(item({ type: "function_call", call_id: "c1", name: "apply_patch", arguments: JSON.stringify({ input: "*** Begin Patch\n*** Update File: b.ts\n@@\n-a\n+b\n*** End Patch" }) }));
@@ -224,18 +280,32 @@ describe("CodexRolloutParser", () => {
   });
 });
 
-describe("parseUnifiedDiff", () => {
+describe("parseUnifiedPatch, on Codex's update diffs", () => {
   it("reads several hunks and skips file headers", () => {
-    expect(parseUnifiedDiff("--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -10 +10,2 @@\n-z\n+y\n+w\n")).toEqual([
+    expect(parseUnifiedPatch("--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -10 +10,2 @@\n-z\n+y\n+w\n")).toEqual([
       { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" a", "-b", "+c"] },
       { oldStart: 10, oldLines: 1, newStart: 10, newLines: 2, lines: ["-z", "+y", "+w"] },
     ]);
   });
 
-  it("keeps a removed line that looks like a file header, and the no-newline marker", () => {
-    expect(parseUnifiedDiff("@@ -1 +1 @@\n--- x\n+++ y\n\\ No newline at end of file\n")).toEqual([
-      { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["--- x", "+++ y", "\\ No newline at end of file"] },
+  it("keeps a removed line that looks like a file header", () => {
+    expect(parseUnifiedPatch("@@ -1 +1 @@\n--- x\n+++ y\n")).toEqual([
+      { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["--- x", "+++ y"] },
     ]);
+  });
+
+  it("counts a no-newline marker neither added nor removed on the card", () => {
+    const p = new CodexRolloutParser();
+    p.push(item({ type: "custom_tool_call", call_id: "c1", name: "apply_patch", input: "" }));
+    p.push(
+      event({
+        type: "patch_apply_end",
+        call_id: "c1",
+        success: true,
+        changes: { "a.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n" } },
+      }),
+    );
+    expect(p.entry("c1")).toMatchObject({ kind: "edit", added: 1, removed: 1 });
   });
 });
 

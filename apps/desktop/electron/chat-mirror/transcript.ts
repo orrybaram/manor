@@ -487,6 +487,56 @@ export function cappedEdit(
   return { kind: "edit", ...base, hunks, added, removed, truncated };
 }
 
+/**
+ * The hunks of a unified patch: pi's edit tool's `details.patch` (jsdiff's
+ * `createTwoFilesPatch`), or a Codex `patch_apply_end` update's
+ * `unified_diff`. File headers before a hunk are skipped. Each hunk is read
+ * for as many lines as its header counts, so a removed line that itself
+ * starts with "--" is not taken for a file header. A "\ No newline at end
+ * of file" marker is kept, as `structuredPatch` keeps it; the card draws it
+ * as a meta row (`edit-diff.ts`) and counts it neither added nor removed.
+ */
+export function parseUnifiedPatch(patch: string): ChatDiffHunk[] {
+  const lines = patch.split("\n");
+  const hunks: ChatDiffHunk[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[i]);
+    i++;
+    if (!m) continue;
+    const oldLines = m[2] === undefined ? 1 : Number(m[2]);
+    const newLines = m[4] === undefined ? 1 : Number(m[4]);
+    let oldLeft = oldLines;
+    let newLeft = newLines;
+    const body: string[] = [];
+    while (i < lines.length) {
+      const l = lines[i];
+      if (l.startsWith("\\")) {
+        body.push(l);
+      } else if (oldLeft <= 0 && newLeft <= 0) {
+        break;
+      } else if (l.startsWith("+")) {
+        newLeft--;
+        body.push(l);
+      } else if (l.startsWith("-")) {
+        oldLeft--;
+        body.push(l);
+      } else if (l.startsWith(" ")) {
+        oldLeft--;
+        newLeft--;
+        body.push(l);
+      } else {
+        break;
+      }
+      i++;
+    }
+    if (body.length > 0) {
+      hunks.push({ oldStart: Number(m[1]), oldLines, newStart: Number(m[3]), newLines, lines: body });
+    }
+  }
+  return hunks;
+}
+
 /** How a `TranscriptParser` reads. */
 export interface TranscriptParserOptions {
   /**

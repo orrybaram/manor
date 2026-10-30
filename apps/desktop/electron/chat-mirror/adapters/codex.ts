@@ -29,6 +29,7 @@ import { encodeChatMessage } from "../picker-keys";
 import {
   cappedEdit,
   MAX_DETAIL,
+  parseUnifiedPatch,
   relativeTo,
   type ChatDiffHunk,
   type ChatEntry,
@@ -125,65 +126,50 @@ function describeCall(rawName: string, args: Json, input?: string): { name: stri
  * an `Exit code: N` (or `Process exited with code N`) header, as content
  * items, and as `{content, success}`.
  */
-function toolOutput(output: unknown): { text: string; failed: boolean } {
-  if (Array.isArray(output)) return { text: contentText(output), failed: false };
+function toolOutput(output: unknown): { text: string; failed: boolean; ran: boolean } {
+  if (Array.isArray(output)) return { text: contentText(output), failed: false, ran: false };
   if (isObject(output)) {
     const inner = toolOutput(output.content ?? output.output ?? "");
-    return { text: inner.text, failed: inner.failed || output.success === false };
+    return { ...inner, failed: inner.failed || output.success === false };
   }
   const raw = str(output) ?? "";
   const parsed = parseJson(raw);
   if (isObject(parsed) && typeof parsed.output === "string") {
     const exit = isObject(parsed.metadata) ? count(parsed.metadata.exit_code) : undefined;
-    return { text: parsed.output, failed: exit !== undefined && exit !== 0 };
+    return { text: parsed.output, failed: exit !== undefined && exit !== 0, ran: exit !== undefined };
   }
   const exit = /^(?:Exit code:|Process exited with code) (\d+)/m.exec(raw);
   const body = /^Output:\n([\s\S]*)$/m.exec(raw);
   return {
     text: exit && body ? body[1] : raw,
     failed: exit !== null && exit[1] !== "0",
+    ran: exit !== null,
   };
 }
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+/**
+ * What Codex answers the model with when a call was refused rather than
+ * run (`core/src/tools/events.rs`, `approvals.rs`, `safety.rs`): "exec
+ * command rejected by user", "patch rejected by user", "rejected by
+ * configuration", "…; rejected by user approval settings". Plain text,
+ * with no exit code, and no `success` flag on the output to say so.
+ */
+const REJECTED = /\brejected by (?:user|configuration)\b/;
+/** apply_patch's own output when every file landed: "Success. Updated the following files: …". */
+const PATCH_SUCCESS = /^Success\./;
 
 /**
- * The hunks of a unified diff, as `patch_apply_end` writes an update.
- * File headers (`---`/`+++`) before a hunk are skipped; each hunk runs for
- * the lines its header counts, so a removed `--- x` line inside one is kept.
+ * Whether a call's output says it failed. Codex writes no `success` flag
+ * into the rollout, so a shell call failed when its exit code says so or it
+ * was refused, and an apply_patch failed unless its output reads as a
+ * success: a verification failure or a refusal writes no `patch_apply_end`,
+ * only this output.
  */
-export function parseUnifiedDiff(diff: string): ChatDiffHunk[] {
-  const out: ChatDiffHunk[] = [];
-  const lines = diff.split("\n");
-  let i = 0;
-  while (i < lines.length) {
-    const m = HUNK_HEADER.exec(lines[i]);
-    i++;
-    if (!m) continue;
-    const hunk: ChatDiffHunk = {
-      oldStart: Number(m[1]),
-      oldLines: m[2] === undefined ? 1 : Number(m[2]),
-      newStart: Number(m[3]),
-      newLines: m[4] === undefined ? 1 : Number(m[4]),
-      lines: [],
-    };
-    let oldLeft = hunk.oldLines;
-    let newLeft = hunk.newLines;
-    while (i < lines.length && (oldLeft > 0 || newLeft > 0 || lines[i].startsWith("\\"))) {
-      const l = lines[i];
-      if (l.startsWith("+")) newLeft--;
-      else if (l.startsWith("-")) oldLeft--;
-      else if (l.startsWith(" ") || l === "") {
-        oldLeft--;
-        newLeft--;
-      } else if (!l.startsWith("\\")) break;
-      // A context line whose trailing space was stripped still reads as one.
-      hunk.lines.push(l === "" ? " " : l);
-      i++;
-    }
-    if (hunk.lines.length > 0) out.push(hunk);
-  }
-  return out;
+function callFailed(name: string, out: { text: string; failed: boolean; ran: boolean }): boolean {
+  if (out.failed) return true;
+  if (name === APPLY_PATCH) return !PATCH_SUCCESS.test(out.text.trimStart());
+  if (name === SHELL) return !out.ran && REJECTED.test(out.text);
+  return false;
 }
 
 /** A whole file's lines, all added (`+`) or all removed (`-`), as one hunk. */
@@ -207,7 +193,7 @@ function changeHunks(path: string, change: Json): { path: string; hunks: ChatDif
     case "delete":
       return { path, hunks: wholeFile(str(change.content) ?? "", "-") };
     case "update":
-      return { path: str(change.move_path) || path, hunks: parseUnifiedDiff(str(change.unified_diff) ?? "") };
+      return { path: str(change.move_path) || path, hunks: parseUnifiedPatch(str(change.unified_diff) ?? "") };
     default:
       return { path, hunks: [] };
   }
@@ -289,6 +275,17 @@ export class CodexRolloutParser implements TranscriptLineParser {
     this.byId.set(entry.id, entry);
     this.order.push(entry.id);
     return [entry];
+  }
+
+  /** Add `entry` right after `afterId`'s, or at the end without it. */
+  private insertAfter(afterId: string, entry: ChatEntry): ChatEntry[] {
+    const at = this.order.indexOf(afterId);
+    const out = this.add(entry);
+    if (out.length > 0 && at !== -1) {
+      this.order.pop();
+      this.order.splice(at + 1, 0, entry.id);
+    }
+    return out;
   }
 
   /** Replace an entry in place; consumers compare by identity. */
@@ -384,9 +381,9 @@ export class CodexRolloutParser implements TranscriptLineParser {
     const existing = callId ? this.byId.get(callId) : undefined;
     if (existing?.kind !== "tool" || existing.status !== "pending") return [];
     this.setTurn("working");
-    const { text, failed } = toolOutput(raw);
-    const detail = text.trim() ? text.slice(0, MAX_DETAIL) : undefined;
-    return this.replace({ ...existing, status: failed ? "error" : "ok", detail });
+    const out = toolOutput(raw);
+    const detail = out.text.trim() ? out.text.slice(0, MAX_DETAIL) : undefined;
+    return this.replace({ ...existing, status: callFailed(existing.name, out) ? "error" : "ok", detail });
   }
 
   private event(ev: Json, lineId: string, ts: string): ChatEntry[] {
@@ -489,6 +486,7 @@ export class CodexRolloutParser implements TranscriptLineParser {
     const out: ChatEntry[] = [];
     const files = isObject(changes) ? Object.entries(changes) : [];
     let n = 0;
+    let last = callId;
     for (const [path, change] of files) {
       if (!isObject(change)) continue;
       const file = changeHunks(path, change);
@@ -498,7 +496,9 @@ export class CodexRolloutParser implements TranscriptLineParser {
         file.hunks,
       );
       if (!edit) continue;
-      out.push(...(n === 0 ? this.replace(edit) : this.add(edit)));
+      // The rest follow the first card, before anything that landed since the call.
+      out.push(...(n === 0 ? this.replace(edit) : this.insertAfter(last, edit)));
+      last = id;
       n++;
     }
     // Nothing to draw (an empty patch): the call still landed.

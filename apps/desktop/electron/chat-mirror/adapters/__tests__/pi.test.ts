@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { TranscriptStream } from "../../stream";
 import type { ChatEntry, ChatPush } from "../../transcript";
 import { LocalTranscriptSource } from "../../transcript-source";
-import { parseUnifiedPatch, piAdapter } from "../pi";
+import { parseUnifiedPatch } from "../../transcript";
+import { piAdapter } from "../pi";
 
 // Hand-written, not a real session: the repo is public.
 const FIXTURE = path.join(__dirname, "..", "..", "__fixtures__", "pi", "session-v3-fix-and-branch.jsonl");

@@ -59,6 +59,7 @@ import { HostAdoption } from "../backend/host-adoption";
 import { createAgentService } from "../bridge/handlers/agents";
 import { killAllActivePushes } from "../bridge/handlers/branches-diffs";
 import { wireChatMirror } from "../bridge/handlers/chat";
+import { wireStatsBroadcast } from "../bridge/handlers/stats";
 import type { HandlerTable } from "../bridge/method";
 import { BridgeServer, type BridgeServerDeps } from "../bridge/server";
 import { ChatMirror } from "../chat-mirror/mirror";
@@ -83,7 +84,7 @@ import { RemoteDeviceStore } from "../remote-control/devices";
 import { PushManager, type VapidKeys } from "../remote-control/push";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
 import { createBroadcastBus, type BroadcastBus } from "../renderer-broadcast";
-import { StatsStore } from "../stats-store";
+import { StatsStore, type StatsHistory } from "../stats-store";
 import { countBusyAcross } from "../stats-signals";
 import { TerminalHostClient } from "../terminal-host/client";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -316,6 +317,9 @@ export function createManorServer<D extends BridgeServerDeps>(
             // A host's own log (its automations' runs) is part of this
             // desktop's: told again whenever it changes.
             onNotificationsChanged: (): void => notifier.sendNotificationsUpdate(),
+            // A host's own stats, summed into this desktop's totals.
+            onStatsHistory: (hostId: string, history: unknown): void =>
+              statsStore.setHostHistory(hostId, history as StatsHistory),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
@@ -526,6 +530,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       notifier.sendNotificationsUpdate();
     },
   });
+  // Every server says when its stats move: a host's is how the desktop
+  // knows to read its history again.
+  wireStatsBroadcast({ statsStore }, bus.publish);
   // The server's unseen flags and the notifications built on them: one of each per server, shared by the status pipeline, the handlers
   // and the broadcast.
   const unseen = new UnseenAgents();

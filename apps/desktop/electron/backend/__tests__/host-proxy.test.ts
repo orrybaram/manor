@@ -422,3 +422,55 @@ describe("HostProxy and the host's notification log", () => {
     expect(told).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("HostProxy and the host's usage stats", () => {
+  const h = useHostServerHarness();
+
+  it("hands over the host's own history on a snapshot and again when its stats change", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const heard: unknown[] = [];
+    proxyFor(h, client, desktopBus().bus, { onStatsHistory: (history) => heard.push(history) });
+
+    await eventually(() => heard, (list) => list.length > 0, "the host's history");
+    expect(heard[0]).toEqual({ days: { "2026-10-30": { prompts: 4 } }, badges: {} });
+
+    // The host's stats move (here, cleared): its `stats.changed` brings a re-read.
+    await client.invoke("stats", "reset", []);
+    const after = await eventually(() => heard, (list) => list.length > 1, "the re-read");
+    expect(after[after.length - 1]).toEqual({ days: {}, badges: {} });
+  });
+
+  it("leaves out a host that has no history to give", async () => {
+    withoutGit();
+    h.adopt();
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    // A host server older than merged stats: no such method.
+    let asked = false;
+    const real = client.invoke.bind(client);
+    client.invoke = ((ns: string, method: string, ...rest: unknown[]) => {
+      if (ns !== "stats" || method !== "getHistory") return (real as (...a: unknown[]) => unknown)(ns, method, ...rest);
+      asked = true;
+      return Promise.reject(new Error("unavailable:host"));
+    }) as typeof client.invoke;
+    const heard: unknown[] = [];
+    const warned: string[] = [];
+    proxyFor(h, client, desktopBus().bus, {
+      onStatsHistory: (history) => heard.push(history),
+      log: { info: () => {}, warn: (m: string) => warned.push(m) },
+    });
+    await eventually(() => asked, (yes) => yes, "the history read");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(heard).toEqual([]);
+    expect(warned).toEqual([]);
+  });
+});

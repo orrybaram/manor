@@ -1,6 +1,6 @@
-import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { ServerDeps } from "../../ipc/types";
-import type { StatsSummary } from "../../stats-store";
+import type { BroadcastBus } from "../../renderer-broadcast";
+import type { SharedDeps } from "../../ipc/types";
+import type { StatsHistory, StatsSummary } from "../../stats-store";
 import { method, type HandlerCtx } from "../method";
 
 /**
@@ -12,37 +12,51 @@ import { method, type HandlerCtx } from "../method";
  * burst of broadcasts, so `wireStatsBroadcast`'s subscription is debounced —
  * see `BROADCAST_DEBOUNCE_MS`.
  */
+/** What the stats surface reads: the store, on the desktop and on a host server alike. */
+type StatsDeps = Pick<SharedDeps, "statsStore">;
+
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
-export function statsGetSummary(ctx: HandlerCtx<ServerDeps>): StatsSummary {
+export function statsGetSummary(ctx: HandlerCtx<StatsDeps>): StatsSummary {
   return ctx.deps.statsStore.getSummary();
 }
 
-export function statsReset(ctx: HandlerCtx<ServerDeps>): void {
+/**
+ * This server's own counts and awards, without any host's: what a desktop
+ * reads from each host server to merge into its totals.
+ */
+export function statsGetHistory(ctx: HandlerCtx<StatsDeps>): StatsHistory {
+  return ctx.deps.statsStore.getHistory();
+}
+
+export function statsReset(ctx: HandlerCtx<StatsDeps>): void {
   ctx.deps.statsStore.reset();
 }
 
 /**
  * Wire the debounced `stats.changed` broadcast.
  *
- * Not `register()` — there is no `ipcMain.handle` left in this file, both
- * calls live on the handler table — but the subscription that turns a burst
- * of recording into one broadcast still has to run once, at boot, so
- * `app-lifecycle.ts` calls this in `register()`'s place.
+ * The subscription that turns a burst of recording into one broadcast runs
+ * once, at boot, on every server (`createManorServer`): a host server's
+ * `stats.changed` is how the desktop knows to read its history again.
  */
-export function wireStatsBroadcast(deps: Pick<ServerDeps, "statsStore">): void {
+export function wireStatsBroadcast(
+  deps: StatsDeps,
+  publish: BroadcastBus["publish"],
+): void {
   const { statsStore } = deps;
   let timer: ReturnType<typeof setTimeout> | null = null;
   statsStore.onChange(() => {
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
-      publishRendererBroadcast("stats", "changed", statsStore.getSummary());
+      publish("stats", "changed", statsStore.getSummary());
     }, BROADCAST_DEBOUNCE_MS);
   });
 }
 
 export const stats = {
   getSummary: method(statsGetSummary),
+  getHistory: method(statsGetHistory),
   reset: method(statsReset, { mutating: true }),
 };

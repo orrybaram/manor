@@ -177,6 +177,7 @@ import {
   notificationsMarkAllRead,
   notificationsMarkRead,
 } from "../bridge/handlers/notifications";
+import { statsGetHistory, statsReset } from "../bridge/handlers/stats";
 import {
   automationsCreate,
   automationsGet,
@@ -577,6 +578,13 @@ const METHODS = flatten({
     markRead: method(notificationsMarkRead, { mutating: true }),
     markAllRead: method(notificationsMarkAllRead, { mutating: true }),
     clear: method(notificationsClear, { mutating: true }),
+  },
+  // This host's own usage stats, which the desktop reads to merge into its
+  // totals and clears with its own. The owner's alone: a phone reads the
+  // desktop's merged ones.
+  stats: {
+    getHistory: method(statsGetHistory, { localOnly: true }),
+    reset: method(statsReset, { mutating: true, localOnly: true }),
   },
   // This host's automations, which this server fires with the lid closed.
   // A device may read them, run one now and pause or resume one; making,

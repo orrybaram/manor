@@ -30,7 +30,6 @@ import { createWindow, saveZoomLevel } from "./window";
 import { installPermissionPolicy } from "./permissions";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import { Notifier, playNotificationSound } from "./notifications";
-import { wireStatsBroadcast } from "./bridge/handlers/stats";
 import {
   wirePreferencesBroadcast,
   wireKeybindingsBroadcast,
@@ -494,8 +493,8 @@ export function initApp(devTitle: string | null): void {
   // that has to run once, at boot, and was never an `ipcMain.handle` — the
   // `wire*` broadcasts debounce or fan out a manager's `onChange` as a bridge
   // event, and `installPortEnricher` hands the port scanner its portless
-  // dressing. The chat mirror's is the server's own (`createManorServer`).
-  wireStatsBroadcast(ipcDeps);
+  // dressing. The chat mirror's and the stats broadcast are the server's own
+  // (`createManorServer`).
   wireAgentActivityBroadcast(ipcDeps);
   wirePreferencesBroadcast(ipcDeps);
   wireKeybindingsBroadcast(ipcDeps);

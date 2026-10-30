@@ -20,6 +20,7 @@ import { localCtx } from "../bridge/method";
 import { StatsStore } from "../stats-store";
 import {
   addRendererBroadcastSink,
+  publishRendererBroadcast,
   type RendererBroadcast,
 } from "../renderer-broadcast";
 
@@ -70,7 +71,7 @@ describe("stats.changed broadcast (debounced)", () => {
   });
 
   it("broadcasts exactly one stats.changed after the debounce settles", () => {
-    wireStatsBroadcast({ statsStore });
+    wireStatsBroadcast({ statsStore }, publishRendererBroadcast);
 
     statsStore.record("prompts");
     statsStore.record("prompts");
@@ -92,7 +93,7 @@ describe("stats.changed broadcast (debounced)", () => {
   });
 
   it("collapses a burst of recording into a single broadcast", () => {
-    wireStatsBroadcast({ statsStore });
+    wireStatsBroadcast({ statsStore }, publishRendererBroadcast);
 
     for (let i = 0; i < 5; i++) statsStore.record("prompts");
     vi.advanceTimersByTime(BROADCAST_DEBOUNCE_MS);

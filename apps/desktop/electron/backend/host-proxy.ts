@@ -161,6 +161,15 @@ export interface HostProxyOptions {
    * it, or the host said so.
    */
   onNotificationsChanged?: () => void;
+  /**
+   * The host's own usage stats (`stats.getHistory`), unchecked: read after
+   * each snapshot and on each of its `stats.changed`.
+   */
+  onStatsHistory?: (history: unknown) => void;
+  /** Whether the desktop reset its stats while this host was away. */
+  statsResetDue?: () => boolean;
+  /** The host has cleared its own stats, as the desktop's reset asked. */
+  onStatsReset?: () => void;
   /** How long a change waits before the cache file is written. */
   saveDelayMs?: number;
   log?: Pick<Console, "info" | "warn">;
@@ -281,6 +290,11 @@ export class HostProxy {
       client.subscribe("notifications", "changed", undefined, (list) => {
         if (this.disposed || !Array.isArray(list)) return;
         this.applyNotifications(list);
+      }),
+      // The host's stats moved: its history, read again (the summary this
+      // carries has no days).
+      client.subscribe("stats", "changed", undefined, () => {
+        this.syncStats();
       }),
       // The host's automations are its server's alone: the desktop keeps no
       // copy, and tells its renderers which host to re-read.
@@ -573,6 +587,39 @@ export class HostProxy {
     this.publishLayoutDiff(before);
     this.publishAgentDiff(agentsBefore, unseenRead);
     void this.readNotifications(current);
+    void this.readStats(current);
+  }
+
+  /**
+   * The host's usage stats, read apart from the snapshot: a host server
+   * older than merged stats has no `stats.getHistory`, and is left out.
+   */
+  private async readStats(current: () => boolean): Promise<void> {
+    if (!this.opts.onStatsHistory) return;
+    let history: unknown;
+    try {
+      // A reset the desktop made while this host was away comes first, so
+      // none of what it cleared is counted again.
+      if (this.opts.statsResetDue?.()) {
+        await this.client.invoke("stats", "reset", []);
+        if (!current()) return;
+        this.opts.onStatsReset?.();
+      }
+      history = await this.client.invoke("stats", "getHistory", []);
+    } catch {
+      return;
+    }
+    if (current() && isPlainObject(history)) this.opts.onStatsHistory(history);
+  }
+
+  /**
+   * The desktop's stats were reset: clear the host's now if it is here
+   * (otherwise the next snapshot does), and read what is left.
+   */
+  syncStats(): void {
+    if (this.disposed || !this.inSync) return;
+    const generation = this.snapshotGeneration;
+    void this.readStats(() => !this.disposed && generation === this.snapshotGeneration);
   }
 
   /**

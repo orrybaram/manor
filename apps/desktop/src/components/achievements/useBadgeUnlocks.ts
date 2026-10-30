@@ -22,19 +22,25 @@ export function unlockKey(item: UnlockItem): string {
 
 /**
  * What is new in `next` compared to `prev`: badge ids first (in the order
- * `next.badges` lists them), then tracks that just became complete.
+ * `next.badges` lists them), then tracks that just became complete. A badge
+ * awarded quietly (a host's backlog, merged in) is not news.
  */
 export function diffUnlocks(
   prev: StatsSummary,
   next: StatsSummary,
 ): UnlockItem[] {
+  // Quiet badges count as already had, for the badge and its track alike.
+  const had = { ...prev, badges: { ...prev.badges } };
+  for (const id of next.quietBadges ?? []) {
+    if (next.badges[id] !== undefined) had.badges[id] = next.badges[id];
+  }
   const items: UnlockItem[] = [];
   for (const id of Object.keys(next.badges)) {
-    if (prev.badges[id] === undefined) items.push({ kind: "badge", id });
+    if (had.badges[id] === undefined) items.push({ kind: "badge", id });
   }
   for (const section of BADGE_SECTIONS) {
     if (
-      !trackState(section, prev).complete &&
+      !trackState(section, had).complete &&
       trackState(section, next).complete
     ) {
       items.push({ kind: "complete", section: section.id });

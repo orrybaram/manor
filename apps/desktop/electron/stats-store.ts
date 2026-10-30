@@ -9,7 +9,7 @@ import {
   type SignalTrackerState,
   type StatDelta,
 } from "./stats-signals";
-import { evaluateBadges, type BadgeDef } from "./stats-badges";
+import { BADGES, evaluateBadges, type BadgeDef } from "./stats-badges";
 
 import type { AgentHookEvent } from "./agent-hook-events";
 import type { Effect } from "./agent-status/types";
@@ -85,6 +85,36 @@ export interface PersistedStats {
    * holds even for a PR URL. Absent on files written before `prsMerged`.
    */
   once?: string[];
+  /**
+   * What each `once` token counted and when (`counter@YYYY-MM-DD`), so a
+   * desktop can count once an event two machines both saw (a merged PR whose
+   * workspace moved). Absent on tokens from before merged stats.
+   */
+  onceAt?: Record<string, string>;
+  /**
+   * The desktop's copy of each host server's own history, keyed by host id:
+   * the last one read, kept so a host that is asleep or gone still counts.
+   * Absent on a host server and on files written before merged stats.
+   */
+  hosts?: Record<string, StatsHistory>;
+  /**
+   * Hosts a reset has yet to reach: they were away when the desktop reset,
+   * and are cleared when next heard from. Their counts stay out until then.
+   */
+  pendingHostResets?: string[];
+  /** `StatsSummary.quietBadges`, kept so a client holding an old summary still knows. */
+  quietBadges?: string[];
+}
+
+/**
+ * One server's own counts and awards, as it hands them to the desktop
+ * (`stats.getHistory`). Counts only, like the file.
+ */
+export interface StatsHistory {
+  days: Record<string, DayBucket>;
+  badges: Record<string, string>;
+  /** `PersistedStats.onceAt`. Absent from a host older than it. */
+  onceAt?: Record<string, string>;
 }
 
 /** One retained day's prompt count, for the contribution graph. */
@@ -109,6 +139,11 @@ export interface StatsSummary {
   /** PRs merged per local day: today and the previous 6, oldest first, zeros included. */
   dailyPrsMerged: { day: string; count: number }[];
   badges: Record<string, string>;
+  /**
+   * Badges awarded quietly: a host's backlog, taken
+   * when its history was merged. Already in `badges`; not news, so no toast.
+   */
+  quietBadges?: string[];
   enabled: boolean;
 }
 
@@ -131,8 +166,19 @@ export class StatsStore {
   private dataDir: string;
   private days: Record<string, DayBucket>;
   private badges: Record<string, string>;
+  /** Each host server's last-read history, summed into every total. */
+  private hosts: Record<string, StatsHistory>;
+  /** `PersistedStats.pendingHostResets`. */
+  private pendingResets: Set<string>;
+  /** The hosts a reset is for (`opts.hostIds`). */
+  private hostIds: () => readonly string[];
+  private onReset: (() => void) | undefined;
+  /** Badges `setHostHistory` awarded quietly (`StatsSummary.quietBadges`). */
+  private quiet: Set<string>;
   /** Insertion-ordered, so eviction drops the oldest token. */
   private once: Set<string>;
+  /** `PersistedStats.onceAt`. */
+  private onceAt: Record<string, string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private isEnabled: () => boolean;
@@ -154,6 +200,10 @@ export class StatsStore {
       monoNow?: () => number;
       /** Called once per newly-earned badge, after it has been persisted. */
       onBadge?: (badge: BadgeDef) => void;
+      /** The desktop's remote hosts, every one of which a reset clears too. */
+      hostIds?: () => readonly string[];
+      /** After a reset: the desktop sends it on to the hosts it can reach. */
+      onReset?: () => void;
     },
   ) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -162,10 +212,16 @@ export class StatsStore {
     this.monoNow =
       opts?.monoNow ?? (() => Number(process.hrtime.bigint() / 1_000_000n));
     this.onBadge = opts?.onBadge;
+    this.hostIds = opts?.hostIds ?? (() => []);
+    this.onReset = opts?.onReset;
     const state = this.loadState();
     this.days = state.days;
     this.badges = state.badges;
     this.once = state.once;
+    this.onceAt = state.onceAt;
+    this.hosts = state.hosts;
+    this.pendingResets = state.pendingResets;
+    this.quiet = state.quiet;
     this.prune();
     this.grandfatherBadges();
   }
@@ -191,6 +247,10 @@ export class StatsStore {
     days: Record<string, DayBucket>;
     badges: Record<string, string>;
     once: Set<string>;
+    onceAt: Record<string, string>;
+    hosts: Record<string, StatsHistory>;
+    pendingResets: Set<string>;
+    quiet: Set<string>;
   } {
     try {
       const data = fs.readFileSync(this.statsFilePath(), "utf-8");
@@ -199,9 +259,21 @@ export class StatsStore {
         days: sanitizeDays(state.days),
         badges: sanitizeBadges(state.badges),
         once: sanitizeOnce(state.once),
+        onceAt: sanitizeOnceAt(state.onceAt),
+        hosts: sanitizeHosts(state.hosts),
+        pendingResets: new Set(sanitizeIds(state.pendingHostResets)),
+        quiet: new Set(sanitizeIds(state.quietBadges).filter((id) => BADGE_IDS.has(id))),
       };
     } catch {
-      return { days: {}, badges: {}, once: new Set() };
+      return {
+        days: {},
+        badges: {},
+        once: new Set(),
+        onceAt: {},
+        hosts: {},
+        pendingResets: new Set(),
+        quiet: new Set(),
+      };
     }
   }
 
@@ -212,6 +284,10 @@ export class StatsStore {
       days: this.days,
       badges: this.badges,
       once: [...this.once],
+      ...(Object.keys(this.onceAt).length > 0 ? { onceAt: this.onceAt } : {}),
+      ...(Object.keys(this.hosts).length > 0 ? { hosts: this.hosts } : {}),
+      ...(this.pendingResets.size > 0 ? { pendingHostResets: [...this.pendingResets] } : {}),
+      ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
     };
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(this.statsFilePath(), JSON.stringify(state, null, 2));
@@ -241,14 +317,8 @@ export class StatsStore {
 
   /** Truncates to the newest `MAX_DAYS` buckets. Day keys sort lexicographically. */
   private prune(): void {
-    const keys = Object.keys(this.days);
-    if (keys.length <= MAX_DAYS) return;
-    const keep = new Set(keys.sort().slice(keys.length - MAX_DAYS));
-    const pruned: Record<string, DayBucket> = {};
-    for (const key of keys) {
-      if (keep.has(key)) pruned[key] = this.days[key];
-    }
-    this.days = pruned;
+    this.days = pruneDays(this.days);
+    for (const history of Object.values(this.hosts)) history.days = pruneDays(history.days);
   }
 
   /** Evicts the oldest `recordOnce` tokens once past the cap. */
@@ -259,6 +329,7 @@ export class StatsStore {
     for (const token of this.once) {
       if (dropped >= excess) break;
       this.once.delete(token);
+      delete this.onceAt[token];
       dropped++;
     }
   }
@@ -365,6 +436,7 @@ export class StatsStore {
     const token = onceToken(counter, key);
     if (this.once.has(token)) return false;
     this.once.add(token);
+    this.onceAt[token] = `${counter}@${this.todayKey()}`;
     this.pruneOnce();
     this.applyDelta({ counter, n: 1 });
     this.commit();
@@ -409,43 +481,116 @@ export class StatsStore {
     this.commit();
   }
 
+  /**
+   * Totals over every machine: this server's own days plus each host's
+   * last-read days, summed per day (gauges take the max).
+   */
   getSummary(): StatsSummary {
+    const days = this.mergedDays();
     const today = this.todayKey();
     return {
-      today: { ...(this.days[today] ?? {}) },
-      last7Days: aggregate(this.windowBuckets(WINDOW_DAYS)),
-      allTime: aggregate(Object.values(this.days)),
-      streakWeeks: this.streakWeeks(),
-      dailyPrompts: this.dailyPrompts(),
-      dailyPrsMerged: this.dailyPrsMerged(),
+      today: { ...(days[today] ?? {}) },
+      last7Days: aggregate(this.windowBuckets(days, WINDOW_DAYS)),
+      allTime: aggregate(Object.values(days)),
+      streakWeeks: this.streakWeeks(days),
+      dailyPrompts: dailyPrompts(days),
+      dailyPrsMerged: this.dailyPrsMerged(days),
       badges: this.getBadges(),
+      ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
       enabled: this.isEnabled(),
     };
   }
 
-  /** Prompt counts for every retained day that recorded one, oldest first. */
-  private dailyPrompts(): DailyPrompts[] {
-    return Object.entries(this.days)
-      .map(([day, bucket]) => ({ day, count: bucket.prompts ?? 0 }))
-      .filter((entry) => entry.count > 0)
-      .sort((a, b) => a.day.localeCompare(b.day));
+  private mergedDays(): Record<string, DayBucket> {
+    const hosts = Object.values(this.hosts);
+    if (hosts.length === 0) return this.days;
+    const byDay = new Map<string, DayBucket[]>();
+    for (const days of [this.days, ...hosts.map((history) => history.days)]) {
+      for (const [day, bucket] of Object.entries(days)) {
+        const list = byDay.get(day);
+        if (list) list.push(bucket);
+        else byDay.set(day, [bucket]);
+      }
+    }
+    const merged: Record<string, DayBucket> = {};
+    for (const [day, buckets] of byDay) merged[day] = aggregate(buckets);
+    // An event two machines both counted once (a merged PR whose workspace
+    // moved): kept on the first day it was seen, taken off the others.
+    const seen = new Map<string, string[]>();
+    for (const onceAt of [this.onceAt, ...hosts.map((history) => history.onceAt ?? {})]) {
+      for (const [token, at] of Object.entries(onceAt)) {
+        const list = seen.get(token);
+        if (list) list.push(at);
+        else seen.set(token, [at]);
+      }
+    }
+    for (const list of seen.values()) {
+      if (list.length < 2) continue;
+      const byDay = list.sort((a, b) => (a.split("@")[1] ?? "").localeCompare(b.split("@")[1] ?? ""));
+      for (const at of byDay.slice(1)) {
+        const [counter, day] = at.split("@") as [StatCounter, string];
+        const bucket = merged[day];
+        const count = bucket?.[counter];
+        if (count !== undefined && count > 0) bucket[counter] = count - 1;
+      }
+    }
+    return merged;
+  }
+
+  /** This server's own counts and awards, for a desktop to merge (`stats.getHistory`). */
+  getHistory(): StatsHistory {
+    return {
+      days: structuredClone(this.days),
+      badges: this.getBadges(),
+      onceAt: { ...this.onceAt },
+    };
+  }
+
+  /**
+   * Takes a host server's history in place of the last one read for it.
+   * The first read of a host awards what the combined history already earns
+   * quietly, dated by the host's own award where it has one: that is
+   * backlog, not news. Later reads announce like any other recording. Either
+   * way a badge the host earned on its own (a day's or a streak's, which
+   * today's totals may no longer show) is taken quietly, with its date.
+   */
+  setHostHistory(hostId: string, history: StatsHistory): void {
+    if (!this.isEnabled() || this.pendingResets.has(hostId)) return;
+    const was = this.hosts[hostId];
+    const first = was === undefined;
+    const host = sanitizeHost(history);
+    // A re-read that found nothing new (each reconnect reads again).
+    if (!first && JSON.stringify(was) === JSON.stringify(host)) return;
+    this.hosts[hostId] = host;
+    if (first) {
+      for (const badge of evaluateBadges(this.getSummary(), this.badges)) {
+        if (this.awardBadge(badge.id, host.badges[badge.id])) this.quiet.add(badge.id);
+      }
+    } else {
+      this.commit();
+    }
+    for (const [id, at] of Object.entries(host.badges)) {
+      if (this.awardBadge(id, at)) this.quiet.add(id);
+    }
+    this.saveState();
+    this.emitChange();
   }
 
   /** Merged-PR counts for the last 7 local days, oldest first, zeros included. */
-  private dailyPrsMerged(): { day: string; count: number }[] {
+  private dailyPrsMerged(days: Record<string, DayBucket>): { day: string; count: number }[] {
     const out: { day: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const day = dayKeyOffset(this.now(), -i);
-      out.push({ day, count: this.days[day]?.prsMerged ?? 0 });
+      out.push({ day, count: days[day]?.prsMerged ?? 0 });
     }
     return out;
   }
 
   /** Buckets for today and the previous `count - 1` local days. */
-  private windowBuckets(count: number): DayBucket[] {
+  private windowBuckets(days: Record<string, DayBucket>, count: number): DayBucket[] {
     const buckets: DayBucket[] = [];
     for (let i = 0; i < count; i++) {
-      const bucket = this.days[dayKeyOffset(this.now(), -i)];
+      const bucket = days[dayKeyOffset(this.now(), -i)];
       if (bucket) buckets.push(bucket);
     }
     return buckets;
@@ -457,9 +602,9 @@ export class StatsStore {
    * prompts yet, so an unstarted week does not read as a broken streak. Zero
    * when neither week has prompts. One active day is enough to keep a week.
    */
-  private streakWeeks(): number {
+  private streakWeeks(days: Record<string, DayBucket>): number {
     const activeWeeks = new Set<string>();
-    for (const [day, bucket] of Object.entries(this.days)) {
+    for (const [day, bucket] of Object.entries(days)) {
       if ((bucket.prompts ?? 0) >= 1) activeWeeks.add(weekKeyOfDay(day));
     }
     const hasPrompts = (offset: number): boolean =>
@@ -491,7 +636,12 @@ export class StatsStore {
     return true;
   }
 
-  /** Clears all collected stats in memory and removes the file from disk. */
+  /**
+   * Clears all collected stats in memory and removes the file from disk. On
+   * the desktop every remote host is cleared too: the ones it can reach now
+   * (`onReset`), and the rest when next heard from — until then the file
+   * stays, saying which.
+   */
   reset(): void {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
@@ -500,13 +650,51 @@ export class StatsStore {
     this.days = {};
     this.badges = {};
     this.once = new Set();
+    this.onceAt = {};
+    this.hosts = {};
+    this.quiet.clear();
+    this.pendingResets = new Set(this.hostIds());
     try {
-      fs.rmSync(this.statsFilePath(), { force: true });
+      if (this.pendingResets.size > 0) this.writeStateSync();
+      else fs.rmSync(this.statsFilePath(), { force: true });
     } catch {
       // best effort: an unremovable file is not worth crashing over
     }
     this.emitChange();
+    try {
+      this.onReset?.();
+    } catch (error) {
+      console.error("[stats-store] onReset listener threw:", error);
+    }
   }
+
+  /** Whether `hostId` was away for a reset and still has to be cleared. */
+  hostResetDue(hostId: string): boolean {
+    return this.pendingResets.has(hostId);
+  }
+
+  /** `hostId` has cleared its own stats: its history counts again. */
+  hostWasReset(hostId: string): void {
+    if (!this.pendingResets.delete(hostId)) return;
+    this.saveState();
+  }
+}
+
+/** Prompt counts for every retained day that recorded one, oldest first. */
+function dailyPrompts(days: Record<string, DayBucket>): DailyPrompts[] {
+  return Object.entries(days)
+    .map(([day, bucket]) => ({ day, count: bucket.prompts ?? 0 }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/** The newest `MAX_DAYS` buckets. Day keys sort lexicographically. */
+function pruneDays(days: Record<string, DayBucket>): Record<string, DayBucket> {
+  const keys = Object.keys(days);
+  if (keys.length <= MAX_DAYS) return days;
+  const pruned: Record<string, DayBucket> = {};
+  for (const key of keys.sort().slice(keys.length - MAX_DAYS)) pruned[key] = days[key];
+  return pruned;
 }
 
 /**
@@ -608,6 +796,52 @@ function sanitizeBadges(badges: unknown): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [id, at] of Object.entries(badges as Record<string, unknown>)) {
     if (typeof at === "string") result[id] = at;
+  }
+  return result;
+}
+
+function sanitizeHosts(hosts: unknown): Record<string, StatsHistory> {
+  if (!hosts || typeof hosts !== "object") return {};
+  const result: Record<string, StatsHistory> = {};
+  for (const [hostId, raw] of Object.entries(hosts as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object") continue;
+    result[hostId] = sanitizeHost(raw as Partial<StatsHistory>);
+  }
+  return result;
+}
+
+const BADGE_IDS = new Set(BADGES.map((badge) => badge.id));
+
+function sanitizeIds(ids: unknown): string[] {
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
+
+/**
+ * A host's history as the desktop keeps it: bounded days, and only badges
+ * this build knows, each with a real award time.
+ */
+function sanitizeHost(history: Partial<StatsHistory>): StatsHistory {
+  const badges: Record<string, string> = {};
+  for (const [id, at] of Object.entries(sanitizeBadges(history.badges))) {
+    const ms = Date.parse(at);
+    if (BADGE_IDS.has(id) && Number.isFinite(ms)) badges[id] = new Date(ms).toISOString();
+  }
+  return {
+    days: pruneDays(sanitizeDays(history.days)),
+    badges,
+    ...(history.onceAt !== undefined ? { onceAt: sanitizeOnceAt(history.onceAt) } : {}),
+  };
+}
+
+/** Known tokens' `counter@YYYY-MM-DD`, at most `MAX_ONCE` of them. */
+function sanitizeOnceAt(onceAt: unknown): Record<string, string> {
+  if (!onceAt || typeof onceAt !== "object") return {};
+  const result: Record<string, string> = {};
+  const entries = Object.entries(onceAt as Record<string, unknown>);
+  for (const [token, at] of entries.slice(Math.max(0, entries.length - MAX_ONCE))) {
+    if (!/^[0-9a-f]{16}$/.test(token) || typeof at !== "string") continue;
+    const [counter, day] = at.split("@");
+    if (COUNTER_KEYS.has(counter) && /^\d{4}-\d{2}-\d{2}$/.test(day ?? "")) result[token] = at;
   }
   return result;
 }

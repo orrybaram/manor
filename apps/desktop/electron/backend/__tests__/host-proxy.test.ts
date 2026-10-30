@@ -25,6 +25,7 @@ import {
   seedDesktop,
 } from "./adoption-fixtures";
 import { HostProxy, type HostProxyOptions } from "../host-proxy";
+import { StatsStore, type StatsHistory } from "../../stats-store";
 import { HostServerClient, HostServerUnavailableError } from "../host-server-client";
 import { hostLayoutSnapshot } from "../host-server-sync";
 import { createBroadcastBus, type RendererBroadcast } from "../../renderer-broadcast";
@@ -422,3 +423,108 @@ describe("HostProxy and the host's notification log", () => {
     expect(told).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("HostProxy and the host's usage stats", () => {
+  const h = useHostServerHarness();
+
+  it("hands over the host's own history on a snapshot and again when its stats change", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const heard: unknown[] = [];
+    proxyFor(h, client, desktopBus().bus, { onStatsHistory: (history) => heard.push(history) });
+
+    await eventually(() => heard, (list) => list.length > 0, "the host's history");
+    expect(heard[0]).toEqual({ days: { "2026-10-30": { prompts: 4 } }, badges: {}, onceAt: {} });
+
+    // The host's stats move (here, cleared): its `stats.changed` brings a re-read.
+    await client.invoke("stats", "reset", []);
+    const after = await eventually(() => heard, (list) => list.length > 1, "the re-read");
+    expect(after[after.length - 1]).toEqual({ days: {}, badges: {}, onceAt: {} });
+  });
+
+  it("leaves out a host that has no history to give", async () => {
+    withoutGit();
+    h.adopt();
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    // A host server older than merged stats: no such method.
+    let asked = false;
+    const real = client.invoke.bind(client);
+    client.invoke = ((ns: string, method: string, ...rest: unknown[]) => {
+      if (ns !== "stats" || method !== "getHistory") return (real as (...a: unknown[]) => unknown)(ns, method, ...rest);
+      asked = true;
+      return Promise.reject(new Error("unavailable:host"));
+    }) as typeof client.invoke;
+    const heard: unknown[] = [];
+    const warned: string[] = [];
+    proxyFor(h, client, desktopBus().bus, {
+      onStatsHistory: (history) => heard.push(history),
+      log: { info: () => {}, warn: (m: string) => warned.push(m) },
+    });
+    await eventually(() => asked, (yes) => yes, "the history read");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(heard).toEqual([]);
+    expect(warned).toEqual([]);
+  });
+
+  it("clears the host's stats before reading them when the desktop reset while it was away", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    let due = true;
+    const heard: unknown[] = [];
+    proxyFor(h, client, desktopBus().bus, {
+      statsResetDue: () => due,
+      onStatsReset: () => (due = false),
+      onStatsHistory: (history) => heard.push(history),
+    });
+
+    await eventually(() => heard, (list) => list.length > 0, "the history");
+    expect(due).toBe(false);
+    expect(heard[0]).toEqual({ days: {}, badges: {}, onceAt: {} });
+  });
+
+  it("clears a connected host's stats when the desktop resets", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const desktopDir = path.join(h.tmp, "desktop-stats");
+    let proxy: HostProxy | null = null;
+    const desktop = new StatsStore(desktopDir, {
+      hostIds: () => ["box"],
+      onReset: () => proxy?.syncStats(),
+    });
+    proxy = proxyFor(h, client, desktopBus().bus, {
+      statsResetDue: () => desktop.hostResetDue("box"),
+      onStatsReset: () => desktop.hostWasReset("box"),
+      onStatsHistory: (history) => desktop.setHostHistory("box", history as StatsHistory),
+    });
+    await eventually(() => desktop.getSummary().allTime.prompts, (n) => n === 4, "the host's prompts");
+
+    desktop.reset();
+    await eventually(() => desktop.hostResetDue("box"), (due) => !due, "the host cleared");
+    expect(fs.existsSync(path.join(h.paths.dataDir, "stats.json"))).toBe(false);
+    expect(desktop.getSummary().allTime.prompts).toBeUndefined();
+  });
+});
+

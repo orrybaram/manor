@@ -165,6 +165,8 @@ export interface StatsSummary {
   dailyPrsMerged: { day: string; count: number }[];
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
+  /** Badges awarded quietly (a host's backlog): in `badges`, but no toast. */
+  quietBadges?: string[];
   enabled: boolean;
 }
 

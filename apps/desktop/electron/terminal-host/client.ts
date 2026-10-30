@@ -54,14 +54,16 @@ const STALE_DAEMON_SESSIONS_TIMEOUT_MS = 2_000;
 const LOCAL_ENV_KEYS = [
   "MANOR_HOOK_PORT",
   "MANOR_WEBVIEW_PORT",
+  "MANOR_WEBVIEW_TOKEN",
   "MANOR_PORTLESS_PORT",
 ] as const;
 
 /**
  * The env to push to the daemon on connect, so new PTY sessions inherit fresh
  * values (e.g. MANOR_HOOK_PORT may have changed since the daemon spawned).
- * The `LOCAL_ENV_KEYS` are ports on this machine; a remote daemon's role drops
- * them, so the client does not need to know which kind it has.
+ * The `LOCAL_ENV_KEYS` are ports on this machine (and the webview server's
+ * token); a remote daemon's role drops them, so the client does not need to
+ * know which kind it has.
  *
  * Explicit `updateEnv` values win over inherited ones in general, but for the
  * MANOR_* port keys the live process.env value must win: a remembered override

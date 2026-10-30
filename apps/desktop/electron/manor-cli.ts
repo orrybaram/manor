@@ -4,7 +4,8 @@
  * (`mcp-webview-server.ts`) registers; see `mcp/cli.ts` for the
  * command table and dispatch logic.
  *
- * Discovery: reads port from ~/.manor/webview-server-port
+ * Discovery: reads port from ~/.manor/webview-server-port and its token from
+ * ~/.manor/webview-server-token; see `mcp/http-client.ts`.
  */
 
 import * as fs from "node:fs";

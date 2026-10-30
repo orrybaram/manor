@@ -552,7 +552,14 @@ export function initApp(devTitle: string | null): void {
     // inherits PATH at spawn. Kicked off before the sync bootstrap below so the
     // sockets can be listening while it runs. A server that fails to start is
     // logged and its port left unset; the daemon still connects without it.
-    const localServers = [
+    const localServers: {
+      name: string;
+      start: () => Promise<void>;
+      env: string;
+      port: () => number | null;
+      /** A token clients must send, published to child shells beside the port. */
+      token?: { env: string; value: () => string };
+    }[] = [
       {
         name: "agent hook server",
         start: () => agentHookServer.start(),
@@ -564,6 +571,7 @@ export function initApp(devTitle: string | null): void {
         start: () => webviewServer.start(),
         env: "MANOR_WEBVIEW_PORT",
         port: () => webviewServer.serverPort,
+        token: { env: "MANOR_WEBVIEW_TOKEN", value: () => webviewServer.controlToken },
       },
       {
         name: "portless proxy",
@@ -596,6 +604,7 @@ export function initApp(devTitle: string | null): void {
       const server = localServers[i];
       if (result.status === "fulfilled") {
         process.env[server.env] = String(server.port());
+        if (server.token) process.env[server.token.env] = server.token.value();
       } else {
         console.error(`Failed to start ${server.name}:`, result.reason);
       }

@@ -33,6 +33,7 @@ const mockWebContents: Record<string, unknown> = {
 };
 
 vi.mock("electron", () => ({
+  app: { isPackaged: false },
   webContents: {
     fromId: vi.fn(),
   },
@@ -56,6 +57,8 @@ vi.mock("../ipc/webview", async () => {
 });
 
 import { WebviewServer } from "../webview-server";
+import { runCli } from "../mcp/cli";
+import { createHttp } from "../mcp/http-client";
 import type { HostDeps } from "../ipc/types";
 import { webContents } from "electron";
 import {
@@ -67,11 +70,18 @@ import {
 
 // ── HTTP helper ──
 
+/** The running server's token; set in `beforeEach`. */
+let controlToken = "";
+
 function httpRequest(
   port: number,
   method: string,
   reqPath: string,
   body?: Record<string, unknown>,
+  headers: http.OutgoingHttpHeaders = {
+    "x-manor-control-token": controlToken,
+    "Content-Type": "application/json",
+  },
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const options: http.RequestOptions = {
@@ -79,7 +89,7 @@ function httpRequest(
       port,
       path: reqPath,
       method,
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers,
     };
 
     const req = http.request(options, (res) => {
@@ -187,6 +197,7 @@ describe("WebviewServer", () => {
     );
     server = built;
     await server.start();
+    controlToken = server.controlToken;
   });
 
   afterEach(async () => {
@@ -235,6 +246,177 @@ describe("WebviewServer", () => {
       expect(server.serverPort).toBeGreaterThan(0);
       // Port may differ, but must be valid
       expect(typeof server.serverPort).toBe("number");
+    });
+  });
+
+  // ── Request checks ──
+
+  describe("Request checks", () => {
+    const tokenFile = () =>
+      path.join(process.env.HOME || "/tmp", ".manor", "webview-server-token");
+
+    it("writes a token file readable only by this user", () => {
+      expect(server.controlToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.readFileSync(tokenFile(), "utf-8")).toBe(server.controlToken);
+      expect(fs.statSync(tokenFile()).mode & 0o777).toBe(0o600);
+    });
+
+    it("stop() removes the token file", () => {
+      server.stop();
+      expect(fs.existsSync(tokenFile())).toBe(false);
+    });
+
+    it("mints a fresh token on each start", async () => {
+      const first = server.controlToken;
+      server.stop();
+      await server.start();
+      expect(server.controlToken).not.toBe(first);
+    });
+
+    it("answers a request with the token, a loopback Host and no Origin", async () => {
+      const res = await httpGet(server.serverPort, "/webviews");
+      expect(res.status).toBe(200);
+    });
+
+    it("accepts localhost as the Host", async () => {
+      const res = await httpRequest(server.serverPort, "GET", "/webviews", undefined, {
+        Host: `localhost:${server.serverPort}`,
+        "x-manor-control-token": controlToken,
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("refuses a request with no token", async () => {
+      const res = await httpRequest(server.serverPort, "GET", "/webviews", undefined, {});
+      expect(res.status).toBe(401);
+    });
+
+    it("refuses a request with the wrong token", async () => {
+      const res = await httpRequest(server.serverPort, "GET", "/webviews", undefined, {
+        "x-manor-control-token": "0".repeat(64),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    it("refuses a Host other than this listener's loopback address", async () => {
+      for (const host of [
+        "example.com",
+        `example.com:${server.serverPort}`,
+        "127.0.0.1",
+        `127.0.0.1:${server.serverPort + 1}`,
+      ]) {
+        const res = await httpRequest(server.serverPort, "GET", "/webviews", undefined, {
+          Host: host,
+          "x-manor-control-token": controlToken,
+        });
+        expect(res.status, host).toBe(403);
+      }
+    });
+
+    it("refuses any request that carries an Origin, even with the token", async () => {
+      for (const origin of ["https://example.com", "null", `http://127.0.0.1:${server.serverPort}`]) {
+        const res = await httpRequest(server.serverPort, "GET", "/webviews", undefined, {
+          Origin: origin,
+          "x-manor-control-token": controlToken,
+        });
+        expect(res.status, origin).toBe(403);
+      }
+    });
+
+    it("refuses a POST whose body isn't declared JSON, without running the route", async () => {
+      for (const contentType of [undefined, "text/plain", "application/x-www-form-urlencoded"]) {
+        const res = await httpRequest(
+          server.serverPort,
+          "POST",
+          "/webview/pane-1/navigate",
+          { url: "https://example.org" },
+          {
+            "x-manor-control-token": controlToken,
+            ...(contentType ? { "Content-Type": contentType } : {}),
+          },
+        );
+        expect(res.status, String(contentType)).toBe(415);
+      }
+      expect(mockWebContents.loadURL).not.toHaveBeenCalled();
+    });
+
+    it("refuses a DELETE whose body isn't declared JSON", async () => {
+      const res = await httpRequest(server.serverPort, "DELETE", "/panes/pane-1", undefined, {
+        "x-manor-control-token": controlToken,
+        "Content-Type": "text/plain",
+      });
+      expect(res.status).toBe(415);
+    });
+
+    it("accepts a JSON Content-Type with parameters", async () => {
+      const res = await httpRequest(
+        server.serverPort,
+        "POST",
+        "/webview/pane-1/navigate",
+        { url: "https://example.org" },
+        {
+          "x-manor-control-token": controlToken,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+      );
+      expect(res.status).toBe(200);
+      expect(mockWebContents.loadURL).toHaveBeenCalledWith("https://example.org");
+    });
+  });
+
+  // ── The manor CLI, end to end ──
+
+  describe("manor CLI against the running server", () => {
+    function cliIo() {
+      let stdout = "";
+      let stderr = "";
+      return {
+        io: {
+          stdout: { write: (chunk: string) => ((stdout += chunk), true) },
+          stderr: { write: (chunk: string) => ((stderr += chunk), true) },
+          stdin: { read: () => "" },
+        },
+        out: () => stdout,
+        err: () => stderr,
+      };
+    }
+
+    beforeEach(() => {
+      delete process.env.MANOR_CONTROL_PORT_FILE;
+      delete process.env.MANOR_WEBVIEW_PORT;
+      delete process.env.MANOR_WEBVIEW_TOKEN;
+    });
+
+    it("finds the server through its port and token files and runs a GET", async () => {
+      const { io, out, err } = cliIo();
+      const code = await runCli(["list-webviews"], createHttp(), io as never);
+      expect(err()).toBe("");
+      expect(code).toBe(0);
+      expect(out()).toContain("pane-1");
+    });
+
+    it("runs a POST command through the server's checks", async () => {
+      const { io, err } = cliIo();
+      const code = await runCli(
+        ["navigate", "--pane-id", "pane-1", "--url", "https://example.org"],
+        createHttp(),
+        io as never,
+      );
+      expect(err()).toBe("");
+      expect(code).toBe(0);
+      expect(mockWebContents.loadURL).toHaveBeenCalledWith("https://example.org");
+    });
+
+    it("works from the env pairing a Manor terminal is given", async () => {
+      process.env.MANOR_WEBVIEW_PORT = String(server.serverPort);
+      process.env.MANOR_WEBVIEW_TOKEN = server.controlToken;
+      fs.unlinkSync(path.join(process.env.HOME || "/tmp", ".manor", "webview-server-port"));
+      const { io, out } = cliIo();
+      const code = await runCli(["api", "GET", "/webviews"], createHttp(), io as never);
+      expect(code).toBe(0);
+      expect(out()).toContain("pane-1");
+      delete process.env.MANOR_WEBVIEW_PORT;
+      delete process.env.MANOR_WEBVIEW_TOKEN;
     });
   });
 

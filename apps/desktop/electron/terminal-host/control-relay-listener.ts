@@ -34,6 +34,7 @@ import * as http from "node:http";
 
 import { errorMessage } from "../lib/errors";
 import { writeFileAtomic } from "../lib/fs-atomic";
+import { mintToken, tokenMatches } from "../lib/loopback-guard";
 import type { StreamEvent } from "./types";
 
 /**
@@ -92,13 +93,6 @@ const TIMED_OUT: ControlRelayResult = {
 
 function writePortFileAtomic(file: string, port: number, token: string): void {
   writeFileAtomic(file, `${port}\n${token}\n`, { mode: 0o600, dirMode: 0o700 });
-}
-
-function tokenMatches(header: string | string[] | undefined, token: string): boolean {
-  if (typeof header !== "string") return false;
-  const given = Buffer.from(header);
-  const expected = Buffer.from(token);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
 function reply(res: http.ServerResponse, status: number, body: unknown): void {
@@ -234,7 +228,7 @@ export class ControlRelayListener {
 
   private listen(): Promise<number> {
     const log = this.opts.log ?? (() => {});
-    const token = crypto.randomBytes(32).toString("hex");
+    const token = mintToken();
     const server = http.createServer((req, res) => {
       this.handle(token, req, res).catch((err: unknown) => {
         log(`control relay listener: request failed: ${errorMessage(err)}`);

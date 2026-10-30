@@ -1,9 +1,7 @@
-import fs from "fs";
-import path from "path";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, openTerminalTab } from "../fixtures";
-import { readSession, type AgentSummary } from "./local-api";
+import { localApiHeaders, localApiUrl, readSession, type AgentSummary } from "./local-api";
 import {
   APP_TARGET,
   onRemote,
@@ -162,15 +160,9 @@ export async function agentOnPane(
   tempHome: string,
   paneId: string,
 ): Promise<AgentSummary | undefined> {
-  const port = Number(
-    fs
-      .readFileSync(
-        path.join(tempHome, ".manor", "webview-server-port"),
-        "utf-8",
-      )
-      .trim(),
-  );
-  const res = await request.get(`http://127.0.0.1:${port}/agents`);
+  const res = await request.get(localApiUrl(tempHome, "/agents"), {
+    headers: localApiHeaders(tempHome),
+  });
   if (!res.ok()) return undefined;
   const agents = (await res.json()) as AgentSummary[];
   return agents.find((a) => a.paneId === paneId && a.status === "active");

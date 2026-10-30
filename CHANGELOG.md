@@ -4,12 +4,14 @@
 
 ### Features
 
-- Move to Host: Move a workspace to another host from its menu (**Move to Host**) or the command palette. Manor rebuilds the workspace on the other host with its tabs and splits, then removes the old copy. Code travels through `origin`.
-- Move to Host: Each agent restarts on the new host and picks up from a handoff of its conversation. A workspace moved onto a fresh host runs the project's start script there.
-- Move to Host: A confirm dialog opens before the move starts, and a lane steps through the move as it runs. If a step fails, you can **Retry**.
-- Move to Host: `manor move-workspace-to-host` moves a workspace to another host from the CLI.
-- Stats: The Stats page and badges now count every adopted host's history together with the desktop's own. Badges are awarded once on the total, and only the desktop announces them.
-- Stats: Reset clears stats on every machine. A host that was away is cleared when it next connects.
+- **Move to Host**
+  - Move a workspace to another host from its menu (**Move to Host**) or the command palette. Manor rebuilds the workspace on the other host with its tabs and splits, then removes the old copy. Code travels through `origin`.
+  - Each agent restarts on the new host and picks up from a handoff of its conversation. A workspace moved onto a fresh host runs the project's start script there.
+  - A confirm dialog opens before the move starts, and a lane steps through the move as it runs. If a step fails, you can **Retry**.
+  - `manor move-workspace-to-host` moves a workspace to another host from the CLI.
+- **Stats**
+  - The Stats page and badges now count every adopted host's history together with the desktop's own. Badges are awarded once on the total, and only the desktop announces them.
+  - Reset clears stats on every machine. A host that was away is cleared when it next connects.
 - Settings → General → Code Editor has a **Manor / Other app** choice, and Manor is the default. Cmd-clicking a workspace file in a terminal opens it in the editor you chose.
 
 ### Fixes
@@ -25,10 +27,12 @@
 
 ### Features
 
-- Automations: The command palette has an **Automations** group. **New Automation** opens Settings → Automations on an empty automation, each automation opens its page in Settings, and **Run Now: <name>** starts a run and shows a toast saying it started or why it was refused.
-- Automations: The palette lists automations from This Mac and connected hosts, without waking a sleeping host. Remote automations show their host's name, and a project scope narrows the list. The palette also gains a **Settings: Automations** row.
-- The New Workspace dialog is now a composer card. The workspace name is its title, above the branch it makes. The agent prompt box is always visible, with host, project, folder and branch chips along its foot.
-- New Workspace: The branch chip picks a base to branch off or an existing branch to check out. The host chip's list ends with the set-up rows, such as **Set up on another host…**, and it names hosts as soon as they pair.
+- **Automations**
+  - The command palette has an **Automations** group. **New Automation** opens Settings → Automations on an empty automation, each automation opens its page in Settings, and **Run Now: <name>** starts a run and shows a toast saying it started or why it was refused.
+  - The palette lists automations from This Mac and connected hosts, without waking a sleeping host. Remote automations show their host's name, and a project scope narrows the list. The palette also gains a **Settings: Automations** row.
+- **New Workspace**
+  - The New Workspace dialog is now a composer card. The workspace name is its title, above the branch it makes. The agent prompt box is always visible, with host, project, folder and branch chips along its foot.
+  - The branch chip picks a base to branch off or an existing branch to check out. The host chip's list ends with the set-up rows, such as **Set up on another host…**, and it names hosts as soon as they pair.
 
 ### Fixes
 

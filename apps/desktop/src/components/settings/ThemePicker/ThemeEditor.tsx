@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import { applyCssVars, useThemeStore, type Theme } from "../../../store/theme-store";
 import { Button } from "../../ui/Button/Button";
 import { ConfirmDialog } from "../../ui/ConfirmDialog/ConfirmDialog";
@@ -55,6 +56,9 @@ export function ThemeEditor(props: ThemeEditorProps) {
   // The theme showing before the edit, to put back on Cancel.
   const shownBefore = useRef(useThemeStore.getState().theme);
   const frame = useRef(0);
+  // Settings closing mid-drag restores the theme; a frame still queued
+  // must not paint the draft back over it.
+  useMountEffect(() => () => cancelAnimationFrame(frame.current));
 
   const repaint = (theme: Theme) => {
     // A colour input fires on every drag step; paint once per frame.

@@ -220,5 +220,20 @@ test.describe("Settings › Theme", () => {
     await expect(window.getByRole("option", { name: /Manor/ })).toBeVisible({ timeout: 5_000 });
     await expect(window.getByRole("option", { name: /Project Ink/ })).toBeVisible();
     await shot(window, testInfo, "14-project-picker");
+
+    // ── A project wearing a custom theme follows its rename ──
+    await window.getByRole("option", { name: /Project Ink/ }).click();
+    await expect(window.getByTestId("project-theme-select")).toContainText("Project Ink");
+    await window.getByTestId("settings-nav-appearance").click();
+    await window.getByTestId("theme-filter-custom").click();
+    await tile(window, "custom:Project Ink").hover();
+    await tile(window, "custom:Project Ink").getByTestId("theme-edit").click();
+    await window.getByTestId("theme-name").fill("Project Ink Renamed");
+    await window.getByTestId("theme-save").click();
+    await expect(tile(window, "custom:Project Ink Renamed")).toBeVisible({ timeout: 5_000 });
+    await window.getByRole("button", { name: "test-project", exact: true }).click();
+    await expect(window.getByTestId("project-theme-select")).toContainText("Project Ink Renamed", {
+      timeout: 5_000,
+    });
   });
 });

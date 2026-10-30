@@ -142,7 +142,8 @@ function parseGhosttyFile(content: string): {
     const eqIdx = trimmed.indexOf("=");
     if (eqIdx < 0) continue;
     const key = trimmed.slice(0, eqIdx).trim();
-    const value = normalizeColor(trimmed.slice(eqIdx + 1).trim());
+    const raw = trimmed.slice(eqIdx + 1).trim();
+    const value = COLOR_KEYS.has(key) ? normalizeColor(raw) : raw;
 
     if (key === "palette") {
       const palEq = value.indexOf("=");
@@ -164,6 +165,16 @@ function parseGhosttyFile(content: string): {
  * Ghostty accepts a colour without its `#`; the renderer's colour maths needs
  * one. Anything that isn't a bare 6-digit hex is left as written.
  */
+const COLOR_KEYS = new Set([
+  "background",
+  "foreground",
+  "cursor-color",
+  "cursor-text",
+  "selection-background",
+  "selection-foreground",
+  "accent",
+]);
+
 function normalizeColor(value: string): string {
   return /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : value;
 }
@@ -583,7 +594,8 @@ export class ThemeManager {
     return files
       .filter((f) => {
         try {
-          assertThemeName(f);
+          // Not a name it could be saved or deleted under: leave it be.
+          if (assertThemeName(f) !== f) return false;
           return fs.statSync(path.join(this.customDir, f)).isFile();
         } catch {
           return false;
@@ -606,18 +618,28 @@ export class ThemeManager {
     const exists = this.listCustomThemes().some(
       (n) => n.toLowerCase() === next.toLowerCase() && n !== prev,
     );
-    if ((prev === undefined || renaming) && exists) {
+    if (exists) {
       throw new Error(`A theme called "${next}" already exists`);
     }
     fs.mkdirSync(this.customDir, { recursive: true });
+    if (renaming) {
+      // Move, then write: on a case-insensitive disk "Ink" → "ink" is one
+      // file, so writing the new name and deleting the old would delete both.
+      try {
+        fs.renameSync(path.join(this.customDir, prev), target);
+      } catch {
+        // The old file is already gone: the write below makes the new one.
+      }
+    }
     fs.writeFileSync(target, serializeTheme(clean));
     if (renaming) {
-      fs.rmSync(path.join(this.customDir, prev), { force: true });
       const from = CUSTOM_PREFIX + prev;
       const to = CUSTOM_PREFIX + next;
       const settings = this.loadSettings();
       if (settings.themeName === from) settings.themeName = to;
-      settings.recentThemes = settings.recentThemes?.map((n) => (n === from ? to : n));
+      settings.recentThemes = [
+        ...new Set(settings.recentThemes?.map((n) => (n === from ? to : n))),
+      ];
       this.saveSettings(settings);
     }
     return CUSTOM_PREFIX + next;

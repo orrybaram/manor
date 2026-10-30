@@ -117,6 +117,13 @@ describe("custom themes", () => {
     expect(manager.getRecent()).toEqual(["custom:Squid"]);
   });
 
+  it("a case-only rename keeps the theme (one file on a case-insensitive disk)", () => {
+    manager.saveCustomTheme("Ink", manor());
+    manager.saveCustomTheme("ink", manor(), "Ink");
+    expect(manager.listCustomThemes()).toEqual(["ink"]);
+    expect(manager.getThemeByName("custom:ink")).toEqual(manor());
+  });
+
   it("deleting the selected theme falls back to the default and drops it from recents", () => {
     manager.saveCustomTheme("Ink", manor());
     manager.setSelectedThemeName("__manor__");

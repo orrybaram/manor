@@ -36,7 +36,8 @@ export function ThemeSection() {
   const [catalog, setCatalog] = useState<ThemeCatalog>(EMPTY);
   const [filter, setFilter] = useState<ThemeFilter>("all");
   const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState(-1);
+  // By name, not index: a reload (recents reorder, a theme saved) moves tiles.
+  const [highlighted, setHighlighted] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   const selectedThemeName = useThemeStore((s) => s.selectedThemeName);
   const projectThemeOverride = useThemeStore((s) => s.projectThemeOverride);
@@ -69,6 +70,8 @@ export function ThemeSection() {
     [catalog, filter, query],
   );
   const counts = useMemo(() => filterCounts(catalog), [catalog]);
+  const highlight = visible.findIndex((t) => t.name === highlighted);
+  const setHighlight = (index: number) => setHighlighted(visible[index]?.name ?? null);
   // With no Ghostty config, "Match Ghostty" isn't listed and shows the
   // default theme: outline that one.
   const selected =
@@ -151,6 +154,13 @@ export function ThemeSection() {
           }}
           onDeleted={() => {
             setEditing(null);
+            // The draft is still painted, and with a project override
+            // showing, the delete's broadcast won't repaint it: put back what
+            // the surface should show (the override falls back if it was
+            // the deleted theme).
+            const { applyProjectTheme, projectThemeOverride: override } =
+              useThemeStore.getState();
+            void applyProjectTheme(override);
             void reload();
           }}
           onCancel={() => setEditing(null)}

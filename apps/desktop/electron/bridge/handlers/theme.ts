@@ -3,6 +3,7 @@ import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 import {
+  CUSTOM_PREFIX,
   assertTheme,
   assertThemeName,
   type Theme,
@@ -55,25 +56,59 @@ export function themeAddRecent(ctx: HandlerCtx<ServerDeps>, name: string): void 
  * selection name. Viewers hear the selected theme again: an edit to the
  * selected theme repaints them, and open pickers reload their list on it.
  */
-export function themeSaveCustom(
+export async function themeSaveCustom(
   ctx: HandlerCtx<ServerDeps>,
   name: string,
   theme: Theme,
   previousName?: string,
-): string {
-  assertThemeName(name);
+): Promise<string> {
+  const next = assertThemeName(name);
   assertTheme(theme);
-  if (previousName !== undefined) assertThemeName(previousName);
-  const saved = ctx.deps.themeManager.saveCustomTheme(name, theme, previousName);
+  const prev = previousName === undefined ? undefined : assertThemeName(previousName);
+  const saved = ctx.deps.themeManager.saveCustomTheme(next, theme, prev);
   announce(ctx.deps.themeManager);
+  if (prev !== undefined && prev !== next) {
+    await repointProjects(ctx.deps, CUSTOM_PREFIX + prev, saved);
+  }
   return saved;
 }
 
-/** Delete a custom theme; if it was selected, every viewer goes back to the default. */
-export function themeDeleteCustom(ctx: HandlerCtx<ServerDeps>, name: string): void {
-  assertThemeName(name);
-  ctx.deps.themeManager.deleteCustomTheme(name);
+/**
+ * Delete a custom theme. If it was selected, every viewer goes back to the
+ * default; projects that wore it go back to the global theme.
+ */
+export async function themeDeleteCustom(ctx: HandlerCtx<ServerDeps>, name: string): Promise<void> {
+  const clean = assertThemeName(name);
+  ctx.deps.themeManager.deleteCustomTheme(clean);
   announce(ctx.deps.themeManager);
+  await repointProjects(ctx.deps, CUSTOM_PREFIX + clean, null);
+}
+
+/**
+ * Move every project whose theme is `from` to `to` (null: the global
+ * theme), so a rename or delete doesn't leave them on a name that no longer
+ * resolves. Best effort: a remote project that can't be reached keeps its
+ * old name and falls back to the default theme, as before.
+ */
+async function repointProjects(
+  deps: Pick<ServerDeps, "projectManager">,
+  from: string,
+  to: string | null,
+): Promise<void> {
+  let changed = false;
+  try {
+    for (const project of await deps.projectManager.getProjects()) {
+      if (project.themeName !== from) continue;
+      try {
+        await deps.projectManager.updateProject(project.id, { themeName: to });
+        changed = true;
+      } catch {
+        // Unreachable remote project: see above.
+      }
+    }
+  } finally {
+    if (changed) publishRendererBroadcast("projects", "changed");
+  }
 }
 
 function announce(manager: ServerDeps["themeManager"]): void {

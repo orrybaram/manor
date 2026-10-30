@@ -747,7 +747,11 @@ export function createManorServer<D extends BridgeServerDeps>(
         getPaneHostId,
         onProjectsRemoved: () => notifyProjectsChanged(),
         // A window may now open its own stream to the host.
-        onAdopted: (hostId) => backendRegistry.adoptionChanged(hostId),
+        // Its stats now count here: read them rather than wait for a change.
+        onAdopted: (hostId) => {
+          backendRegistry.adoptionChanged(hostId);
+          routing?.proxy(hostId)?.syncStats();
+        },
         // The renderer keeps the agents the desktop held until it hears.
         onAgentsRemoved: (ids) => bus.publish("agents", "removed", [...ids]),
       })

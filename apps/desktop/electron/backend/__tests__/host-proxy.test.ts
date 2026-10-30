@@ -25,6 +25,7 @@ import {
   seedDesktop,
 } from "./adoption-fixtures";
 import { HostProxy, type HostProxyOptions } from "../host-proxy";
+import { StatsStore, type StatsHistory } from "../../stats-store";
 import { HostServerClient, HostServerUnavailableError } from "../host-server-client";
 import { hostLayoutSnapshot } from "../host-server-sync";
 import { createBroadcastBus, type RendererBroadcast } from "../../renderer-broadcast";
@@ -495,6 +496,35 @@ describe("HostProxy and the host's usage stats", () => {
     await eventually(() => heard, (list) => list.length > 0, "the history");
     expect(due).toBe(false);
     expect(heard[0]).toEqual({ days: {}, badges: {}, onceAt: {} });
+  });
+
+  it("clears a connected host's stats when the desktop resets", async () => {
+    withoutGit();
+    h.adopt();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "stats.json"),
+      JSON.stringify({ version: 1, days: { "2026-10-30": { prompts: 4 } }, badges: {} }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const desktopDir = path.join(h.tmp, "desktop-stats");
+    let proxy: HostProxy | null = null;
+    const desktop = new StatsStore(desktopDir, {
+      hostIds: () => ["box"],
+      onReset: () => proxy?.syncStats(),
+    });
+    proxy = proxyFor(h, client, desktopBus().bus, {
+      statsResetDue: () => desktop.hostResetDue("box"),
+      onStatsReset: () => desktop.hostWasReset("box"),
+      onStatsHistory: (history) => desktop.setHostHistory("box", history as StatsHistory),
+    });
+    await eventually(() => desktop.getSummary().allTime.prompts, (n) => n === 4, "the host's prompts");
+
+    desktop.reset();
+    await eventually(() => desktop.hostResetDue("box"), (due) => !due, "the host cleared");
+    expect(fs.existsSync(path.join(h.paths.dataDir, "stats.json"))).toBe(false);
+    expect(desktop.getSummary().allTime.prompts).toBeUndefined();
   });
 });
 

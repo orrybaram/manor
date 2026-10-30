@@ -17,9 +17,11 @@
  * Agent's pinned name does not come across: the new Agent's record exists
  * only once its first hook arrives, and nothing names it before then.
  *
- * **Retry.** The recreator remembers what each move's replay made in its
- * target. A Retry of that move builds on whatever of it is still there, so
- * no tab is added and no Agent started twice.
+ * **Again.** The recreator remembers what each move's replay made in its
+ * target (`replayedMoves`). A Retry of that move, or a later move of the
+ * same workspace onto the same host, builds on whatever of it is still
+ * there, so no tab is added and no Agent started twice; after a restart,
+ * `layoutReplay` matches the target's tabs by title and shape.
  *
  * Each host's layout is read and changed where it lives
  * (`createWorkspaceRecreator`): in this desktop's `LayoutStore` for this
@@ -191,16 +193,12 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** The recreator over `deps` (see the module header). */
-export function workspaceRecreator(deps: WorkspaceRecreatorDeps): WorkspaceRecreator {
+export function workspaceRecreator(
+  deps: WorkspaceRecreatorDeps,
+  replayed: Map<string, ReplayRecord> = new Map(),
+): WorkspaceRecreator {
   /** Whether each source's plan has an agents step, for its run. */
   const plannedAgents = new Map<WorkspaceKey, boolean>();
-  /**
-   * What each move's replay made in its target, by source and target key:
-   * a Retry of a move that failed after its restore builds on it rather
-   * than adding every tab, and starting every Agent, a second time. A Retry
-   * comes in the same app session, so memory is enough.
-   */
-  const replayed = new Map<string, ReplayRecord>();
 
   /** The handoff for `agent`: its Session's turns when they can be read, else without. */
   const handoff = async (move: RecreateContext, agent: AgentInfo): Promise<string> => {
@@ -405,6 +403,16 @@ function sessionReads(server: RecreatorServer): SessionReads {
   };
 }
 
+/**
+ * What each move's replay made in its target, by source and target key,
+ * for as long as the app runs: a Retry, or a second move of the same
+ * workspace onto the same host, builds on it rather than adding every tab,
+ * and starting every Agent, again. A move made after a restart has none,
+ * and `layoutReplay` matches the target's tabs by title and shape instead.
+ * Shared by every recreator: one is made per move.
+ */
+const replayedMoves = new Map<string, ReplayRecord>();
+
 /** The recreator a move runs in the desktop's Manor server (`createWorkspaceHostMoveDeps`). */
 export function createWorkspaceRecreator(server: RecreatorServer): WorkspaceRecreator {
   const pm = server.projectManager;
@@ -430,5 +438,5 @@ export function createWorkspaceRecreator(server: RecreatorServer): WorkspaceRecr
         agentCommand,
       });
     },
-  });
+  }, replayedMoves);
 }

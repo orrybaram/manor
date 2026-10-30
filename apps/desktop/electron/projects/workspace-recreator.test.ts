@@ -360,6 +360,52 @@ describe("workspaceRecreator: again, after a failure", () => {
   });
 });
 
+describe("workspaceRecreator: moved again onto the same host", () => {
+  const titles = (target: ReturnType<typeof fakeHost>) =>
+    Object.values(target.entries[TARGET_KEY].layout.panels).map((p) => p.tabs.map((t) => t.title));
+
+  for (const [name, memory] of [
+    ["in the same session, by a new recreator", () => new Map()],
+    ["after a restart, with nothing remembered", null],
+  ] as const) {
+    it(`adds no tab a second time: ${name}`, async () => {
+      const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+      const target = fakeHost();
+      const shared = memory ? memory() : undefined;
+      const recreator = () => workspaceRecreator(hosts(source, target, { agents: () => [agent("p2")] }), shared);
+
+      const first = recreator();
+      await first.plan(planOf(SOURCE_KEY));
+      await first.run(MOVE, () => {});
+      // Kept; then moved again onto the workspace the first move made.
+      const second = recreator();
+      await second.plan(planOf(SOURCE_KEY));
+      await second.run(MOVE, () => {});
+
+      expect(titles(target)).toEqual([["api", "web"], ["logs"]]);
+      expect(target.queued.filter((q) => q.kind === "agent-startup")).toHaveLength(1);
+    });
+
+    it(`adds only the tab the source gained since: ${name}`, async () => {
+      const entry = sourceEntry();
+      const source = fakeHost({ [SOURCE_KEY]: entry });
+      const target = fakeHost();
+      const shared = memory ? memory() : undefined;
+      const recreator = () => workspaceRecreator(hosts(source, target), shared);
+
+      const first = recreator();
+      await first.plan(planOf(SOURCE_KEY));
+      await first.run(MOVE, () => {});
+      entry.layout.panels.B.tabs.push(tab("t4", "tests", "p4"));
+      const second = recreator();
+      await second.plan(planOf(SOURCE_KEY));
+      await second.run(MOVE, () => {});
+
+      expect(titles(target)).toEqual([["api", "web"], ["logs", "tests"]]);
+    });
+  }
+});
+
 describe("agents whose CLI is gone", () => {
   it("comes back as a shell when its pane's last status says the agent ended", async () => {
     const entry = sourceEntry();

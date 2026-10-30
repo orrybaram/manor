@@ -34,10 +34,19 @@
  * lands in the target's first (top-left) panel; the source's other panels
  * split off it.
  *
- * **Again, after a failure.** A move that failed after part of its replay
- * landed is retried into the same target: `previous` names what the last
- * replay made there (`tabIds`, `panelIds`), and whatever of it the target
- * still has is built on, not made a second time.
+ * **A target that has it already.** A move that failed after part of its
+ * replay landed is retried into the same target, and a workspace moved
+ * once, then moved again onto the same host, lands in the workspace it
+ * made there the first time. Neither may add a tab twice, so what the
+ * target already has of the source is built on, not made again:
+ * - what `previous` (the last replay of this move, `record`) made there
+ *   and the target still holds, exactly;
+ * - else, for a source tab nothing recorded, a target tab with the same
+ *   title and pane-tree shape (`sameShape`), each claimed once. That is
+ *   what holds after the app restarts, when no record is left: a re-move
+ *   never duplicates a tab, at the cost that a target tab of its own that
+ *   looks the same stands in for the source's. Its panel stands for the
+ *   source tab's panel, so that panel is not split off again.
  *
  * Pure: the reducer (`./commands/`) is what proves it, and the tests run the
  * answer through it.
@@ -187,6 +196,20 @@ function withoutEmptyPanels(node: PanelNode, layout: WorkspaceLayout): PanelNode
   return { ...node, first, second };
 }
 
+/**
+ * Whether two pane trees look the same to a user: the same splits, each
+ * the same way, and the same kind of pane (and page) at each leaf. Ids,
+ * ratios and open files are not compared: they move or change.
+ */
+function sameShape(a: PaneNode, b: PaneNode): boolean {
+  if (a.type === "leaf" || b.type === "leaf") {
+    if (a.type !== "leaf" || b.type !== "leaf") return false;
+    const kind = (n: typeof a) => n.contentType ?? "terminal";
+    return kind(a) === kind(b) && (kind(a) !== "browser" || a.url === b.url);
+  }
+  return a.direction === b.direction && sameShape(a.first, b.first) && sameShape(a.second, b.second);
+}
+
 function firstLeaf(node: PanelNode): string {
   return node.type === "leaf" ? node.panelId : firstLeaf(node.first);
 }
@@ -219,18 +242,45 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   const tree = withoutEmptyPanels(source.panelTree, source);
   if (!tree) return answer();
 
-  // What an earlier replay made that the target still has.
-  const targetTabs = new Set(
-    Object.values(target?.layout.panels ?? {}).flatMap((p) => p.tabs.map((t) => t.id)),
-  );
-  const madeTab = (sourceTabId: string): string | null => {
-    const id = input.previous?.tabIds[sourceTabId];
-    return id && targetTabs.has(id) ? id : null;
-  };
-  const madePanel = (sourcePanelId: string): string | null => {
-    const id = input.previous?.panelIds[sourcePanelId];
-    return id && target?.layout.panels[id] ? id : null;
-  };
+  // What the target already has of the source: what an earlier replay
+  // made there and it still holds, else a tab of the same title and pane
+  // tree (see the module header).
+  const tabIds = new Map<string, string>();
+  const panelIds = new Map<string, string>();
+  if (target) {
+    const at = new Map<string, string>();
+    for (const panel of Object.values(target.layout.panels)) {
+      for (const tab of panel.tabs) at.set(tab.id, panel.id);
+    }
+    const claimed = new Set<string>();
+    const claim = (sourceTabId: string, tabId: string) => {
+      tabIds.set(sourceTabId, tabId);
+      claimed.add(tabId);
+    };
+    for (const [sourceTabId, tabId] of Object.entries(input.previous?.tabIds ?? {})) {
+      if (at.has(tabId)) claim(sourceTabId, tabId);
+    }
+    for (const [sourcePanelId, panelId] of Object.entries(input.previous?.panelIds ?? {})) {
+      if (target.layout.panels[panelId]) panelIds.set(sourcePanelId, panelId);
+    }
+    const targetFirst = allPanelIds(target.layout.panelTree)[0];
+    for (const sourcePanelId of allPanelIds(source.panelTree)) {
+      for (const tab of source.panels[sourcePanelId]?.tabs ?? []) {
+        if (tabIds.has(tab.id)) continue;
+        const twin = [...at.keys()].find((id) => {
+          if (claimed.has(id)) return false;
+          const other = target.layout.panels[at.get(id)!].tabs.find((t) => t.id === id)!;
+          return other.title === tab.title && sameShape(other.rootNode, tab.rootNode);
+        });
+        if (!twin) continue;
+        claim(tab.id, twin);
+        const panelId = at.get(twin)!;
+        if (!panelIds.has(sourcePanelId) && panelId !== targetFirst) panelIds.set(sourcePanelId, panelId);
+      }
+    }
+  }
+  const madeTab = (sourceTabId: string): string | null => tabIds.get(sourceTabId) ?? null;
+  const madePanel = (sourcePanelId: string): string | null => panelIds.get(sourcePanelId) ?? null;
 
   const remapLeaves = (node: PaneNode): PaneNode => {
     if (node.type === "split") {
@@ -282,7 +332,8 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   /** A tab the restore sends: not held, not already there. */
   const sends = (tab: Tab) => !isHeld(tab) && !done.has(tab.id);
 
-  const replaced = replaceableTab(target);
+  const lone = replaceableTab(target);
+  const replaced = lone && ![...tabIds.values()].includes(lone) ? lone : null;
   const firstPanel = target ? allPanelIds(target.layout.panelTree)[0] : TARGET_FIRST_PANEL;
 
   // Which target panel each source panel becomes, and the tab it was opened
@@ -327,6 +378,15 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
     }
     const seedPanel = firstLeaf(node.second);
     let opened = madePanel(seedPanel);
+    // A half the target has every tab of already (elsewhere) needs no panel.
+    const pending = allPanelIds(node.second).some((id) =>
+      source.panels[id].tabs.some((t) => !done.has(t.id)),
+    );
+    if (!opened && !pending) {
+      build(node.first, at);
+      build(node.second, at);
+      return;
+    }
     if (!opened) {
       opened = newPanelId();
       commands.push({

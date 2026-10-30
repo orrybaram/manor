@@ -305,6 +305,29 @@ describe("layoutReplay", () => {
     });
   });
 
+  it("counts a target tab of the same title and shape as the source's, with no record", () => {
+    const built = apply(layoutReplay(input(null)).commands, null);
+    const again = layoutReplay(input({ layout: built, paneSessions: {} }));
+    expect(again.commands).toEqual([]);
+    expect(again.heldCommands).toEqual([]);
+  });
+
+  it("does not count a tab whose title or panes differ", () => {
+    const own = createSinglePanelLayout(
+      "T",
+      [tab("o1", "server", leaf("x", { contentType: "browser", url: "http://a/" })), tab("o2", "logs", leaf("y"))],
+      [],
+    );
+    const replay = layoutReplay(input({ layout: own, paneSessions: { y: session(DST) } }));
+    const built = apply(replay.commands, own);
+    const titles = Object.values(built.panels).flatMap((p) => p.tabs.map((t) => t.title));
+    // "logs" is counted as the source's; "server" is a browser here, not a terminal.
+    expect(titles.filter((t) => t === "logs")).toHaveLength(1);
+    expect(titles.filter((t) => t === "server")).toHaveLength(2);
+    // The panel "logs" had needs opening for nothing: no placeholder is left.
+    expect(titles).not.toContain("Terminal");
+  });
+
   describe("currentOrder", () => {
     const layout = createSinglePanelLayout(
       "P",

@@ -138,6 +138,13 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const deskDefault = useDeskChatDefault();
   const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript, layoutMode, deskDefault);
   const showChat = hasChat && paneView === "chat";
+  // The phone keeps every chat mounted, reading its transcript, so the one
+  // it flips to is already there. A desk can hold many agent panes nobody
+  // reads as a chat, so a desk pane mounts its chat the first time it shows
+  // and keeps it from then on (its scroll place survives a flip).
+  const [chatOpened, setChatOpened] = useState(showChat);
+  if (showChat && !chatOpened) setChatOpened(true);
+  const mountChat = layoutMode === "phone" || chatOpened;
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   // While the chat has handed the terminal a TUI menu, a key bar
@@ -146,8 +153,9 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const handoff = usePaneMenuHandoff(paneId, chatTranscript);
   const showKeyBar = handoff !== null;
   const backToChat = useCallback(() => endMenuHandoff(paneId), [paneId]);
-  // The desk's header button and menu item: what the pane will flip to.
-  const chatToggleLabel = showChat || showKeyBar ? "Show Terminal" : "Show as Chat";
+  // The desk's header button and menu item: what the pane will flip to. A
+  // menu handoff shows the terminal, so the flip is back to the chat.
+  const chatToggleLabel = showChat ? "Show Terminal" : "Show as Chat";
   const toggleChat = useCallback(() => togglePaneChat(paneId, layoutMode), [paneId, layoutMode]);
   const chatToggleCombo = useKeybindingsStore((s) => s.bindings["toggle-pane-chat"]);
 
@@ -772,7 +780,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         )}
         {/* After the terminal, and always in this slot, so it showing or not
             never remounts the terminal. */}
-        {chatTranscript !== null && !chatStarting && (
+        {chatTranscript !== null && !chatStarting && mountChat && (
           <Suspense fallback={null}>
             <ChatPane
               key={chatTranscript}

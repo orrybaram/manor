@@ -6,20 +6,23 @@ import { useStartingPrompt } from "./usePaneChatView";
 
 type ChatStartingProps = {
   paneId: string;
+  /** The pane's **Agent kind**, if known yet. A chat starts only for a kind
+   *  in `CHAT_KINDS`, so one not known yet is Claude's, the only such kind. */
+  agentKind: string | null;
   /** The terminal is showing instead. */
   hidden: boolean;
   layout?: LayoutMode;
 };
 
 /**
- * Holds a new Claude pane's chat until its transcript is known.
+ * Holds a new agent pane's chat until its transcript is known.
  * The session's Agent, and with it the transcript, only exists once the
  * first prompt is sent, so this offers the composer: that prompt goes to the
  * pty like any other, and the real `ChatPane` takes over from there. An
- * agent launched with a prompt shows that prompt while Claude starts.
+ * agent launched with a prompt shows that prompt while it starts.
  */
 export function ChatStarting(props: ChatStartingProps) {
-  const { paneId, hidden, layout = "phone" } = props;
+  const { paneId, agentKind, hidden, layout = "phone" } = props;
   const prompt = useStartingPrompt(paneId);
   return (
     <div
@@ -45,7 +48,7 @@ export function ChatStarting(props: ChatStartingProps) {
           )}
         </div>
       </div>
-      <ChatComposer paneId={paneId} busy={false} />
+      <ChatComposer paneId={paneId} agentKind={agentKind ?? "claude"} busy={false} />
     </div>
   );
 }

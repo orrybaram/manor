@@ -130,6 +130,13 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const chatTranscript = useAgentStore((s) =>
     chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)),
   );
+  // Which agent the chat names and how it talks to it: the chat's agent's
+  // kind, or before there is one (a chat starting), the pane's status's.
+  const chatAgentKind = useAgentStore(
+    (s) => selectPaneChatAgent(s.agents, paneId, contentType)?.agentKind ?? null,
+  );
+  const statusAgentKind = useAppStore((s) => s.paneAgentStatus[paneId]?.kind ?? null);
+  const chatKind = chatAgentKind ?? statusAgentKind;
   // A Claude agent the phone just started opens on the chat while it boots,
   // and a `/clear` sent from the chat shows a fresh one until the new
   // session's transcript is known (its Agent only exists after a prompt).
@@ -786,6 +793,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             <ChatPane
               key={chatTranscript}
               paneId={paneId}
+              agentKind={chatKind ?? "claude"}
               transcript={chatTranscript}
               hidden={!showChat}
               onShowTerminal={showTerminal}
@@ -793,7 +801,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </Suspense>
         )}
-        {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} layout={layoutMode} />}
+        {chatStarting && <ChatStarting paneId={paneId} agentKind={chatKind} hidden={!showChat} layout={layoutMode} />}
         {showKeyBar && <MenuKeyBar paneId={paneId} onBackToChat={backToChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

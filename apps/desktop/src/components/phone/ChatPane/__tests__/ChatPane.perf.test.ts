@@ -108,7 +108,7 @@ async function measure(turns: number): Promise<{ entries: number; openMs: number
   const t0 = performance.now();
   await act(async () => {
     root.render(
-      createElement(ChatPane, { paneId: PANE, transcript: TRANSCRIPT, hidden: false, onShowTerminal: () => {} }),
+      createElement(ChatPane, { paneId: PANE, agentKind: "claude", transcript: TRANSCRIPT, hidden: false, onShowTerminal: () => {} }),
     );
   });
   const openMs = performance.now() - t0;

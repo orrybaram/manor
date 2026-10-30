@@ -87,7 +87,7 @@ const question = (
 
 async function renderChat(onShowTerminal = vi.fn()): Promise<typeof onShowTerminal> {
   await act(async () => {
-    root.render(createElement(ChatPane, { paneId: PANE, transcript: TRANSCRIPT, hidden: false, onShowTerminal }));
+    root.render(createElement(ChatPane, { paneId: PANE, agentKind: "claude", transcript: TRANSCRIPT, hidden: false, onShowTerminal }));
   });
   return onShowTerminal;
 }

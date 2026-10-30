@@ -38,7 +38,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root.render(createElement(ChatComposer, { paneId: "p1", busy: false }));
+    root.render(createElement(ChatComposer, { paneId: "p1", agentKind: "claude", busy: false }));
   });
 });
 
@@ -178,8 +178,21 @@ describe("ChatComposer attach button", () => {
   it("is hidden outside the web app", () => {
     isWebApp.mockReturnValue(false);
     act(() => {
-      root.render(createElement(ChatComposer, { paneId: "p2", busy: false }));
+      root.render(createElement(ChatComposer, { paneId: "p2", agentKind: "claude", busy: false }));
     });
     expect(container.querySelector("[data-testid=chat-attach]")).toBeNull();
+  });
+});
+
+describe("ChatComposer labels", () => {
+  it("names the pane's agent", () => {
+    expect(input().getAttribute("aria-label")).toBe("Message Claude");
+    act(() => {
+      root.render(createElement(ChatComposer, { paneId: "p1", agentKind: "codex", busy: true }));
+    });
+    expect(input().getAttribute("aria-label")).toBe("Message Codex");
+    expect(
+      container.querySelector("[data-testid=chat-stop]")?.getAttribute("aria-label"),
+    ).toBe("Stop Codex");
   });
 });

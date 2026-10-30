@@ -37,8 +37,10 @@
  * the streams, so a pane's streams can be dropped and rebuilt under it.
  */
 
+import { agentChat } from "../../src/lib/agent-chat";
 import type { AgentKind } from "../terminal-host/types";
 import { adapterFor } from "./adapters";
+import { claudeAdapter } from "./adapters/claude";
 import type { TranscriptAdapter } from "./adapters/types";
 import { BUILTIN_COMMANDS, type ChatCommand } from "./builtin-commands";
 import {
@@ -101,12 +103,21 @@ export type ChatAnswer =
  *
  * - `stale`: that picker is not the newest open one any more, or an answer
  *   to it is already in flight or timed out. Nothing was typed.
- * - `unsupported`: the encoder refused the answer. Nothing was typed; the
- *   card should send the user to the terminal.
+ * - `unsupported`: the encoder refused the answer, or the agent's kind
+ *   can't be answered through its PTY (`agentChat().answersPickers`).
+ *   Nothing was typed; the card should send the user to the terminal.
  */
 export type ChatAnswerResult =
   | { ok: true }
   | { ok: false; reason: "stale" | "unsupported" | ChatUnavailableReason };
+
+/** How the chat types into a pane's agent (`chat.send`, `chat.interrupt`). */
+export interface ChatInput {
+  /** The writes that type and submit a prompt, a pause between each. */
+  promptWrites(text: string): string[];
+  /** The writes that stop a turn, in order. */
+  interruptKeys: readonly string[];
+}
 
 /** The little of an agent the mirror reads. */
 export interface PaneAgent {
@@ -263,11 +274,17 @@ export class ChatMirror {
     };
   }
 
-  /** Built-in commands plus the session's skills. */
+  /**
+   * The `/` menu the agent's kind offers (`agentChat().commands`): for
+   * Claude, its built-in commands plus the session's skills; else none.
+   */
   async getCommands(paneId: string): Promise<ChatCommands> {
     const caught = await this.catchUp(paneId);
     if (!caught.ok) return caught;
     const { m } = caught;
+    if (agentChat(this.deps.agentForPane(paneId)?.agentKind).commands !== "claude") {
+      return { ok: true, commands: [], skillsKnown: true };
+    }
 
     const listed = m.stream.parser.hasSkillListing();
     const skills = listed ? m.stream.parser.skills() : m.lastSkills;
@@ -357,8 +374,8 @@ export class ChatMirror {
    * Refused as `stale` unless `toolUseId` is the newest question/plan, still
    * open, with no answer already in flight: a double tap, or a picker the
    * desktop already answered, must never type into whatever screen is next.
-   * Refused as `unsupported`, with nothing typed, if the encoder cannot
-   * express the answer. If no `tool_result` follows within the timeout, the
+   * Refused as `unsupported`, with nothing typed, if the agent's kind can't
+   * be answered through the PTY or the encoder cannot express the answer. If no `tool_result` follows within the timeout, the
    * entry is published again with `needsTerminal: true`, and never retried.
    */
   async answer(
@@ -370,6 +387,10 @@ export class ChatMirror {
     const caught = await this.catchUp(paneId);
     if (!caught.ok) return caught;
     const { m } = caught;
+    // An agent whose pickers can't be driven from the PTY is answered in its terminal.
+    if (!agentChat(this.deps.agentForPane(paneId)?.agentKind).answersPickers) {
+      return { ok: false, reason: "unsupported" };
+    }
 
     // Synchronous from here to the write: a second call waiting on the same
     // read sees this one's `awaiting` entry.
@@ -406,6 +427,20 @@ export class ChatMirror {
       }, this.answerTimeoutMs),
     );
     return { ok: true };
+  }
+
+  /**
+   * How to type into the pane's agent: its adapter's prompt and its kind's
+   * Stop keys. A pane whose agent the mirror can't see (none yet, before
+   * the first prompt) is typed into as Claude's, as it always was.
+   */
+  input(paneId: string): ChatInput {
+    const kind = this.deps.agentForPane(paneId)?.agentKind ?? "claude";
+    const adapter = adapterFor(kind) ?? claudeAdapter;
+    return {
+      promptWrites: (text) => adapter.promptWrites(text),
+      interruptKeys: agentChat(kind).interruptKeys,
+    };
   }
 
   /** Release everything. The app is quitting. */

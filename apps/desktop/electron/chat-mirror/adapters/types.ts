@@ -47,4 +47,10 @@ export interface TranscriptAdapter {
    * task entry. Null when the agent writes none, or this task has none.
    */
   childTranscriptPath(parentPath: string, task: ChatTaskEntry): string | null;
+  /**
+   * The PTY writes that type `text` into the agent's prompt and submit it,
+   * as one prompt even across lines. Sent in order with a pause between
+   * each (`chat.send`), so the last can land as its own keypress.
+   */
+  promptWrites(text: string): string[];
 }

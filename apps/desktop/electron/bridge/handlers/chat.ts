@@ -1,5 +1,5 @@
 /**
- * The phone's chat view of a Claude pane, as the `chat`
+ * The chat view of an agent pane, as the `chat`
  * namespace of the handler table.
  *
  * Reads come from the pane's transcript mirror (`chat-mirror/mirror.ts`);
@@ -21,21 +21,21 @@ import type {
   ChatHistory,
   ChatMirror,
 } from "../../chat-mirror/mirror";
-import {
-  CHAT_KEYS,
-  CHAT_SUBMIT,
-  type ChatKey,
-} from "../../chat-mirror/chat-keys";
-import {
-  encodeChatMessage,
-  type PickerAnswer,
-} from "../../chat-mirror/picker-keys";
+import { CHAT_KEYS, type ChatKey } from "../../chat-mirror/chat-keys";
+import type { PickerAnswer } from "../../chat-mirror/picker-keys";
 import { parseChatTaskKey } from "../../chat-mirror/task-key";
 import { byPane, method, type HandlerCtx } from "../method";
 
-/** The pause between a prompt's text and its Enter. Long enough that Claude
- *  Code reads the Enter as its own keypress, not the tail of a paste. */
+/** The pause between a prompt's writes (its text and its Enter). Long
+ *  enough that Claude Code reads the Enter as its own keypress, not the tail
+ *  of a paste. */
 const SUBMIT_DELAY_MS = 120;
+
+/** The pause between Stop's keys, when it has more than one: two Escs in
+ *  one read would be a different key. */
+const INTERRUPT_GAP_MS = 50;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Per-pane serial queue for PTY writes. A prompt is text, a pause, then
@@ -61,7 +61,10 @@ function enqueueWrite(paneId: string, job: () => Promise<void> | void): Promise<
  * nothing else — so the host server serves the same handlers.
  */
 export interface ChatDeps {
-  chatMirror: Pick<ChatMirror, "getHistory" | "getTaskHistory" | "getCommands" | "answer">;
+  chatMirror: Pick<
+    ChatMirror,
+    "getHistory" | "getTaskHistory" | "getCommands" | "answer" | "input"
+  >;
   backend: { pty: Pick<PtyBackend, "write"> };
 }
 
@@ -92,7 +95,10 @@ export function chatGetCommands(
   return ctx.deps.chatMirror.getCommands(paneId);
 }
 
-/** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
+/**
+ * Type a prompt and submit it, as one prompt even across lines, the way the
+ * pane's agent reads one (`TranscriptAdapter.promptWrites`).
+ */
 export async function chatSend(
   ctx: HandlerCtx<ChatDeps>,
   paneId: string,
@@ -101,17 +107,25 @@ export async function chatSend(
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
+  const writes = ctx.deps.chatMirror.input(paneId).promptWrites(text);
   return enqueueWrite(paneId, async () => {
-    ctx.deps.backend.pty.write(paneId, encodeChatMessage(text));
-    await new Promise((resolve) => setTimeout(resolve, SUBMIT_DELAY_MS));
-    ctx.deps.backend.pty.write(paneId, CHAT_SUBMIT);
+    for (const [i, data] of writes.entries()) {
+      if (i > 0) await pause(SUBMIT_DELAY_MS);
+      ctx.deps.backend.pty.write(paneId, data);
+    }
   });
 }
 
-/** Esc: what stops Claude mid-turn in its own TUI. */
+/** What stops the pane's agent mid-turn in its own TUI: Esc, for Claude. */
 export function chatInterrupt(ctx: HandlerCtx<ChatDeps>, paneId: string): Promise<void> {
   assertString(paneId, "paneId");
-  return enqueueWrite(paneId, () => ctx.deps.backend.pty.write(paneId, CHAT_KEYS.esc));
+  const keys = ctx.deps.chatMirror.input(paneId).interruptKeys;
+  return enqueueWrite(paneId, async () => {
+    for (const [i, key] of keys.entries()) {
+      if (i > 0) await pause(INTERRUPT_GAP_MS);
+      ctx.deps.backend.pty.write(paneId, key);
+    }
+  });
 }
 
 /** One navigation key into the pane, for driving a TUI menu from the phone. */

@@ -12,6 +12,7 @@
 
 import type { AgentInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
+import { hasChat } from "../../../lib/agent-chat";
 
 export type ChatView = "chat" | "terminal";
 
@@ -49,10 +50,10 @@ export function writeChatView(paneId: string, view: ChatView, layout: LayoutMode
 
 /**
  * The transcript a pane's chat would show, or null when the pane gets no
- * chat: no agent, not Claude, or no transcript yet. An agent on a remote host
+ * chat: no agent, one of a kind with no chat (`CHAT_KINDS`), or no transcript yet. An agent on a remote host
  * gets the chat too; its transcript is read on that host.
  */
 export function chatTranscriptPath(agent: AgentInfo | null): string | null {
-  if (!agent || agent.agentKind !== "claude") return null;
+  if (!agent || !hasChat(agent.agentKind)) return null;
   return agent.transcriptPath || null;
 }

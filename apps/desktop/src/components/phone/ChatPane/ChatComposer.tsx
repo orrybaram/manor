@@ -1,6 +1,7 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
 import { useRef, useState } from "react";
+import { agentChat } from "../../../lib/agent-chat";
 import { uploadPastedImage } from "../../../lib/paste-image-upload";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
@@ -15,7 +16,10 @@ import { useSlashCommands } from "./useSlashCommands";
 
 type ChatComposerProps = {
   paneId: string;
-  /** Claude is mid-turn: offer Stop. */
+  /** The pane's **Agent kind**: what the composer calls the agent and which
+   *  `/` menu it offers (`agentChat`). */
+  agentKind: string | null;
+  /** The agent is mid-turn: offer Stop. */
   busy: boolean;
   /** The transcript the chat shows, which a `/clear` leaves behind. Absent
    *  while the chat is already fresh. */
@@ -28,13 +32,14 @@ type ChatComposerProps = {
 
 /**
  * The chat's input: typed text goes to the pane's PTY as a
- * prompt (`chat.send`), and Stop is Esc (`chat.interrupt`).
+ * prompt (`chat.send`), and Stop is the agent's interrupt keys
+ * (`chat.interrupt`; Esc for Claude).
  *
- * One round button inside the field sends, and turns into Stop while Claude
- * works. Typing mid-turn turns it back into Send, which Claude Code queues,
- * with a smaller Stop beside it.
+ * One round button inside the field sends, and turns into Stop while the
+ * agent works. Typing mid-turn turns it back into Send, which Claude Code
+ * queues, with a smaller Stop beside it.
  *
- * Typing `/` at the start opens the command menu. Sending a
+ * Typing `/` at the start opens the command menu, for an agent that has one. Sending a
  * command that opens a TUI menu (`commandEffect`) hands the pane to the
  * terminal, where that menu is, until it closes. Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
@@ -44,7 +49,8 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, busy, transcript, contextTokens, runningTasks } = props;
+  const { paneId, agentKind, busy, transcript, contextTokens, runningTasks } = props;
+  const chatOf = agentChat(agentKind);
 
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
@@ -58,7 +64,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const slash = useSlashCommands(paneId, text, caret, {
     fill: (nextText, nextCaret) => fill(nextText, nextCaret),
     send: (sent) => sendText(sent),
-  });
+  }, chatOf.commands);
   const level = slash.level;
 
   const { uploading, pasteImage, attachButton } = useImageAttach({
@@ -100,7 +106,7 @@ export function ChatComposer(props: ChatComposerProps) {
         update("", 0);
         setSending(false);
         const command = splitCommand(sent);
-        const effect = commandEffect(command, slash.lookup);
+        const effect = commandEffect(command, slash.lookup, chatOf.clearCommands);
         if (effect === "menu" && command) {
           startMenuHandoff(paneId, command.name, transcript ?? null);
         } else if (effect === "clear" && transcript) {
@@ -121,7 +127,7 @@ export function ChatComposer(props: ChatComposerProps) {
 
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
-      setError("Couldn't stop Claude. Try the terminal.");
+      setError(`Couldn't stop ${chatOf.name}. Try the terminal.`);
     });
   };
 
@@ -147,7 +153,7 @@ export function ChatComposer(props: ChatComposerProps) {
           value={text}
           rows={1}
           placeholder="Type / for commands"
-          aria-label="Message Claude"
+          aria-label={`Message ${chatOf.name}`}
           data-testid="chat-composer-input"
           aria-expanded={level !== null}
           aria-controls={level?.listboxId}
@@ -203,7 +209,7 @@ export function ChatComposer(props: ChatComposerProps) {
           <Button
             variant="ghost"
             className={styles.composerStopSmall}
-            aria-label="Stop Claude"
+            aria-label={`Stop ${chatOf.name}`}
             onClick={stop}
             data-testid="chat-stop"
           >
@@ -214,7 +220,7 @@ export function ChatComposer(props: ChatComposerProps) {
           <Button
             variant="primary"
             className={`${styles.composerButton} ${styles.composerButtonStop}`}
-            aria-label="Stop Claude"
+            aria-label={`Stop ${chatOf.name}`}
             onClick={stop}
             data-testid="chat-stop"
           >

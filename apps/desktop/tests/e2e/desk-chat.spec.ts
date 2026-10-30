@@ -6,6 +6,7 @@ import { createWorkspace, expect, importSeededProject, openTerminalTab, test } f
 import { FAKE_AGENT_BANNER, FAKE_AGENT_TRANSCRIPT, FAKE_CHAT_PROMPT, FAKE_CHAT_REPLY } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
 import { waitForVisibleSession } from "./helpers/local-api";
+import { header as fileHeader, openFileFromPalette } from "./helpers/file-pane";
 import { closeSettings, openSettings } from "./helpers/settings";
 import { useTheme } from "./helpers/theme";
 import { activePaneId, awaitShellReady, paneText, runInTerminal } from "./helpers/terminal";
@@ -131,6 +132,11 @@ test.describe("desk chat view", () => {
     // 8. Light theme: chat and terminal.
     await useTheme(window, "Catppuccin Latte");
     await film.shot(window, "light-chat-wide");
+    await toggle.click();
+    await expect(terminal).toBeVisible();
+    await film.shot(window, "light-terminal");
+    await toggle.click();
+    await expect(chat).toBeVisible();
 
     // 9. A split: the new pane is a plain shell, so it has no chat button.
     await pane.getByRole("button", { name: "Split pane" }).click();
@@ -155,6 +161,7 @@ test.describe("desk chat view", () => {
     await expect(sw).toHaveAttribute("aria-checked", "true");
     await film.shot(window, "light-setting");
     await closeSettings(window);
+    await useTheme(window, "Catppuccin Latte");
 
     const t2 = path.join(tempHome, "fake-chat-2", "transcript.jsonl");
     const l2 = path.join(tempHome, "fake-chat-2", "input.log");
@@ -167,5 +174,20 @@ test.describe("desk chat view", () => {
     // 11. The dark theme, two chats side by side, narrow.
     await useTheme(window, "Catppuccin Mocha");
     await film.shot(window, "dark-chat-narrow-split");
+
+    // 12. A browser pane and a file pane never offer the chat.
+    await window.keyboard.press("ControlOrMeta+Shift+b");
+    const browserPane = window.locator('[data-testid="workspace-pane"]:visible', {
+      has: window.locator("webview"),
+    });
+    await expect(browserPane).toHaveCount(1, { timeout: 15_000 });
+    await expect(browserPane.getByTestId("pane-status-bar")).toBeVisible();
+    await expect(browserPane.getByTestId("pane-chat-toggle")).toHaveCount(0);
+    await film.shot(window, "dark-browser-no-toggle");
+    await openFileFromPalette(window);
+    const filePane = fileHeader(window);
+    await expect(filePane.getByTestId("pane-status-bar")).toBeVisible();
+    await expect(filePane.getByTestId("pane-chat-toggle")).toHaveCount(0);
+    await film.shot(window, "dark-file-no-toggle");
   });
 });

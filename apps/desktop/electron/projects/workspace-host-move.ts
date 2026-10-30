@@ -217,6 +217,14 @@ export interface WorkspaceHostMoveDeps {
   runStartScript(target: ProjectInfo, workspacePath: string): Promise<SetupScriptEnd | null>;
   createFolder(target: ProjectInfo, name: string): Promise<WorkspaceFolder | null>;
   linkIssue(target: ProjectInfo, workspacePath: string, issue: LinkedIssue): Promise<void>;
+  /**
+   * Write `target`'s own settings (`projects.update`, routed to its host's
+   * server for an adopted host); answers the updated project.
+   */
+  updateProject(
+    target: ProjectInfo,
+    updates: Pick<Partial<ProjectInfo>, "worktreeStartScript" | "worktreeTeardownScript">,
+  ): Promise<ProjectInfo | null>;
   /** The normal removal path: teardown script, panes ended, branch kept. */
   removeWorkspace(project: ProjectInfo, workspacePath: string): Promise<void>;
   recreator?: WorkspaceRecreator;
@@ -660,6 +668,21 @@ export async function moveWorkspaceToHost(
       target = (await deps.projects()).find((p) => p.id === result.project.id) ?? result.project;
     }
 
+    // The start and teardown scripts are each member's own, not the
+    // group's: a project just set up on the target has none. Carry the
+    // source's over where the target has none, so a fresh box installs.
+    const carried: Pick<Partial<ProjectInfo>, "worktreeStartScript" | "worktreeTeardownScript"> = {};
+    if (!target.worktreeStartScript && source.worktreeStartScript) {
+      carried.worktreeStartScript = source.worktreeStartScript;
+    }
+    if (!target.worktreeTeardownScript && source.worktreeTeardownScript) {
+      carried.worktreeTeardownScript = source.worktreeTeardownScript;
+    }
+    if (Object.keys(carried).length > 0) {
+      const updated = await deps.updateProject(target, carried);
+      target = { ...(updated ?? target), ...carried };
+    }
+
     // 3. Create, or reuse the target's workspace on the branch; either way
     // fast-forwarded to what was pushed before anything runs in it.
     progress.begin("create");
@@ -784,6 +807,7 @@ export function createWorkspaceHostMoveDeps(server: {
     | "transferProject"
     | "createWorkspaceFolder"
     | "linkIssueToWorkspace"
+    | "updateProject"
   >;
   workspaceOps: Pick<WorkspaceOps, "create" | "remove" | "runStartScript">;
   backendRegistry: Pick<BackendRegistry, "get" | "ensureConnected">;
@@ -809,6 +833,8 @@ export function createWorkspaceHostMoveDeps(server: {
     },
     git: (hostId) => server.backendRegistry.get(hostId).git,
     setUp: (projectId, hostId) => pm.transferProject(projectId, hostId, "copy"),
+    // `updateProject` writes an adopted host's project through its server.
+    updateProject: (target, updates) => pm.updateProject(target.id, updates),
 
     async createWorkspace(target, req) {
       const opts = {

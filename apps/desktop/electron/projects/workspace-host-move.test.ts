@@ -150,6 +150,10 @@ interface Setup {
   /** The target member already has a workspace on the branch. */
   targetHasBranch?: boolean;
   startScript?: string | null;
+  /** The target's own start script, when it differs from the source's. */
+  targetStartScript?: string | null;
+  /** The source's teardown script; the target starts with none. */
+  sourceTeardownScript?: string | null;
 }
 
 function world(opts: Setup = {}) {
@@ -160,6 +164,7 @@ function world(opts: Setup = {}) {
     group: grouped ? GROUP : null,
     folders: [{ id: "f-src", name: "Sprint", parentId: null }],
     worktreeStartScript: opts.startScript ?? null,
+    worktreeTeardownScript: opts.sourceTeardownScript ?? null,
   });
   const dstWorkspaces: WorkspaceInfo[] = opts.targetHasBranch
     ? [{ path: TARGET_WS, branch: "feat", isMain: false, name: "Feature" }]
@@ -167,7 +172,9 @@ function world(opts: Setup = {}) {
   const dst = project("dst", "box", TARGET_MAIN, dstWorkspaces, {
     group: GROUP,
     folders: [{ id: "f-dst", name: "Sprint", parentId: null }],
-    worktreeStartScript: opts.startScript ?? null,
+    worktreeStartScript:
+      opts.targetStartScript !== undefined ? opts.targetStartScript : (opts.startScript ?? null),
+    worktreeTeardownScript: null,
   });
   const projects: ProjectInfo[] = grouped ? [src, dst] : [src];
   const gits = new Map<string, ReturnType<typeof fakeGit>>();
@@ -199,6 +206,16 @@ function world(opts: Setup = {}) {
       },
     ),
     createFolder: vi.fn(async () => null),
+    updateProject: vi.fn(
+      async (
+        target: ProjectInfo,
+        updates: Pick<Partial<ProjectInfo>, "worktreeStartScript" | "worktreeTeardownScript">,
+      ): Promise<ProjectInfo | null> => {
+        log.push(`update ${target.id} ${JSON.stringify(updates)}`);
+        Object.assign(dst, updates);
+        return { ...dst };
+      },
+    ),
     linkIssue: vi.fn(async (_t: ProjectInfo, path: string, issue: { id: string }) => {
       log.push(`link ${issue.id} @ ${path}`);
     }),
@@ -488,6 +505,33 @@ describe("moveWorkspaceToHost", () => {
     expect(deps.removeWorkspace).not.toHaveBeenCalled();
   });
 
+  it("carries the source's scripts onto a project the move set up, and runs the start script", async () => {
+    const { deps, log, events } = world({
+      targetMember: false,
+      startScript: "pnpm i",
+      targetStartScript: null,
+      sourceTeardownScript: "docker compose down",
+    });
+    const result = await moveWorkspaceToHost(deps, REQ, (e) => events.push(e));
+    expect(result).toMatchObject({ ok: true });
+    expect(deps.updateProject).toHaveBeenCalledWith(expect.objectContaining({ id: "dst" }), {
+      worktreeStartScript: "pnpm i",
+      worktreeTeardownScript: "docker compose down",
+    });
+    const w = writes(log);
+    expect(w.indexOf(`script pnpm i @ ${TARGET_WS}`)).toBeGreaterThan(w.indexOf("setUp src -> box"));
+    const statuses = events.flatMap((e) => (e.type === "step" ? [`${e.step}:${e.status}`] : []));
+    expect(statuses).toContain("setupScript:done");
+    expect(statuses).not.toContain("setupScript:skipped");
+  });
+
+  it("keeps a target's own start script", async () => {
+    const { deps, log } = world({ startScript: "pnpm i", targetStartScript: "make deps" });
+    await moveWorkspaceToHost(deps, REQ);
+    expect(deps.updateProject).not.toHaveBeenCalled();
+    expect(log).toContain(`script make deps @ ${TARGET_WS}`);
+  });
+
   it("runs the start script only once the new workspace is fast-forwarded", async () => {
     const { deps, log } = world({ startScript: "pnpm i" });
     await moveWorkspaceToHost(deps, REQ);
@@ -630,6 +674,7 @@ describe("createWorkspaceHostMoveDeps", () => {
       transferProject: vi.fn(),
       createWorkspaceFolder: vi.fn(() => null),
       linkIssueToWorkspace: vi.fn(),
+      updateProject: vi.fn(async () => target),
     };
     const deps = createWorkspaceHostMoveDeps({
       projectManager: projectManager as never,
@@ -701,5 +746,11 @@ describe("createWorkspaceHostMoveDeps", () => {
     await deps.removeWorkspace(target, TARGET_WS);
     expect(workspaceOps.remove).toHaveBeenCalledWith("dst", TARGET_WS, false);
     expect(call).not.toHaveBeenCalled();
+  });
+
+  it("writes carried scripts through projects.update, wherever the project is", async () => {
+    const { deps, target, projectManager } = server(true);
+    await deps.updateProject(target, { worktreeStartScript: "pnpm i" });
+    expect(projectManager.updateProject).toHaveBeenCalledWith("dst", { worktreeStartScript: "pnpm i" });
   });
 });

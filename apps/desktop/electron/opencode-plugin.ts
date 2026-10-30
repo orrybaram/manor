@@ -14,7 +14,7 @@
  * | opencode                                   | hook event          |
  * |--------------------------------------------|---------------------|
  * | `session.created`                          | `SessionStart`      |
- * | `session.status` busy/retry, from idle     | `UserPromptSubmit`  |
+ * | `session.status` busy/retry, from idle     | `UserPromptSubmit`, after `SessionStart` for a root session the pane wasn't on (one picked from opencode's session list, or `--session`) |
  * | `tool.execute.before`                      | `PreToolUse`        |
  * | `tool.execute.after`                       | `PostToolUse`       |
  * | `permission.asked`/`.updated`, `question.asked` | `PermissionRequest` |
@@ -117,6 +117,8 @@ export const ManorHooks = async (ctx) => {
   const child = new Map();
   /** Root sessions with a turn in progress. */
   const busy = new Set();
+  /** The root session the pane is on: the last one created or prompted. */
+  let current = null;
   /** A write tool's file, by call id, from before it ran to after. */
   const files = new Map();
 
@@ -137,7 +139,19 @@ export const ManorHooks = async (ctx) => {
     return typeof sessionId === "string" && sessionId !== "" && !(await isChild(sessionId));
   }
 
+  /**
+   * The pane moved to sessionId: a session it created, or one it went
+   * to (opencode's session list, --session) and prompted. Manor takes
+   * hooks from any other session as a child's, so say so first.
+   */
+  async function adopt(sessionId) {
+    if (sessionId === current) return;
+    current = sessionId;
+    await sendHook("SessionStart", sessionId);
+  }
+
   async function turnStarted(sessionId) {
+    await adopt(sessionId);
     if (busy.has(sessionId)) return;
     busy.add(sessionId);
     await sendHook("UserPromptSubmit", sessionId);
@@ -157,9 +171,10 @@ export const ManorHooks = async (ctx) => {
         if (!info.id) return;
         child.set(info.id, Boolean(info.parentID));
         if (info.parentID) return;
-        if (type === "session.created") await sendHook("SessionStart", info.id);
+        if (type === "session.created") await adopt(info.id);
         else {
           busy.delete(info.id);
+          if (info.id === current) current = null;
           await sendHook("SessionEnd", info.id);
         }
         return;

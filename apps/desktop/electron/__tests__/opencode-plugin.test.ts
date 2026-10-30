@@ -186,7 +186,8 @@ describe("opencode plugin", () => {
         expect(parsed.event.transcriptPath).toMatch(/opencode\.db#ses_a$/);
         return parsed.event.status;
       });
-      expect(statuses).toEqual(["thinking", "working", "requires_input", "responded"]);
+      // A session first seen prompted starts with SessionStart.
+      expect(statuses).toEqual(["thinking", "thinking", "working", "requires_input", "responded"]);
     });
 
     it("ignores a subtask's session, known from its creation or asked of opencode", async () => {
@@ -200,7 +201,40 @@ describe("opencode plugin", () => {
       expect(urls).toEqual([]);
       // A session opencode resumed (no session.created) that has no parent is the root.
       await ev("session.status", { sessionID: "ses_resumed", status: { type: "busy" } });
-      expect(sent().map((p) => [p.eventType, p.sessionId])).toEqual([["UserPromptSubmit", "ses_resumed"]]);
+      expect(sent().map((p) => [p.eventType, p.sessionId])).toEqual([
+        ["SessionStart", "ses_resumed"],
+        ["UserPromptSubmit", "ses_resumed"],
+      ]);
+    });
+
+    it("starts the session the pane moved to and prompted, but never a subtask's", async () => {
+      sessions.ses_sub = { parentID: "ses_b" };
+      const h = await hooks();
+      const ev = (type: string, properties: Record<string, unknown>) => h.event!({ event: { type, properties } });
+      await ev("session.created", { info: { id: "ses_a" } });
+      await ev("session.status", { sessionID: "ses_a", status: { type: "busy" } });
+      await ev("session.idle", { sessionID: "ses_a" });
+      // An existing session picked from opencode's list, then prompted.
+      await ev("session.status", { sessionID: "ses_b", status: { type: "busy" } });
+      await h["tool.execute.before"]!({ tool: "task", sessionID: "ses_b", callID: "c1" }, { args: {} });
+      // Its subtask, created or not, never takes the pane.
+      await ev("session.created", { info: { id: "ses_child", parentID: "ses_b" } });
+      await ev("session.status", { sessionID: "ses_child", status: { type: "busy" } });
+      await ev("session.status", { sessionID: "ses_sub", status: { type: "busy" } });
+      await ev("session.idle", { sessionID: "ses_b" });
+      // Back to the first: started again.
+      await ev("session.status", { sessionID: "ses_a", status: { type: "busy" } });
+      expect(sent().map((p) => [p.eventType, p.sessionId])).toEqual([
+        ["SessionStart", "ses_a"],
+        ["UserPromptSubmit", "ses_a"],
+        ["Stop", "ses_a"],
+        ["SessionStart", "ses_b"],
+        ["UserPromptSubmit", "ses_b"],
+        ["PreToolUse", "ses_b"],
+        ["Stop", "ses_b"],
+        ["SessionStart", "ses_a"],
+        ["UserPromptSubmit", "ses_a"],
+      ]);
     });
 
     it("names the database $OPENCODE_DB or $XDG_DATA_HOME says, and none in memory", async () => {

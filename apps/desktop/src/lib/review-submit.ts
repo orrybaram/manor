@@ -1,20 +1,9 @@
-import type { AgentInfo } from "../electron.d";
 import type { DraftComment } from "../store/review-store";
-import { toast } from "../toast";
-import { navigateToAgent } from "../utils/agent-navigation";
-import { cleanAgentTitle } from "../utils/agent-title";
-import { startAgentWithPrompt } from "./agent-prompt-launch";
-import { flattenPrompt } from "./agent-command";
-import { adapterForKind } from "./harness";
+import { sendPromptToAgent, type AgentTarget } from "./agent-send";
 
-export type ReviewTarget =
-  | { kind: "agent"; agent: AgentInfo }
-  | { kind: "new" };
+export { agentLabel } from "./agent-send";
 
-/** The name to call an agent in a menu row or a toast. */
-export function agentLabel(agent: AgentInfo): string {
-  return cleanAgentTitle(agent.name) ?? agent.agentKind;
-}
+export type ReviewTarget = AgentTarget;
 
 function commentCount(n: number): string {
   return n === 1 ? "1 comment" : `${n} comments`;
@@ -31,7 +20,7 @@ function commentCount(n: number): string {
  * to explain it. So the instruction is to read each comment on its own terms
  * and to touch code only where one actually asks for a change.
  *
- * Built multi-line for readability and testability; `submitReview` is the one
+ * Built multi-line for readability and testability; `sendPromptToAgent` is the one
  * place that flattens it, because only the delivery step cares that a bare
  * newline in a harness's prompt box submits the turn early.
  */
@@ -66,43 +55,9 @@ export function submitReview(
   hostId?: string | null,
 ): void {
   if (comments.length === 0) return;
-
-  const prompt = reviewPrompt(comments);
-  const toastId = `review-submit-${workspacePath}`;
-
-  if (target.kind === "new") {
-    startAgentWithPrompt(workspacePath, prompt, hostId);
-    toast.success(`Sent ${commentCount(comments.length)} to a new agent`, {
-      id: toastId,
-      duration: 3000,
-    });
-    return;
-  }
-
-  const { agent } = target;
-  const { paneId } = agent;
-  if (!paneId) {
-    toast.error(`${agentLabel(agent)} has no live pane to send to`, {
-      id: toastId,
-      duration: 3000,
-    });
-    return;
-  }
-
-  // Ordering is load-bearing, and mirrors `POST /sessions/send` in
-  // electron/routes/agents.ts: interrupt to end the current turn, then submit
-  // the new prompt. No artificial delay — the pty layer can't guarantee one.
-  void window.electronAPI.pty.write(
-    paneId,
-    adapterForKind(agent.agentKind).interruptSequence(),
-  );
-  void window.electronAPI.pty.write(paneId, `${flattenPrompt(prompt)}\r`);
-
-  // Land the user on the pane that is about to answer.
-  navigateToAgent(agent);
-
-  toast.success(`Sent ${commentCount(comments.length)} to ${agentLabel(agent)}`, {
-    id: toastId,
-    duration: 3000,
+  sendPromptToAgent(workspacePath, reviewPrompt(comments), target, {
+    what: commentCount(comments.length),
+    toastId: `review-submit-${workspacePath}`,
+    hostId,
   });
 }

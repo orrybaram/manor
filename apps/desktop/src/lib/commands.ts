@@ -74,6 +74,7 @@ export interface BrowserCommandTarget {
   goBack(): void;
   goForward(): void;
   toggleDevTools(): void;
+  togglePicker(): void;
 }
 
 /** The active surface, resolved back to its owning project and workspace. */
@@ -590,6 +591,14 @@ export const COMMANDS: readonly CommandDef[] = [
     defaultCombo: metaCombo("i", false, true), // ⌥⌘I, Ctrl+Alt+I off mac
     scope: "any",
     run: (ctx) => ctx.focusedBrowser()?.toggleDevTools(),
+  },
+  {
+    id: "browser-pick",
+    label: "Pick Elements to Send to an Agent",
+    category: "browser",
+    defaultCombo: metaCombo("c", true), // Cmd+Shift+C, Ctrl+Shift+C off mac
+    scope: "any",
+    run: (ctx) => ctx.focusedBrowser()?.togglePicker(),
   },
   {
     // No `run`: the focused terminal handles its own search, so the key must

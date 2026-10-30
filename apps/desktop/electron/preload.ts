@@ -1,14 +1,12 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type {
-  PasteClipboardImageResult,
-  PickedElementResult,
-} from "../src/electron";
+import type { PasteClipboardImageResult } from "../src/electron";
 import type { MenuContext } from "../src/lib/menu-commands";
 import type { RecordingCommand } from "../src/lib/webview-recorder";
 import type { DockRect } from "../src/lib/devtools-dock";
 import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
 import type { BridgeEvents } from "./bridge/events";
 import type { PageDialog } from "./webview-dialogs";
+import type { PagePick, PagePinsLayout } from "./webview-pins";
 import {
   BRIDGE_EVENT,
   BRIDGE_INVOKE,
@@ -239,8 +237,27 @@ const nativeApi = {
     ) =>
       invoke("webview:register", paneId, webContentsId, remoteHostId ?? null),
     unregister: (paneId: string) => invoke("webview:unregister", paneId),
-    startPicker: (paneId: string) => invoke("webview:start-picker", paneId),
-    cancelPicker: (paneId: string) => invoke("webview:cancel-picker", paneId),
+    /**
+     * Arm picking on the page: each click becomes a pick (`onPinPicked`)
+     * until Escape (`onPinsStopped`) or `stopPins`. `theme` colours the pins.
+     */
+    startPins: (paneId: string, theme: { accent: string; bg: string }) =>
+      invoke<boolean>("webview:start-pins", paneId, theme),
+    stopPins: (paneId: string) => invoke("webview:stop-pins", paneId),
+    /** The pins the page shows, in order, with their numbers. */
+    syncPins: (paneId: string, pins: Array<{ id: string; label: string }>) =>
+      invoke("webview:sync-pins", paneId, pins),
+    /** A pick's screenshot on `hostId`: its own path here, or a copy there. */
+    uploadPinShot: (shotId: string, hostId?: string | null) =>
+      invoke<string | null>("webview:upload-pin-shot", shotId, hostId ?? null),
+    onPinPicked: (callback: (paneId: string, pick: PagePick) => void) =>
+      onChannelArgs("webview:pin-picked", callback),
+    onPinsStopped: (callback: (paneId: string) => void) =>
+      onChannel("webview:pins-stopped", callback),
+    onPinOpened: (callback: (paneId: string, pinId: string) => void) =>
+      onChannelArgs("webview:pin-opened", callback),
+    onPinsMoved: (callback: (paneId: string, layout: PagePinsLayout) => void) =>
+      onChannelArgs("webview:pins-moved", callback),
     zoomIn: (paneId: string) => invoke("webview:zoom-in", paneId),
     zoomOut: (paneId: string) => invoke("webview:zoom-out", paneId),
     zoomReset: (paneId: string) => invoke("webview:zoom-reset", paneId),
@@ -265,11 +282,6 @@ const nativeApi = {
     /** ⌥⌘I pressed in the page: toggle its DevTools. */
     onToggleDevTools: (callback: (paneId: string) => void) =>
       onChannel("webview:toggle-devtools", callback),
-    onPickerResult: (
-      callback: (paneId: string, result: PickedElementResult) => void,
-    ) => onChannelArgs("webview:picker-result", callback),
-    onPickerCancel: (callback: (paneId: string) => void) =>
-      onChannelArgs("webview:picker-cancel", callback),
     onEscape: (callback: (paneId: string) => void) =>
       onChannel("webview:escape", callback),
     onFocusUrl: (callback: (paneId: string) => void) =>

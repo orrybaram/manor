@@ -10,61 +10,13 @@
 
 import { SYMBOLICATION_SCRIPT } from './sourcemap-symbolication';
 
-const PICKER_IIFE = `(function() {
-  // Guard against double-injection
-  if (window.__manor_picker_active__) return;
-  window.__manor_picker_active__ = true;
-
-  // ── Overlay element ──────────────────────────────────────────────────────
-  var overlay = document.createElement('div');
-  overlay.id = '__manor-picker-overlay__';
-  overlay.style.cssText = [
-    'position: fixed',
-    'pointer-events: none',
-    'z-index: 2147483647',
-    'border: 2px solid #4f8ff7',
-    'background: rgba(79, 143, 247, 0.12)',
-    'border-radius: 3px',
-    'transition: top 0.05s, left 0.05s, width 0.05s, height 0.05s',
-    'top: -9999px',
-    'left: -9999px',
-    'width: 0',
-    'height: 0'
-  ].join('; ');
-  document.body.appendChild(overlay);
-
-  // ── Crosshair lines ──────────────────────────────────────────────────────
-  var vLine = document.createElement('div');
-  vLine.id = '__manor-picker-vline__';
-  vLine.style.cssText = [
-    'position: fixed',
-    'pointer-events: none',
-    'z-index: 2147483646',
-    'top: 0',
-    'left: -9999px',
-    'width: 1px',
-    'height: 100vh',
-    'background: rgba(79, 143, 247, 0.35)'
-  ].join('; ');
-  document.body.appendChild(vLine);
-
-  var hLine = document.createElement('div');
-  hLine.id = '__manor-picker-hline__';
-  hLine.style.cssText = [
-    'position: fixed',
-    'pointer-events: none',
-    'z-index: 2147483646',
-    'top: -9999px',
-    'left: 0',
-    'width: 100vw',
-    'height: 1px',
-    'background: rgba(79, 143, 247, 0.35)'
-  ].join('; ');
-  document.body.appendChild(hLine);
-
-  var currentTarget = null;
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
+/**
+ * What both pickers know about an element: its selector path, a subset of
+ * its computed styles, its accessibility attributes and its React components
+ * (async: may symbolicate stack frames). Spliced into each picker's IIFE, so
+ * it declares functions in that scope rather than running anything.
+ */
+export const PICKER_HELPERS = `  // ── Helpers ───────────────────────────────────────────────────────────────
 
   /** Build a CSS selector path for the element */
   function getSelectorPath(el) {
@@ -222,7 +174,63 @@ const PICKER_IIFE = `(function() {
 
     return components.length > 0 ? components : null;
   }
+`;
 
+const PICKER_IIFE = `(function() {
+  // Guard against double-injection
+  if (window.__manor_picker_active__) return;
+  window.__manor_picker_active__ = true;
+
+  // ── Overlay element ──────────────────────────────────────────────────────
+  var overlay = document.createElement('div');
+  overlay.id = '__manor-picker-overlay__';
+  overlay.style.cssText = [
+    'position: fixed',
+    'pointer-events: none',
+    'z-index: 2147483647',
+    'border: 2px solid #4f8ff7',
+    'background: rgba(79, 143, 247, 0.12)',
+    'border-radius: 3px',
+    'transition: top 0.05s, left 0.05s, width 0.05s, height 0.05s',
+    'top: -9999px',
+    'left: -9999px',
+    'width: 0',
+    'height: 0'
+  ].join('; ');
+  document.body.appendChild(overlay);
+
+  // ── Crosshair lines ──────────────────────────────────────────────────────
+  var vLine = document.createElement('div');
+  vLine.id = '__manor-picker-vline__';
+  vLine.style.cssText = [
+    'position: fixed',
+    'pointer-events: none',
+    'z-index: 2147483646',
+    'top: 0',
+    'left: -9999px',
+    'width: 1px',
+    'height: 100vh',
+    'background: rgba(79, 143, 247, 0.35)'
+  ].join('; ');
+  document.body.appendChild(vLine);
+
+  var hLine = document.createElement('div');
+  hLine.id = '__manor-picker-hline__';
+  hLine.style.cssText = [
+    'position: fixed',
+    'pointer-events: none',
+    'z-index: 2147483646',
+    'top: -9999px',
+    'left: 0',
+    'width: 100vw',
+    'height: 1px',
+    'background: rgba(79, 143, 247, 0.35)'
+  ].join('; ');
+  document.body.appendChild(hLine);
+
+  var currentTarget = null;
+
+${PICKER_HELPERS}
   // ── Event handlers ────────────────────────────────────────────────────────
 
   function onMouseMove(e) {

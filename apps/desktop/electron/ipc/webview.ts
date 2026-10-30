@@ -34,8 +34,14 @@ import { recordingManager } from "../recording-manager";
 import { PICKER_SCRIPT } from "../picker-script";
 import { WebviewServer } from "../webview-server";
 import type { HostDeps } from "./types";
-import { resolveBindings } from "../../src/lib/keybinding-defs";
-import { createPageKeyHandler } from "./webview-keys";
+import {
+  comboMatches,
+  resolveBindings,
+  type KeyCombo,
+} from "../../src/lib/keybinding-defs";
+import { isDockRect } from "../../src/lib/devtools-dock";
+import { BrowserDevToolsDock, type DockTarget } from "../browser-devtools-dock";
+import { comboFromInputEvent, createPageKeyHandler } from "./webview-keys";
 import { attachPageDialogs, registerPageDialogIpc } from "../webview-dialogs";
 import { buildPageContextMenu } from "../webview-context-menu";
 import {
@@ -86,6 +92,92 @@ const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
 const webviewDialogCleanup = new Map<string, () => void>();
+
+// ── Docked DevTools ──
+
+/** The key that toggles a page's DevTools, kept current by `register`. */
+let devToolsBinding: KeyCombo | undefined;
+
+/**
+ * The app menu's Toggle Developer Tools accelerator (`app-menu-template.ts`),
+ * which already reaches a focused frontend and toggles its pane's DevTools.
+ * Acting on it here too would close them twice over, and the second toggle
+ * could reopen them.
+ */
+const MENU_DEVTOOLS_COMBO: KeyCombo =
+  process.platform === "darwin"
+    ? { key: "i", meta: true, alt: true, ctrl: false, shift: false }
+    : { key: "i", ctrl: true, shift: true, meta: false, alt: false };
+
+/** Every open docked DevTools; see `browser-devtools-dock.ts`. */
+const devToolsDock = new BrowserDevToolsDock({
+  onChange(paneId, host, open) {
+    if (!host.isDestroyed()) host.send("webview:devtools-changed", paneId, open);
+  },
+  // A DevTools frontend is no page: its keys reach neither the page's
+  // `before-input-event` nor the app's renderer. Watch it for the toggle key
+  // so the same shortcut closes DevTools from inside them.
+  onFrontend(paneId, frontend) {
+    frontend.on("input-event", (_event, input) => {
+      const combo = comboFromInputEvent(input);
+      if (!combo || !devToolsBinding || !comboMatches(combo, devToolsBinding)) return;
+      if (comboMatches(combo, MENU_DEVTOOLS_COMBO)) return;
+      // Let the key finish routing before the frontend is torn down under it.
+      setImmediate(() => void devToolsDock.close(paneId));
+    });
+  },
+});
+
+/** The page, renderer and window of `paneId`, or null if any is gone. */
+function devToolsTarget(paneId: string): DockTarget | null {
+  const guestId = webviewRegistry.get(paneId);
+  const guest = guestId !== undefined ? webContents.fromId(guestId) : undefined;
+  const host = getPaneRendererWebContents(paneId);
+  const window = host ? BrowserWindow.fromWebContents(host) : null;
+  if (!guest || guest.isDestroyed() || !host || !window || window.isDestroyed()) {
+    return null;
+  }
+  return { guest, host, window };
+}
+
+/**
+ * Open `paneId`'s DevTools docked in the pane, then inspect the element at
+ * `inspectAt` if given. Docking comes first: `inspectElement` on its own
+ * opens Electron's DevTools window and bypasses the dock.
+ */
+async function openDevTools(
+  paneId: string,
+  inspectAt?: { x: number; y: number },
+): Promise<boolean> {
+  const target = devToolsTarget(paneId);
+  if (!target) return false;
+  const opened = await devToolsDock.open(paneId, target);
+  if (opened && inspectAt && !target.guest.isDestroyed()) {
+    target.guest.inspectElement(inspectAt.x, inspectAt.y);
+  }
+  return opened;
+}
+
+function toggleDevTools(paneId: string): void {
+  if (devToolsDock.isOpen(paneId)) void devToolsDock.close(paneId);
+  else void openDevTools(paneId);
+}
+
+/**
+ * The app menu's Toggle Developer Tools while `focused` is a browser pane's
+ * page or its docked DevTools: toggles that pane's. False when `focused` is
+ * neither, so the menu toggles the window's own instead.
+ */
+export function toggleFocusedPageDevTools(focused: Electron.WebContents): boolean {
+  for (const [paneId, guestId] of webviewRegistry) {
+    const guest = webContents.fromId(guestId);
+    if (!guest || guest.isDestroyed()) continue;
+    if (guest !== focused && guest.devToolsWebContents !== focused) continue;
+    toggleDevTools(paneId);
+    return true;
+  }
+  return false;
+}
 
 export function createWebviewServer(getDeps: () => HostDeps): WebviewServer {
   return new WebviewServer(webviewRegistry, getDeps);
@@ -322,8 +414,10 @@ export function register(deps: HostDeps): void {
     deps.keybindingsManager.getAll(),
     bindingPlatform,
   ).bindings;
+  devToolsBinding = pageBindings["browser-devtools"];
   deps.keybindingsManager.onChange((overrides) => {
     pageBindings = resolveBindings(overrides, bindingPlatform).bindings;
+    devToolsBinding = pageBindings["browser-devtools"];
   });
 
   registerPageDialogIpc();
@@ -387,7 +481,8 @@ export function register(deps: HostDeps): void {
               }
             },
             copyImageAt: (x, y) => wc.copyImageAt(x, y),
-            inspectElement: (x, y) => wc.inspectElement(x, y),
+            // Docked in the pane, then inspecting: see `openDevTools`.
+            inspectElement: (x, y) => void openDevTools(paneId, { x, y }),
           });
           Menu.buildFromTemplate(template).popup();
         };
@@ -555,6 +650,11 @@ export function register(deps: HostDeps): void {
 
   ipcMain.handle("webview:unregister", (_event, paneId: string) => {
     assertString(paneId, "paneId");
+    // Only the renderer that owns the pane's DevTools closes them: a pane torn
+    // off to another window may have registered there first.
+    if (devToolsDock.hostOf(paneId) === _event.sender) {
+      void devToolsDock.close(paneId);
+    }
     webviewContextMenuCleanup.get(paneId)?.();
     webviewContextMenuCleanup.delete(paneId);
     webviewEscapeCleanup.get(paneId)?.();
@@ -636,6 +736,32 @@ export function register(deps: HostDeps): void {
       "if (window.__manor_picker_cancel__) window.__manor_picker_cancel__();",
     );
   });
+
+  ipcMain.handle("webview:open-devtools", (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    return openDevTools(paneId);
+  });
+
+  ipcMain.handle("webview:close-devtools", async (_event, paneId: string) => {
+    assertString(paneId, "paneId");
+    await devToolsDock.close(paneId);
+  });
+
+  // Where the pane's DevTools slot is (window CSS pixels), or null to hide
+  // the view; with `snapshot`, answers the hidden view's last frame.
+  ipcMain.handle(
+    "webview:set-devtools-bounds",
+    (event, paneId: string, slot: unknown, snapshot: unknown) => {
+      assertString(paneId, "paneId");
+      if (slot !== null && !isDockRect(slot)) {
+        throw new Error("slot must be a rect or null");
+      }
+      if (devToolsDock.hostOf(paneId) !== event.sender) return null;
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) return null;
+      return devToolsDock.setBounds(paneId, window, slot, snapshot === true);
+    },
+  );
 
   ipcMain.handle("webview:zoom-in", (_event, paneId: string) => {
     assertString(paneId, "paneId");

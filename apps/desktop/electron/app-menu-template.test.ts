@@ -53,6 +53,7 @@ function makeActions(overrides: Partial<MenuActions> = {}): MenuActions {
     checkForUpdates: vi.fn(),
     openExternal: vi.fn(),
     revealDataFolder: vi.fn(),
+    toggleDevTools: vi.fn(),
     ...overrides,
   };
 }
@@ -463,8 +464,10 @@ describe("buildMenuTemplate", () => {
     it("shows the Developer submenu only in dev builds", () => {
       expect(item(menu(build(), "View"), "Developer")).toBeDefined();
       expect(
-        submenu(item(menu(build(), "View"), "Developer")).map((i) => i.role),
-      ).toEqual(["reload", "forceReload", "toggleDevTools"]);
+        submenu(item(menu(build(), "View"), "Developer")).map(
+          (i) => i.role ?? i.label,
+        ),
+      ).toEqual(["reload", "forceReload", "Toggle Developer Tools"]);
       expect(
         item(menu(build({ isPackaged: true }), "View"), "Developer"),
       ).toBeUndefined();
@@ -480,10 +483,40 @@ describe("buildMenuTemplate", () => {
 
     it("moves Toggle Developer Tools into Help for packaged builds", () => {
       const packaged = menu(build({ isPackaged: true }), "Help");
-      expect(packaged.some((i) => i.role === "toggleDevTools")).toBe(true);
-      expect(
-        menu(build(), "Help").some((i) => i.role === "toggleDevTools"),
-      ).toBe(false);
+      expect(item(packaged, "Toggle Developer Tools")).toBeDefined();
+      expect(item(menu(build(), "Help"), "Toggle Developer Tools")).toBeUndefined();
+    });
+
+    it("toggles DevTools through its action, so a focused page gets its own", () => {
+      const actions = makeActions();
+      const devTools = item(
+        menu(build({ isPackaged: true }, actions), "Help"),
+        "Toggle Developer Tools",
+      );
+      expect(devTools?.accelerator).toBe("Alt+Cmd+I");
+      (devTools?.click as () => void)();
+      expect(actions.toggleDevTools).toHaveBeenCalledWith(false);
+    });
+
+    it("tells the action a browser pane is focused, and leaves the choice to it", () => {
+      const actions = makeActions();
+      const context = makeState().context!;
+      const devTools = item(
+        menu(
+          build(
+            {
+              isPackaged: true,
+              context: { ...context, focusedPane: { id: "p1", contentType: "browser" } },
+            },
+            actions,
+          ),
+          "Help",
+        ),
+        "Toggle Developer Tools",
+      );
+      (devTools?.click as () => void)();
+      expect(actions.toggleDevTools).toHaveBeenCalledWith(true);
+      expect(actions.send).not.toHaveBeenCalled();
     });
   });
 
@@ -553,7 +586,13 @@ describe("buildMenuTemplate", () => {
     });
 
     it("keeps every command accelerator display-only", () => {
-      const zoomLabels = new Set(["Actual Size", "Zoom In", "Zoom Out"]);
+      // Zoom, and DevTools standing in for the role that registered its own.
+      const zoomLabels = new Set([
+        "Actual Size",
+        "Zoom In",
+        "Zoom Out",
+        "Toggle Developer Tools",
+      ]);
       const offenders = walk(build())
         .filter((i) => i.accelerator && !zoomLabels.has(String(i.label)))
         .filter((i) => i.registerAccelerator !== false)

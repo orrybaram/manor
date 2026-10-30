@@ -495,10 +495,10 @@ describe("buildMenuTemplate", () => {
       );
       expect(devTools?.accelerator).toBe("Alt+Cmd+I");
       (devTools?.click as () => void)();
-      expect(actions.toggleDevTools).toHaveBeenCalledTimes(1);
+      expect(actions.toggleDevTools).toHaveBeenCalledWith(false);
     });
 
-    it("toggles the focused browser pane's DevTools instead", () => {
+    it("tells the action a browser pane is focused, and leaves the choice to it", () => {
       const actions = makeActions();
       const context = makeState().context!;
       const devTools = item(
@@ -515,8 +515,8 @@ describe("buildMenuTemplate", () => {
         "Toggle Developer Tools",
       );
       (devTools?.click as () => void)();
-      expect(actions.send).toHaveBeenCalledWith("browser-devtools");
-      expect(actions.toggleDevTools).not.toHaveBeenCalled();
+      expect(actions.toggleDevTools).toHaveBeenCalledWith(true);
+      expect(actions.send).not.toHaveBeenCalled();
     });
   });
 

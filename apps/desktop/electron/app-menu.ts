@@ -146,10 +146,17 @@ export function installAppMenu(deps: AppMenuDeps): AppMenuController {
     revealDataFolder() {
       shell.showItemInFolder(manorDataDir());
     },
-    toggleDevTools() {
+    toggleDevTools(browserPaneFocused) {
       const focused = webContents.getFocusedWebContents();
       if (focused && deps.toggleFocusedPageDevTools?.(focused)) return;
-      BrowserWindow.getFocusedWindow()?.webContents.toggleDevTools();
+      // Manor's own UI has focus — not its DevTools, a webContents of their
+      // own — and the focused pane is a browser: that page's.
+      const window = BrowserWindow.getFocusedWindow();
+      if (browserPaneFocused && focused && focused === window?.webContents) {
+        actions.send("browser-devtools");
+        return;
+      }
+      window?.webContents.toggleDevTools();
     },
   };
 

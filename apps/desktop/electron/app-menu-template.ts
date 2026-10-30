@@ -33,8 +33,14 @@ export interface MenuActions {
   checkForUpdates: () => void;
   openExternal: (url: string) => void;
   revealDataFolder: () => void;
-  /** The focused page's docked DevTools, or else the focused window's own. */
-  toggleDevTools: () => void;
+  /**
+   * The focused page's docked DevTools, or else — when Manor's own UI has
+   * focus and its focused pane is a browser — that pane's; or else the
+   * focused window's own. Decided by the webContents that has focus, not
+   * by the focused pane alone: a click into another pane's DevTools, or into
+   * Manor's own DevTools, doesn't move the focused pane.
+   */
+  toggleDevTools: (browserPaneFocused: boolean) => void;
 }
 
 interface CmdOptions {
@@ -82,9 +88,7 @@ export function buildMenuTemplate(
     label: "Toggle Developer Tools",
     accelerator: isMac ? "Alt+Cmd+I" : "Ctrl+Shift+I",
     click: () =>
-      context?.focusedPane?.contentType === "browser"
-        ? actions.send("browser-devtools")
-        : actions.toggleDevTools(),
+      actions.toggleDevTools(context?.focusedPane?.contentType === "browser"),
   };
 
   /** A menu item that fires a renderer command, with its shortcut displayed. */

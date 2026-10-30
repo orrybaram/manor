@@ -148,3 +148,72 @@ test("DevTools open docked in a browser pane and hide under the command palette"
     server.close();
   }
 });
+
+/**
+ * A page that crashes with DevTools docked comes back with a fresh frontend
+ * in the same place: the dead one is dropped once the page is reloaded.
+ */
+test("docked DevTools come back after the page crashes and reloads", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader("Content-Type", "text/html");
+    res.end(`<h1 style="font-family:sans-serif">Crash me</h1>`);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  const base = `http://127.0.0.1:${port}`;
+
+  /** The live DevTools webContents id for the guest, and its URL. */
+  const devTools = () =>
+    app.evaluate(({ webContents }, prefix) => {
+      const guest = webContents
+        .getAllWebContents()
+        .find((w) => w.getType() === "webview" && w.getURL().startsWith(prefix));
+      const dt = guest?.devToolsWebContents;
+      if (!guest || !dt || dt.isDestroyed() || guest.isCrashed()) return null;
+      return { id: dt.id, url: dt.getURL() };
+    }, base);
+
+  try {
+    await bootWorkspaceWithTerminal(app, window, tempHome, "ws-devtools-crash");
+    await window.keyboard.press("ControlOrMeta+Shift+b");
+    await expect(window.locator("webview:visible")).toHaveCount(1, { timeout: 10_000 });
+    await window.keyboard.press("ControlOrMeta+l");
+    await window.keyboard.type(`${base}/`);
+    await window.keyboard.press("Enter");
+    await window.locator('[data-testid="browser-devtools-toggle"]:visible').click();
+    await expect.poll(devTools, { timeout: 10_000 }).not.toBeNull();
+    const before = (await devTools())!;
+
+    await app.evaluate(({ webContents }, prefix) => {
+      webContents
+        .getAllWebContents()
+        .find((w) => w.getType() === "webview" && w.getURL().startsWith(prefix))!
+        .forcefullyCrashRenderer();
+    }, base);
+    await expect.poll(devTools, { timeout: 10_000 }).toBeNull();
+    await app.evaluate(({ webContents }, prefix) => {
+      webContents
+        .getAllWebContents()
+        .find((w) => w.getType() === "webview" && w.getURL().startsWith(prefix))!
+        .reload();
+    }, base);
+
+    // A fresh frontend, not the dead one, attached to the reloaded page.
+    await expect
+      .poll(
+        async () => {
+          const now = await devTools();
+          return now && now.id !== before.id ? now.url : null;
+        },
+        { timeout: 10_000 },
+      )
+      .toMatch(/^devtools:\/\//);
+    await expect(window.locator('[data-testid="devtools-slot"]')).toBeVisible();
+  } finally {
+    server.close();
+  }
+});

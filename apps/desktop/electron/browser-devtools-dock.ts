@@ -54,6 +54,8 @@ interface Dock extends DockTarget {
   phase: "live" | "crashed" | "reconnecting";
   /** Bumped by every bounds update, so a slow snapshot can't hide a view shown after it. */
   generation: number;
+  /** Drops the `closed` listener on the window the view is in now. */
+  unhookWindow(): void;
   dispose(): void;
 }
 
@@ -103,6 +105,7 @@ export class BrowserDevToolsDock {
       view: this.attachView(paneId, target),
       phase: "live",
       generation: 0,
+      unhookWindow: () => {},
       dispose: () => {},
     };
     const { guest, window } = target;
@@ -120,12 +123,18 @@ export class BrowserDevToolsDock {
     // DevTools closing itself, or its host being destroyed under it.
     const onDevToolsClosed = () => {
       if (dock.phase === "reconnecting") {
-        dock.phase = "live";
-        const stale = dock.view;
-        dock.view = this.attachView(paneId, dock);
-        // The stale view kept taking bounds while it detached.
-        dock.view.setBounds(stale.getBounds());
-        dock.view.setVisible(stale.getVisible());
+        // Electron opens nothing for a guest until its old frontend has let
+        // go, which is after this event — so attach on the next turn, as
+        // `waitForRelease` does.
+        setImmediate(() => {
+          if (this.docks.get(paneId) !== dock || guest.isDestroyed()) return;
+          dock.phase = "live";
+          const stale = dock.view;
+          dock.view = this.attachView(paneId, dock);
+          // The stale view kept taking bounds while it detached.
+          dock.view.setBounds(stale.getBounds());
+          dock.view.setVisible(stale.getVisible());
+        });
         return;
       }
       void this.close(paneId);
@@ -137,6 +146,9 @@ export class BrowserDevToolsDock {
     guest.on("devtools-closed", onDevToolsClosed);
     guest.once("destroyed", onGone);
     window.once("closed", onGone);
+    dock.unhookWindow = () => {
+      if (!window.isDestroyed()) window.off("closed", onGone);
+    };
     dock.dispose = () => {
       if (!guest.isDestroyed()) {
         guest.off("render-process-gone", onCrash);
@@ -144,7 +156,7 @@ export class BrowserDevToolsDock {
         guest.off("devtools-closed", onDevToolsClosed);
         guest.off("destroyed", onGone);
       }
-      if (!dock.window.isDestroyed()) dock.window.off("closed", onGone);
+      dock.unhookWindow();
     };
 
     this.docks.set(paneId, dock);
@@ -156,13 +168,6 @@ export class BrowserDevToolsDock {
   close(paneId: string): Promise<void> {
     this.opening.delete(paneId);
     return this.release(paneId);
-  }
-
-  /** Close every DevTools reporting to `host`: its window closed or reloaded. */
-  closeForHost(host: WebContents): void {
-    for (const [paneId, dock] of this.docks) {
-      if (dock.host === host) void this.close(paneId);
-    }
   }
 
   /**
@@ -223,10 +228,10 @@ export class BrowserDevToolsDock {
     const onGone = () => void this.close(paneId);
     if (!dock.window.isDestroyed()) dock.window.contentView.removeChildView(dock.view);
     window.contentView.addChildView(dock.view);
+    // The old window closing no longer concerns this view.
+    dock.unhookWindow();
     window.once("closed", onGone);
-    const dispose = dock.dispose;
-    dock.dispose = () => {
-      dispose();
+    dock.unhookWindow = () => {
       if (!window.isDestroyed()) window.off("closed", onGone);
     };
     dock.window = window;

@@ -197,6 +197,8 @@ describe("BrowserDevToolsDock", () => {
     s.guest.emit("render-process-gone");
     s.guest.emit("dom-ready");
     await flush();
+    // The fresh frontend attaches a turn after the old one lets go.
+    await new Promise((resolve) => setImmediate(resolve));
     expect(s.views).toHaveLength(2);
     expect(s.dock.isOpen("pane-1")).toBe(true);
     const [stale, fresh] = s.views;
@@ -250,17 +252,12 @@ describe("BrowserDevToolsDock", () => {
     expect(s.dock.isOpen("pane-1")).toBe(false);
   });
 
-  it("closeForHost closes only that renderer's DevTools", async () => {
+  it("forgets the old window once the view has moved", async () => {
     await s.dock.open("pane-1", s.target);
-    const otherHost = { id: 2, isDestroyed: () => false, getZoomFactor: () => 1 };
-    const otherGuest = Object.assign(fakeGuest(), { id: 8 });
-    await s.dock.open("pane-2", {
-      guest: otherGuest as unknown as Electron.WebContents,
-      host: otherHost as unknown as Electron.WebContents,
-      window: s.window,
-    });
-    s.dock.closeForHost(s.host as unknown as Electron.WebContents);
-    expect(s.dock.isOpen("pane-1")).toBe(false);
-    expect(s.dock.isOpen("pane-2")).toBe(true);
+    const other = fakeWindow();
+    await s.dock.setBounds("pane-1", other, { x: 0, y: 0, width: 10, height: 10 }, false);
+    s.window.close();
+    await flush();
+    expect(s.dock.isOpen("pane-1")).toBe(true);
   });
 });

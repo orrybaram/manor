@@ -46,12 +46,12 @@ test.describe("desktop 1440", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Download points at the latest .dmg with the desktop version", async ({ page }) => {
+  test("Download points at the .dmg of the version it names", async ({ page }) => {
     await open(page);
     const buttons = page.locator("a.btn");
     await expect(buttons).toHaveCount(2);
     for (const b of await buttons.all()) {
-      await expect(b).toHaveAttribute("href", "https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg");
+      await expect(b).toHaveAttribute("href", `https://github.com/orrybaram/manor/releases/download/v${VERSION}/Manor-arm64.dmg`);
       await expect(b).toContainText(`v${VERSION}`);
     }
   });

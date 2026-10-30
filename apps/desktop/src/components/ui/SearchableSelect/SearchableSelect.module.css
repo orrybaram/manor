@@ -30,6 +30,11 @@
   overflow: hidden;
 }
 
+/* The text gives up width, not the icon. */
+.triggerContent > svg {
+  flex-shrink: 0;
+}
+
 .triggerText {
   overflow: hidden;
   white-space: nowrap;
@@ -59,6 +64,8 @@
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   min-width: 200px;
+  /* A long label or search ellipsizes instead of stretching the list. */
+  max-width: min(360px, var(--radix-popover-content-available-width, 360px));
   z-index: 150;
   overflow: hidden;
 }
@@ -104,6 +111,19 @@
 .optionLabel {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.createIcon {
+  flex-shrink: 0;
+}
+
+.createLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .optionHint {

@@ -136,24 +136,38 @@
   border: none;
 }
 
+/* One row: a chip with a long name gives up width and ellipsizes. */
 .chips {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 8px;
+  gap: 4px;
+  padding: 6px;
   border-top: 1px solid var(--surface);
 }
 
+/* Too narrow for one row on a phone: there they wrap. */
+:global(:root[data-layout="phone"]) .chips {
+  flex-wrap: wrap;
+}
+
 .chip.chip {
-  height: 26px;
-  padding: 0 8px;
-  gap: 4px;
+  flex: 0 1 auto;
+  height: 22px;
+  padding: 0 6px;
+  gap: 3px;
+  font-size: 11px;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text-selected);
   font-weight: 500;
+}
+
+/* A finger needs the bigger target. */
+:global(:root[data-layout="phone"]) .chip.chip {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .chip.chip:hover {

@@ -317,9 +317,13 @@ export function createManorServer<D extends BridgeServerDeps>(
             // A host's own log (its automations' runs) is part of this
             // desktop's: told again whenever it changes.
             onNotificationsChanged: (): void => notifier.sendNotificationsUpdate(),
-            // A host's own stats, summed into this desktop's totals.
-            onStatsHistory: (hostId: string, history: unknown): void =>
-              statsStore.setHostHistory(hostId, history as StatsHistory),
+            // An adopted host's own stats, summed into this desktop's totals.
+            // Before adoption its agents are the desktop's, counted here.
+            onStatsHistory: (hostId: string, history: unknown): void => {
+              if (projectManager.isHostAdopted(hostId)) {
+                statsStore.setHostHistory(hostId, history as StatsHistory);
+              }
+            },
             statsResetDue: (hostId: string): boolean => statsStore.hostResetDue(hostId),
             onStatsReset: (hostId: string): void => statsStore.hostWasReset(hostId),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>

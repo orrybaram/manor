@@ -52,7 +52,25 @@ permissions:
   contents: write
 
 jobs:
+  # A release is cut from main (scripts/release.mjs pushes main, then the
+  # tag). A tag on any other commit builds nothing. This is no defence
+  # against someone who can also change this file on their own branch: that
+  # is the tag ruleset's and the release environment's job.
+  tag-on-main:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
   host-image:
+    needs: tag-on-main
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -121,6 +139,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   release:
+    needs: tag-on-main
     runs-on: macos-latest
 
     steps:

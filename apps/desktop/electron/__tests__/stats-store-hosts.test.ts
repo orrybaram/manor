@@ -89,6 +89,8 @@ describe("StatsStore across hosts", () => {
     expect(onBadge).not.toHaveBeenCalled();
     expect(store.getBadges()["first-blood"]).toBe("2026-10-01T09:00:00.000Z");
     expect(store.getSummary().quietBadges).toEqual(["first-blood"]);
+    store.flushNow();
+    expect(new StatsStore(tmpDir, { now }).getSummary().quietBadges).toEqual(["first-blood"]);
   });
 
   it("announces a badge a later read of the host makes the total reach", () => {

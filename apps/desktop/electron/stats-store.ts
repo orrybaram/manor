@@ -96,6 +96,8 @@ export interface PersistedStats {
    * and are cleared when next heard from. Their counts stay out until then.
    */
   pendingHostResets?: string[];
+  /** `StatsSummary.quietBadges`, kept so a client holding an old summary still knows. */
+  quietBadges?: string[];
 }
 
 /**
@@ -130,7 +132,7 @@ export interface StatsSummary {
   dailyPrsMerged: { day: string; count: number }[];
   badges: Record<string, string>;
   /**
-   * Badges awarded quietly since this server started: a host's backlog, taken
+   * Badges awarded quietly: a host's backlog, taken
    * when its history was merged. Already in `badges`; not news, so no toast.
    */
   quietBadges?: string[];
@@ -164,7 +166,7 @@ export class StatsStore {
   private hostIds: () => readonly string[];
   private onReset: (() => void) | undefined;
   /** Badges `setHostHistory` awarded quietly (`StatsSummary.quietBadges`). */
-  private quiet = new Set<string>();
+  private quiet: Set<string>;
   /** Insertion-ordered, so eviction drops the oldest token. */
   private once: Set<string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -208,6 +210,7 @@ export class StatsStore {
     this.once = state.once;
     this.hosts = state.hosts;
     this.pendingResets = state.pendingResets;
+    this.quiet = state.quiet;
     this.prune();
     this.grandfatherBadges();
   }
@@ -235,6 +238,7 @@ export class StatsStore {
     once: Set<string>;
     hosts: Record<string, StatsHistory>;
     pendingResets: Set<string>;
+    quiet: Set<string>;
   } {
     try {
       const data = fs.readFileSync(this.statsFilePath(), "utf-8");
@@ -244,14 +248,18 @@ export class StatsStore {
         badges: sanitizeBadges(state.badges),
         once: sanitizeOnce(state.once),
         hosts: sanitizeHosts(state.hosts),
-        pendingResets: new Set(
-          Array.isArray(state.pendingHostResets)
-            ? state.pendingHostResets.filter((id): id is string => typeof id === "string")
-            : [],
-        ),
+        pendingResets: new Set(sanitizeIds(state.pendingHostResets)),
+        quiet: new Set(sanitizeIds(state.quietBadges).filter((id) => BADGE_IDS.has(id))),
       };
     } catch {
-      return { days: {}, badges: {}, once: new Set(), hosts: {}, pendingResets: new Set() };
+      return {
+        days: {},
+        badges: {},
+        once: new Set(),
+        hosts: {},
+        pendingResets: new Set(),
+        quiet: new Set(),
+      };
     }
   }
 
@@ -264,6 +272,7 @@ export class StatsStore {
       once: [...this.once],
       ...(Object.keys(this.hosts).length > 0 ? { hosts: this.hosts } : {}),
       ...(this.pendingResets.size > 0 ? { pendingHostResets: [...this.pendingResets] } : {}),
+      ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
     };
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(this.statsFilePath(), JSON.stringify(state, null, 2));
@@ -760,6 +769,10 @@ function sanitizeHosts(hosts: unknown): Record<string, StatsHistory> {
 }
 
 const BADGE_IDS = new Set(BADGES.map((badge) => badge.id));
+
+function sanitizeIds(ids: unknown): string[] {
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+}
 
 /**
  * A host's history as the desktop keeps it: bounded days, and only badges

@@ -162,7 +162,8 @@
 /* ── Blank pane: the workspace's dev servers ── */
 
 .serverList {
-  width: min(260px, 100%);
+  /* Wide enough for a workspace's proxy hostname; a longer one ellipsizes. */
+  width: min(420px, 100%);
   display: grid;
   gap: 4px;
 }
@@ -202,12 +203,18 @@
 }
 
 .serverHost {
+  min-width: 0;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Never squeezed out by a long host: the process is how you tell rows apart. */
 .serverProcess {
-  min-width: 0;
+  flex: none;
+  max-width: 40%;
+  margin-left: auto;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;

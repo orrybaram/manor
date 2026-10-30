@@ -61,20 +61,20 @@ describe("accent", () => {
 describe("recent themes", () => {
   it("keeps the last five picks, newest first, without repeats", () => {
     for (const n of ["a", "b", "c", "a", "d", "e", "f"]) {
-      manager.setSelectedThemeName(n);
+      manager.addRecent(n);
     }
     expect(manager.getRecent()).toEqual(["f", "e", "d", "a", "c"]);
   });
 
-  it("counts a project's pick without changing the selection", () => {
+  it("doesn't count a selection by itself (Settings counts on close)", () => {
     manager.setSelectedThemeName("a");
     manager.addRecent("__manor__");
     expect(manager.getSelectedThemeName()).toBe("a");
-    expect(manager.getRecent()).toEqual(["__manor__", "a"]);
+    expect(manager.getRecent()).toEqual(["__manor__"]);
   });
 
   it("survives a new manager (a restart)", () => {
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("__manor__");
     const again = new ThemeManager({
       settingsPath: path.join(dir, "settings.json"),
       customThemesDir: themesDir,
@@ -83,8 +83,8 @@ describe("recent themes", () => {
   });
 
   it("lists only recents that still exist in the catalog", async () => {
-    manager.setSelectedThemeName("Gone Theme");
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("Gone Theme");
+    manager.addRecent("__manor__");
     const { recent } = await manager.catalog();
     expect(recent).toEqual(["__manor__"]);
   });
@@ -108,6 +108,7 @@ describe("custom themes", () => {
   it("edits in place, and a rename carries the selection and recents along", () => {
     manager.saveCustomTheme("Ink", manor());
     manager.setSelectedThemeName("custom:Ink");
+    manager.addRecent("custom:Ink");
     manager.saveCustomTheme("Ink", { ...manor(), red: "#ff0000" }, "Ink");
     expect(manager.getThemeByName("custom:Ink").red).toBe("#ff0000");
 
@@ -126,8 +127,9 @@ describe("custom themes", () => {
 
   it("deleting the selected theme falls back to the default and drops it from recents", () => {
     manager.saveCustomTheme("Ink", manor());
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("__manor__");
     manager.setSelectedThemeName("custom:Ink");
+    manager.addRecent("custom:Ink");
     manager.deleteCustomTheme("Ink");
     expect(fs.existsSync(path.join(themesDir, "Ink"))).toBe(false);
     expect(manager.getSelectedThemeName()).toBe("__ghostty__");

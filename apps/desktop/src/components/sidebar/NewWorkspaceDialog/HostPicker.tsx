@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useCallback } from "react";
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import type { WorkspaceHostChoice } from "../../../lib/workspace-host-choices";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
 import type { NewHostTarget } from "../../../lib/transfer-targets";
-import { serverHostName } from "../../../bridge/server-set";
+import { serverHostName, useSelected } from "../../../bridge/server-set";
+import { subscribePairings } from "../../../bridge/pairings";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
 import { useHostStore } from "../../../store/host-store";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
@@ -68,17 +69,27 @@ export function HostPicker(props: HostPickerProps) {
 
   const hosts = useHostStore((s) => s.hosts);
 
-  const options = useMemo(
-    () =>
-      choices.map((choice) => ({
-        value: choice.projectId,
-        label:
-          serverHostName(choice.hostId) ?? memberHostName(choice.hostId, hosts),
-        icon: <HostGlyph hostId={choice.hostId} />,
-        disabledReason: choice.disabledReason,
-      })),
-    [choices, hosts],
-  );
+  // The servers' own names, live: a pairing or relay name can land after
+  // the dialog opens. Joined, so an unchanged list doesn't re-render.
+  const hostIds = choices.map((c) => c.hostId).join("\n");
+  const serverNames = useSelected(
+    useCallback(
+      () =>
+        hostIds
+          .split("\n")
+          .map((id) => serverHostName(id) ?? "")
+          .join("\n"),
+      [hostIds],
+    ),
+    subscribePairings,
+  ).split("\n");
+
+  const options = choices.map((choice, i) => ({
+    value: choice.projectId,
+    label: serverNames[i] || memberHostName(choice.hostId, hosts),
+    icon: <HostGlyph hostId={choice.hostId} />,
+    disabledReason: choice.disabledReason,
+  }));
 
   const actions: SearchableSelectAction[] = [
     ...(onSetUpOnAnotherHost

@@ -553,7 +553,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       setBaseBranch(value.slice(NEW_PREFIX.length));
       setBaseBranchEdited(true);
       // A name filled in from a checked-out branch names the new branch too.
-      if (!branchManuallyEdited) setBranchName(sanitizeBranchName(name));
+      if (!branchManuallyEdited) {
+        const nextBranch = sanitizeBranchName(name);
+        setBranchName(nextBranch);
+        scheduleSuggestion({ branchName: nextBranch });
+      }
       return;
     }
     const branch = value.slice(EXISTING_PREFIX.length);

@@ -459,14 +459,19 @@ function MarkLane({ lane, onPick }: { lane: Lane; onPick: (mark: LaneMark) => vo
   );
 }
 
-/** Put the cursor on `request`'s line (and column), centred, with the keyboard. */
+/**
+ * Put the cursor on `request`'s line (and column), centred, if it has one;
+ * either way, give the editor the keyboard.
+ */
 function showLine(view: EditorView, { line, col }: LineRequest): void {
-  const doc = view.state.doc;
-  const target = doc.line(Math.min(Math.max(line, 1), doc.lines));
-  const pos = target.from + Math.min(Math.max((col ?? 1) - 1, 0), target.length);
-  view.dispatch({
-    selection: { anchor: pos },
-    effects: EditorView.scrollIntoView(pos, { y: "center" }),
-  });
+  if (line) {
+    const doc = view.state.doc;
+    const target = doc.line(Math.min(Math.max(line, 1), doc.lines));
+    const pos = target.from + Math.min(Math.max((col ?? 1) - 1, 0), target.length);
+    view.dispatch({
+      selection: { anchor: pos },
+      effects: EditorView.scrollIntoView(pos, { y: "center" }),
+    });
+  }
   view.focus();
 }

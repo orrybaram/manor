@@ -35,6 +35,7 @@ import { useMountEffect } from "./useMountEffect";
 import { buildSidebarItems, type SidebarItem } from "../utils/sidebar-items";
 import { isHomePath } from "../lib/home";
 import type { MenuContext } from "../lib/menu-commands";
+import { editorName } from "../lib/editor";
 import type { AgentInfo, AppPreferences } from "../electron.d";
 
 /** How long a burst of store mutations is allowed to settle before a push. */
@@ -186,7 +187,7 @@ export function deriveMenuContext(
           }
         : null,
     panelCount: layout ? Object.keys(layout.panels).length : 0,
-    editorName: preferences.defaultEditor || null,
+    editorName: editorName(preferences.defaultEditor),
   };
 }
 

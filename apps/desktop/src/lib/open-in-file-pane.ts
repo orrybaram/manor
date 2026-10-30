@@ -59,12 +59,12 @@ export function splitDirectionBeside(el: HTMLElement | null): SplitDirection {
 }
 
 /**
- * Ask `paneId` to show `at.line` once it has `path` open, and drop the ask
+ * Ask `paneId` to show `at.line`, or with none just to take the keyboard,
+ * once it has `path` open, and drop the ask
  * once it can't: the pane opens another file instead, or its swap bar stops
  * asking to open `path` without opening it (Cancel, or a save that failed).
  */
 function requestLine(paneId: string, path: string, at: At): void {
-  if (!at.line) return;
   const request = pendingLines.request(paneId, { path, line: at.line, col: at.col });
   let shown = selectPaneFilePath(useAppStore.getState(), paneId);
   let asking = useOpenFileStore.getState().byPane[paneId]?.pendingOpen === path;
@@ -176,5 +176,6 @@ export function openFileInActiveWorkspace(path: string): void {
       return;
     }
   }
-  app.addFileTab(path);
+  const opened = app.addFileTab(path);
+  if (opened) requestLine(opened.paneId, path, {});
 }

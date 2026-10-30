@@ -62,6 +62,7 @@ import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
 import { HOME_PATH, isHomePath } from "../../lib/home-path";
 import { find } from "../../lib/workspace-directory";
+import { editorName } from "../../lib/editor";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
@@ -428,8 +429,7 @@ export function useCommands({
       };
     });
 
-    const editorName =
-      usePreferencesStore.getState().preferences.defaultEditor || undefined;
+    const editor = editorName(usePreferencesStore.getState().preferences.defaultEditor);
 
     // The active workspace's own actions, as in the native Workspace menu.
     const workspaceItems: CommandItem[] = fromTable([
@@ -580,8 +580,8 @@ export function useCommands({
         {
           command: "open-in-editor",
           icon: <ExternalLink size={14} />,
-          keywords: ["code", ...(editorName ? [editorName] : [])],
-          suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
+          keywords: ["code", editor],
+          suffix: <span className={styles.editorBadge}>{editor}</span>,
         },
       ]),
       {

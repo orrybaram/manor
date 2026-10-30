@@ -43,6 +43,8 @@ test("Go to File opens a fuzzy-matched file, reusing the focused file pane", asy
   await window.keyboard.press("Enter");
   await expect(dialog).toBeHidden();
   await expect(editor()).toContainText("export const widget = 1;");
+  // The pick hands the editor the keyboard, so its shortcuts work at once.
+  await expect(editor().locator(".cm-content")).toBeFocused();
   await window.screenshot({ path: testInfo.outputPath("opened.png") });
 
   // From that file pane: the pick replaces its file, no new pane.
@@ -53,6 +55,7 @@ test("Go to File opens a fuzzy-matched file, reusing the focused file pane", asy
   await expect(dialog.locator("[cmdk-item]").first()).toContainText("index.ts");
   await window.keyboard.press("Enter");
   await expect(editor()).toContainText("export const index = 3;");
+  await expect(editor().locator(".cm-content")).toBeFocused();
   await expect(window.locator('[data-testid="file-pane"]')).toHaveCount(1);
 
   // Escape closes it without opening anything.

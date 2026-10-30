@@ -4,7 +4,7 @@ import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import { openInEditor } from "../../../../lib/editor";
+import { editorIsManor, openInEditor } from "../../../../lib/editor";
 import { getPlatform } from "../../../../lib/keybindings";
 import { isWebApp } from "../../../../lib/platform";
 import { LOCAL_HOST_ID } from "../../../../lib/workspace-key";
@@ -60,13 +60,16 @@ export function TreeRowMenu({
     >
       {onThisMachine && (
         <>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => openInEditor(absolute)}
-          >
-            <ExternalLink size={14} />
-            Open in Editor
-          </ContextMenu.Item>
+          {/* Manor as the editor: the file is open in it already. */}
+          {!editorIsManor() && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => openInEditor(absolute)}
+            >
+              <ExternalLink size={14} />
+              Open in Editor
+            </ContextMenu.Item>
+          )}
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={() =>

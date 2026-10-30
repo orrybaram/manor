@@ -13,6 +13,7 @@ import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
 import { claimWebgl, type WebglClaim } from "../terminal/webgl-contexts";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { editorIsManor, openInEditor } from "../lib/editor";
 import { createLinkHoverTracker } from "../terminal/link-hover";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
@@ -375,8 +376,9 @@ export function useTerminalLifecycle(
       // frame into the scrollback.
       fit.fit();
 
-      // File path links: a workspace file opens in a file pane (Cmd/Ctrl+click,
-      // or the context menu); any other file Cmd/Ctrl+clicks into the editor.
+      // File path links: a workspace file Cmd/Ctrl+clicks into a file pane
+      // when Manor is the editor, else into the editor; the context menu offers
+      // the file pane either way. Any other file Cmd/Ctrl+clicks into the editor.
       // Not in the browser: the phone's file pane is read-only, and the
       // editor fallback resolves paths through `shell`, which it does not have.
       if (!isWebApp()) {
@@ -388,8 +390,13 @@ export function useTerminalLifecycle(
             workspace: workspaceKey ? parseWorkspaceKey(workspaceKey) : null,
             hover: linkHover.hoverFile,
             leave: linkHover.leave,
-            open: (link) =>
-              openFileBeside(paneId, link.path, splitDirectionBeside(container), link),
+            open: (link) => {
+              if (editorIsManor()) {
+                openFileBeside(paneId, link.path, splitDirectionBeside(container), link);
+              } else if (workspaceKey) {
+                openInEditor(`${parseWorkspaceKey(workspaceKey).path}/${link.path}`);
+              }
+            },
           }),
         );
       }

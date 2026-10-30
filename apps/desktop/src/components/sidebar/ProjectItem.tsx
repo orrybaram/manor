@@ -82,7 +82,7 @@ import { MergeWorktreeDialog } from "./MergeWorktreeDialog";
 import { ConvertToWorkspaceDialog } from "./ConvertToWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { FolderItem } from "./FolderItem";
-import { openInEditor } from "../../lib/editor";
+import { editorIsManor, openInEditor } from "../../lib/editor";
 import { openExternal } from "../../lib/open-external";
 import { isWebApp } from "../../lib/platform";
 import { onUiRequest, type UiRequest } from "../../utils/ui-request";
@@ -990,12 +990,15 @@ export function ProjectItem(props: ProjectItemProps) {
                 >
                   Open in Finder
                 </ContextMenu.Item>
-                <ContextMenu.Item
-                  className={styles.contextMenuItem}
-                  onSelect={() => openInEditor(ws.path)}
-                >
-                  Open in Editor
-                </ContextMenu.Item>
+                {/* Manor as the editor: the workspace is open in it already. */}
+                {!editorIsManor() && (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => openInEditor(ws.path)}
+                  >
+                    Open in Editor
+                  </ContextMenu.Item>
+                )}
               </>
             )}
             <ContextMenu.Sub>

@@ -1213,10 +1213,12 @@ test("the Files tree's context menu copies paths, renames and deletes files", as
   await openFromTree(window, ["src", "widget.ts"]);
   const menu = window.locator('[data-testid="file-pane-tree-menu"]');
 
-  // A file's menu: the editor and Finder (a local workspace), its paths, and Rename and Delete.
+  // A file's menu: Finder (a local workspace), its paths, and Rename and
+  // Delete. Not Open in Editor: Manor, the default editor, has it open.
   await treeRow(window, "src/widget.ts").click({ button: "right" });
   await expect(menu).toBeVisible();
-  for (const item of ["Open in Editor", /Reveal in Finder|Show in Folder/, "Copy Path", "Copy Relative Path", "Rename…", "Delete…"]) {
+  await expect(menu.getByRole("menuitem", { name: "Open in Editor" })).toHaveCount(0);
+  for (const item of [/Reveal in Finder|Show in Folder/, "Copy Path", "Copy Relative Path", "Rename…", "Delete…"]) {
     await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
   }
   await window.waitForTimeout(300);

@@ -5,8 +5,6 @@ import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Box from "lucide-react/dist/esm/icons/box";
 import Folder from "lucide-react/dist/esm/icons/folder";
-import Bot from "lucide-react/dist/esm/icons/bot";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { useQuery } from "@tanstack/react-query";
 import {
   useProjectStore,
@@ -15,12 +13,10 @@ import {
 import { usePreferencesStore } from "../../../store/preferences-store";
 import { Input } from "../../ui/Input";
 import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
-import { Collapse } from "../../ui/Collapse/Collapse";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
-import { ToggleGroup } from "../../ui/ToggleGroup";
 import styles from "./NewWorkspaceDialog.module.css";
-import { Row, Stack } from "../../ui/Layout/Layout";
+import { Row } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { useHostStore } from "../../../store/host-store";
@@ -56,6 +52,10 @@ type Mode = "new" | "existing";
 
 const NO_BRANCHES: string[] = [];
 
+/** The branch chip's values: a base branch to branch off, or a branch to check out. */
+const NEW_PREFIX = "new:";
+const EXISTING_PREFIX = "existing:";
+
 type NewWorkspaceDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -77,10 +77,7 @@ type NewWorkspaceDialogProps = {
   initialBranch?: string;
   /** Folder preselected when the dialog opens from a folder's own menu. */
   initialFolderId?: string | null;
-  /**
-   * Prefills the agent prompt and opens its section, e.g. when the dialog
-   * is opened from a task.
-   */
+  /** Prefills the agent prompt, e.g. when the dialog is opened from a task. */
   initialAgentPrompt?: string;
   /**
    * For a linked project: the member the host picker starts on
@@ -125,7 +122,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     (s) => s.preferences.folderSuggestionsEnabled,
   );
   const [agentPrompt, setAgentPrompt] = useState("");
-  const [agentOpen, setAgentOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   /**
@@ -226,22 +222,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     setCloneSession((s) => ({ key: (s?.key ?? 0) + 1, projectId, open: true }));
   const closeClone = () => setCloneSession((s) => s && { ...s, open: false });
 
-  /**
-   * Once the set-up dialog has closed: back to "Set up on another host…",
-   * or, when that took the last host and the button went with it, to the
-   * chosen host (the new project).
-   */
+  /** Once the set-up dialog has closed: back to the host chip it was opened from. */
   const focusAfterClone = (e: Event) => {
     e.preventDefault();
-    const root = contentRef.current;
     const target =
-      root?.querySelector<HTMLElement>(
-        '[data-testid="new-workspace-set-up-on-host"]',
-      ) ??
-      root?.querySelector<HTMLElement>(
-        '[data-testid="new-workspace-host-picker"] [role="radio"][aria-checked="true"]',
-      ) ??
-      nameRef.current;
+      contentRef.current?.querySelector<HTMLElement>(
+        '[data-testid="new-workspace-host-picker"]',
+      ) ?? nameRef.current;
     target?.focus();
   };
 
@@ -361,7 +348,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       folderCount: folders.length,
       name,
       branchName,
-      agentPrompt: agentOpen ? agentPrompt : "",
+      agentPrompt,
       folderTouched,
       choice: { folderId: activeFolderId, suggestion },
       ...changes,
@@ -433,7 +420,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     setFolderTouched(false);
     setSuggestion(null);
     setAgentPrompt(initialAgentPrompt);
-    setAgentOpen(!!initialAgentPrompt);
     scheduleSuggestion({
       projectId: defaultProjectId,
       folderCount:
@@ -473,10 +459,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError(branchMissingMessage);
         return;
       }
-      // A collapsed section starts no agent, whatever it still holds.
-      const promptToSend = agentOpen
-        ? agentPrompt.trim() || undefined
-        : undefined;
+      // An empty prompt starts no agent.
+      const promptToSend = agentPrompt.trim() || undefined;
 
       if (mode === "existing") {
         if (!existingBranch) {
@@ -537,7 +521,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       activeProjectId,
       activeFolderId,
       activeHostChoice,
-      agentOpen,
       agentPrompt,
       waitingForBranches,
       branchMissingMessage,
@@ -545,6 +528,46 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       isCreating,
     ],
   );
+
+  const branchOptions = useMemo(
+    () => [
+      ...allBranchOptions.map((b) => ({
+        value: NEW_PREFIX + b,
+        label: b,
+        group: "New branch off",
+      })),
+      ...existingBranchOptions.map((b) => ({
+        value: EXISTING_PREFIX + b,
+        label: b,
+        group: "Check out existing",
+      })),
+    ],
+    [allBranchOptions, existingBranchOptions],
+  );
+
+  /** The branch chip's pick: branch off a base, or check out an existing branch. */
+  const chooseBranch = (value: string) => {
+    setError(null);
+    if (value.startsWith(NEW_PREFIX)) {
+      setMode("new");
+      setBaseBranch(value.slice(NEW_PREFIX.length));
+      setBaseBranchEdited(true);
+      // A name filled in from a checked-out branch names the new branch too.
+      if (!branchManuallyEdited) {
+        const nextBranch = sanitizeBranchName(name);
+        setBranchName(nextBranch);
+        scheduleSuggestion({ branchName: nextBranch });
+      }
+      return;
+    }
+    const branch = value.slice(EXISTING_PREFIX.length);
+    setMode("existing");
+    setExistingBranch(branch);
+    if (!name.trim()) {
+      setName(branch);
+      scheduleSuggestion({ name: branch });
+    }
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -557,273 +580,231 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           onOpenAutoFocus={handleOpenAutoFocus}
           onCloseAutoFocus={restoreFocusOnClose}
         >
-          <Row align="center" justify="space-between" className={styles.header}>
-            <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="sm" aria-label="Close">
-                <X size={14} />
-              </Button>
-            </Dialog.Close>
-          </Row>
+          <Dialog.Close asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Close"
+              className={styles.close}
+            >
+              <X size={14} />
+            </Button>
+          </Dialog.Close>
           <form ref={formRef} onSubmit={handleSubmit}>
-            <Stack className={styles.body}>
-              <fieldset disabled={isCreating} className={styles.fieldset}>
-                {pickerChoices && (
-                  <HostPicker
-                    choices={pickerChoices}
-                    value={activeProjectId}
-                    onChange={chooseProject}
-                    onSetUpOnAnotherHost={
-                      cloneTargets.length > 0
-                        ? () => openClone(activeProjectId)
-                        : undefined
+            <fieldset disabled={isCreating} className={styles.fieldset}>
+              <div className={styles.top}>
+                <Dialog.Title className={styles.srOnly}>
+                  New Workspace
+                </Dialog.Title>
+                <EmojiInput
+                  ref={nameRef}
+                  type="text"
+                  value={name}
+                  className={styles.nameInput}
+                  aria-label="Workspace name"
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    setName(nextName);
+                    setError(null);
+                    if (mode === "existing") {
+                      scheduleSuggestion({ name: nextName });
+                      return;
                     }
-                    showHiddenHostsToggle={hiddenPods}
-                    showAllHosts={showAllHosts}
-                    onToggleShowAllHosts={() => setShowAllHosts((v) => !v)}
-                    newHostTargets={podTargets}
-                    onSetUpInNewHost={(target) =>
-                      void openInNewHost({
-                        profileId: target.profileId,
-                        sourceProjectId: activeProjectId,
-                      })
-                    }
-                  />
-                )}
-                <ToggleGroup
-                  value={mode}
-                  onChange={setMode}
-                  size="sm"
-                  aria-label="New or existing branch"
-                  options={[
-                    { value: "new", label: "New branch" },
-                    { value: "existing", label: "Existing branch" },
-                  ]}
+                    const nextBranch = branchManuallyEdited
+                      ? branchName
+                      : sanitizeBranchName(nextName);
+                    setBranchName(nextBranch);
+                    scheduleSuggestion({
+                      name: nextName,
+                      branchName: nextBranch,
+                    });
+                  }}
+                  placeholder={
+                    mode === "existing"
+                      ? existingBranch || "Workspace name"
+                      : "New workspace"
+                  }
+                  data-testid="new-workspace-name-input"
                 />
-                {mode === "existing" ? (
-                  <>
-                    <Stack>
-                      <label className={styles.fieldLabel}>Name</label>
-                      <EmojiInput
-                        ref={nameRef}
-                        type="text"
-                        value={name}
-                        onChange={(e) => {
-                          setName(e.target.value);
-                          setError(null);
-                          scheduleSuggestion({ name: e.target.value });
-                        }}
-                        placeholder={existingBranch || "Workspace name"}
-                        data-testid="new-workspace-name-input"
-                      />
-                    </Stack>
-                    <Stack>
-                      <label className={styles.fieldLabel}>Branch</label>
-                      <SearchableSelect
-                        value={existingBranch}
-                        onChange={(val) => {
-                          setExistingBranch(val);
-                          if (!name.trim()) {
-                            setName(val);
-                            scheduleSuggestion({ name: val });
-                          }
-                          setError(null);
-                        }}
-                        options={existingBranchOptions.map((b) => ({
-                          value: b,
-                          label: b,
-                        }))}
-                        loading={loadingBranches}
-                        emptyMessage="No remote branches found"
-                        icon={<GitBranch size={12} />}
-                        placeholder="Select a branch..."
-                      />
-                    </Stack>
-                  </>
-                ) : (
-                  <>
-                    <Stack>
-                      <label className={styles.fieldLabel}>Name</label>
-                      <EmojiInput
-                        ref={nameRef}
-                        type="text"
-                        value={name}
-                        onChange={(e) => {
-                          const nextName = e.target.value;
-                          const nextBranch = branchManuallyEdited
-                            ? branchName
-                            : sanitizeBranchName(nextName);
-                          setName(nextName);
-                          setBranchName(nextBranch);
-                          setError(null);
-                          scheduleSuggestion({
-                            name: nextName,
-                            branchName: nextBranch,
-                          });
-                        }}
-                        placeholder="My Feature"
-                        data-testid="new-workspace-name-input"
-                      />
-                      <Input
-                        variant="ghost"
-                        monospace
-                        type="text"
-                        value={branchName}
-                        onChange={(e) => {
-                          setBranchName(e.target.value);
-                          setBranchManuallyEdited(true);
-                          scheduleSuggestion({ branchName: e.target.value });
-                        }}
-                        placeholder="my-feature"
-                      />
-                    </Stack>
-                  </>
-                )}
-                <Stack className={styles.agentSection}>
-                  <Button
-                    type="button"
-                    variant="link"
-                    className={styles.agentToggle}
-                    aria-expanded={agentOpen}
-                    onClick={() => {
-                      const nextOpen = !agentOpen;
-                      setAgentOpen(nextOpen);
-                      scheduleSuggestion({
-                        agentPrompt: nextOpen ? agentPrompt : "",
-                      });
-                    }}
-                    data-testid="new-workspace-agent-toggle"
-                  >
-                    <Bot size={12} />
-                    Start an agent
-                    <ChevronRight
-                      size={12}
-                      className={
-                        agentOpen ? styles.chevronOpen : styles.chevron
+                <Row gap="xs" align="center" className={styles.branchLine}>
+                  <GitBranch size={11} aria-hidden />
+                  {mode === "existing" ? (
+                    <span data-testid="new-workspace-checks-out">
+                      Checks out{" "}
+                      <span className={styles.branchName}>{existingBranch}</span>
+                    </span>
+                  ) : (
+                    <Input
+                      variant="ghost"
+                      monospace
+                      type="text"
+                      value={branchName}
+                      className={styles.branchInput}
+                      aria-label="Branch name"
+                      onChange={(e) => {
+                        setBranchName(e.target.value);
+                        setBranchManuallyEdited(true);
+                        scheduleSuggestion({ branchName: e.target.value });
+                      }}
+                      placeholder="new-workspace"
+                      data-testid="new-workspace-branch-input"
+                    />
+                  )}
+                </Row>
+              </div>
+              <div className={styles.composer}>
+                <EmojiTextarea
+                  value={agentPrompt}
+                  className={styles.prompt}
+                  onChange={(e) => {
+                    setAgentPrompt(e.target.value);
+                    scheduleSuggestion({ agentPrompt: e.target.value });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      formRef.current?.requestSubmit();
+                    }
+                  }}
+                  placeholder="What should the agent work on? (optional)"
+                  rows={initialAgentPrompt ? 6 : 3}
+                  aria-label="Agent prompt"
+                  data-testid="new-workspace-agent-prompt"
+                />
+                <div className={styles.chips} data-testid="new-workspace-chips">
+                  {pickerChoices && (
+                    <HostPicker
+                      choices={pickerChoices}
+                      value={activeProjectId}
+                      onChange={chooseProject}
+                      onSetUpOnAnotherHost={
+                        cloneTargets.length > 0
+                          ? () => openClone(activeProjectId)
+                          : undefined
+                      }
+                      showHiddenHostsToggle={hiddenPods}
+                      showAllHosts={showAllHosts}
+                      onToggleShowAllHosts={() => setShowAllHosts((v) => !v)}
+                      newHostTargets={podTargets}
+                      onSetUpInNewHost={(target) =>
+                        void openInNewHost({
+                          profileId: target.profileId,
+                          sourceProjectId: activeProjectId,
+                        })
                       }
                     />
-                  </Button>
-                  <Collapse open={agentOpen}>
-                    <EmojiTextarea
-                      value={agentPrompt}
-                      onChange={(e) => {
-                        setAgentPrompt(e.target.value);
-                        scheduleSuggestion({ agentPrompt: e.target.value });
+                  )}
+                  {projectOptions.length > 1 && (
+                    <SearchableSelect
+                      value={
+                        activeProject ? projectSelectValue(activeProject) : ""
+                      }
+                      onChange={(value) => {
+                        const target = projectForSelectValue(value, projects);
+                        if (!target) return;
+                        chooseProject(
+                          startingMemberId(target, projects, sourcedHosts),
+                          undefined,
+                          { keepFolder: false },
+                        );
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                          e.preventDefault();
-                          formRef.current?.requestSubmit();
-                        }
-                      }}
-                      placeholder="What should the agent work on?"
-                      rows={initialAgentPrompt ? 6 : 3}
-                      aria-label="Agent prompt"
-                      data-testid="new-workspace-agent-prompt"
+                      options={projectOptions}
+                      icon={<Box size={12} />}
+                      className={styles.chip}
+                      maxWidth={160}
+                      aria-label="Project"
+                      data-testid="new-workspace-project-select"
                     />
-                  </Collapse>
-                </Stack>
-                {error ? (
-                  <div className={styles.error}>{error}</div>
-                ) : (
-                  branchMissingMessage && (
-                    <div
-                      className={styles.hint}
-                      data-testid="new-workspace-branch-missing"
-                    >
-                      {branchMissingMessage}
-                    </div>
-                  )
-                )}
-                <Stack gap="md" className={styles.actions}>
-                  <div className={styles.selects}>
-                    {projectOptions.length > 1 && (
-                      <SearchableSelect
-                        value={
-                          activeProject ? projectSelectValue(activeProject) : ""
-                        }
-                        onChange={(value) => {
-                          const target = projectForSelectValue(value, projects);
-                          if (!target) return;
-                          chooseProject(
-                            startingMemberId(target, projects, sourcedHosts),
-                            undefined,
-                            { keepFolder: false },
-                          );
-                        }}
-                        options={projectOptions}
-                        icon={<Box size={12} />}
-                        maxWidth={160}
-                        aria-label="Project"
-                        data-testid="new-workspace-project-select"
-                      />
-                    )}
-                    {activeProject && (
-                      <SearchableSelect
-                        value={activeFolderId ?? ""}
-                        onChange={(id) => {
-                          cancelSuggestion();
-                          setFolderId(id || null);
-                          setFolderTouched(true);
-                        }}
-                        onCreate={(folderName) => void createFolder(folderName)}
-                        createLabel={(q) => `New folder "${q}"`}
-                        options={folderOptions}
-                        icon={<Folder size={12} />}
-                        maxWidth={140}
-                        placeholder="No folder"
-                        aria-label="Folder"
-                        className={
-                          suggesting ? styles.folderSuggesting : undefined
-                        }
-                        data-testid="new-workspace-folder-select"
-                      />
-                    )}
-                    {mode === "new" && (
-                      <SearchableSelect
-                        value={baseBranch}
-                        onChange={(branch) => {
-                          setBaseBranch(branch);
-                          setBaseBranchEdited(true);
-                          setError(null);
-                        }}
-                        options={allBranchOptions.map((b) => ({
-                          value: b,
-                          label: b,
-                        }))}
-                        loading={loadingBranches}
-                        emptyMessage="No matching branches"
-                        icon={<GitBranch size={12} />}
-                        maxWidth={180}
-                        aria-label="Base branch"
-                        data-testid="new-workspace-base-branch-select"
-                      />
-                    )}
-                  </div>
-                  <Row gap="sm" justify="flex-end">
-                    <Button type="button" variant="secondary" onClick={onClose}>
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={isCreating || waitingForBranches}
-                      className={styles.submit}
-                      data-testid="new-workspace-submit"
-                    >
-                      {isCreating ? (
-                        <>
-                          <Loader2 size={14} className={styles.spinner} />
-                          Creating...
-                        </>
+                  )}
+                  {activeProject && (
+                    <SearchableSelect
+                      value={activeFolderId ?? ""}
+                      onChange={(id) => {
+                        cancelSuggestion();
+                        setFolderId(id || null);
+                        setFolderTouched(true);
+                      }}
+                      onCreate={(folderName) => void createFolder(folderName)}
+                      createLabel={(q) => `New folder "${q}"`}
+                      options={folderOptions}
+                      icon={<Folder size={12} />}
+                      maxWidth={140}
+                      placeholder="No folder"
+                      aria-label="Folder"
+                      className={
+                        suggesting
+                          ? `${styles.chip} ${styles.folderSuggesting}`
+                          : styles.chip
+                      }
+                      data-testid="new-workspace-folder-select"
+                    />
+                  )}
+                  <SearchableSelect
+                    value={
+                      mode === "existing"
+                        ? existingBranch && EXISTING_PREFIX + existingBranch
+                        : NEW_PREFIX + baseBranch
+                    }
+                    onChange={chooseBranch}
+                    options={branchOptions}
+                    triggerLabel={
+                      mode === "existing" ? (
+                        <span className={styles.branchName}>
+                          {existingBranch || "Pick a branch"}
+                        </span>
                       ) : (
-                        "Create"
-                      )}
-                    </Button>
-                  </Row>
-                </Stack>
-              </fieldset>
-            </Stack>
+                        <>
+                          <span className={styles.chipDim}>off</span>{" "}
+                          <span className={styles.branchName}>{baseBranch}</span>
+                        </>
+                      )
+                    }
+                    loading={loadingBranches}
+                    emptyMessage="No matching branches"
+                    searchPlaceholder="Search branches..."
+                    icon={<GitBranch size={12} />}
+                    className={styles.chip}
+                    maxWidth={200}
+                    listMaxHeight={260}
+                    aria-label="Branch"
+                    data-testid="new-workspace-base-branch-select"
+                  />
+                </div>
+              </div>
+              {error ? (
+                <div className={styles.error}>{error}</div>
+              ) : (
+                branchMissingMessage && (
+                  <div
+                    className={styles.hint}
+                    data-testid="new-workspace-branch-missing"
+                  >
+                    {branchMissingMessage}
+                  </div>
+                )
+              )}
+              <Row gap="sm" justify="flex-end" className={styles.actions}>
+                <Button type="button" variant="secondary" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={isCreating || waitingForBranches}
+                  className={styles.submit}
+                  data-testid="new-workspace-submit"
+                >
+                  {isCreating ? (
+                    <>
+                      <Loader2 size={14} className={styles.spinner} />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create"
+                  )}
+                </Button>
+              </Row>
+            </fieldset>
           </form>
           {cloneSession && cloneSource && (
             <CloneToHostDialog

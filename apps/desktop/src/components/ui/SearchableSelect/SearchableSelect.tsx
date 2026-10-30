@@ -22,7 +22,40 @@ export type SearchableSelectOption = {
   /** Shown after the label, before the check mark, and on the trigger when
    *  selected. */
   trailing?: React.ReactNode;
+  /**
+   * Heading of the group the option is listed under. Options with a group
+   * list in group order, each group under its heading, and the selected one
+   * stays in its place instead of being pinned first.
+   */
+  group?: string;
+  /** Why the option can't be picked: it stays listed, dimmed, with this as its hint. */
+  disabledReason?: string | null;
 };
+
+/** A row after the options that does something other than pick a value. */
+export type SearchableSelectAction = {
+  label: string;
+  icon?: React.ReactNode;
+  onSelect: () => void;
+  "data-testid"?: string;
+};
+
+type ListRow =
+  | { kind: "option"; option: SearchableSelectOption }
+  | { kind: "create"; query: string }
+  | { kind: "action"; action: SearchableSelectAction };
+
+const rowDisabled = (row: ListRow | undefined) =>
+  row?.kind === "option" && !!row.option.disabledReason;
+
+/** The next row from `from` in `step`'s direction that can be picked, wrapping. */
+function nextEnabled(rows: ListRow[], from: number, step: 1 | -1): number {
+  for (let i = 1; i <= rows.length; i++) {
+    const index = (((from + step * i) % rows.length) + rows.length) % rows.length;
+    if (!rowDisabled(rows[index])) return index;
+  }
+  return from;
+}
 
 type SearchableSelectProps = {
   value: string;
@@ -50,6 +83,12 @@ type SearchableSelectProps = {
   "aria-label"?: string;
   /** Max height of the options list in px. */
   listMaxHeight?: number;
+  /** Shown on the trigger in place of the selected option's label. */
+  triggerLabel?: React.ReactNode;
+  /** Rows after the options, below a divider; they close the list when picked. */
+  actions?: SearchableSelectAction[];
+  /** The search field's placeholder, in place of "Search..." */
+  searchPlaceholder?: string;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -70,11 +109,15 @@ export function SearchableSelect(props: SearchableSelectProps) {
     onCreate,
     createLabel = (q) => `Create "${q}"`,
     listMaxHeight = 200,
+    triggerLabel,
+    actions,
+    searchPlaceholder,
   } = props;
 
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [highlightIndex, setHighlightIndex] = useState(0);
+  // -1 until the user moves it: the first row that can be picked.
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -84,18 +127,26 @@ export function SearchableSelect(props: SearchableSelectProps) {
   );
   const selectedLabel = selected ? selected.label : placeholder;
 
-  // The selected option leads the list, above a divider.
+  const grouped = useMemo(() => options.some((o) => o.group), [options]);
+
+  // Ungrouped, the selected option leads the list, above a divider. Grouped,
+  // options keep their group's place, groups in the order they first appear.
   const filtered = useMemo(() => {
     const lower = search.toLowerCase();
     const matching = search
       ? options.filter((o) => o.label.toLowerCase().includes(lower))
       : options;
+    if (grouped) {
+      const order = [...new Set(matching.map((o) => o.group ?? ""))];
+      return order.flatMap((g) => matching.filter((o) => (o.group ?? "") === g));
+    }
     return [
       ...matching.filter((o) => o.value === value),
       ...matching.filter((o) => o.value !== value),
     ];
-  }, [options, search, value]);
-  const dividerAfterFirst = filtered.length > 1 && filtered[0].value === value;
+  }, [options, search, value, grouped]);
+  const dividerAfterFirst =
+    !grouped && filtered.length > 1 && filtered[0].value === value;
 
   // The text a create row would make, when there's one to offer.
   const createQuery = useMemo(() => {
@@ -106,14 +157,26 @@ export function SearchableSelect(props: SearchableSelectProps) {
       ? null
       : trimmed;
   }, [onCreate, options, search]);
-  // The create row sits after the options, so it's reachable by arrow key.
-  const rowCount = filtered.length + (createQuery ? 1 : 0);
+  // The create row and the actions sit after the options, so they're
+  // reachable by arrow key.
+  const rows = useMemo<ListRow[]>(
+    () => [
+      ...filtered.map((option) => ({ kind: "option" as const, option })),
+      ...(createQuery ? [{ kind: "create" as const, query: createQuery }] : []),
+      ...(actions ?? []).map((action) => ({ kind: "action" as const, action })),
+    ],
+    [filtered, createQuery, actions],
+  );
+  const rowCount = rows.length;
+  // A disabled first row hands the highlight to the next one that isn't.
+  const firstEnabled = rowDisabled(rows[0]) ? nextEnabled(rows, 0, 1) : 0;
+  const active = highlightIndex === -1 ? firstEnabled : highlightIndex;
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) {
       setSearch("");
-      setHighlightIndex(0);
+      setHighlightIndex(-1);
     }
   }, []);
 
@@ -122,61 +185,165 @@ export function SearchableSelect(props: SearchableSelectProps) {
       onChange(optionValue);
       setOpen(false);
       setSearch("");
-      setHighlightIndex(0);
+      setHighlightIndex(-1);
     },
     [onChange],
   );
+
+  const runAction = useCallback((action: SearchableSelectAction) => {
+    setOpen(false);
+    setSearch("");
+    setHighlightIndex(-1);
+    action.onSelect();
+  }, []);
 
   const create = useCallback(
     (query: string) => {
       onCreate?.(query);
       setOpen(false);
       setSearch("");
-      setHighlightIndex(0);
+      setHighlightIndex(-1);
     },
     [onCreate],
   );
 
+  const pickRow = useCallback(
+    (row: ListRow | undefined) => {
+      if (!row || rowDisabled(row)) return;
+      if (row.kind === "option") selectOption(row.option.value);
+      else if (row.kind === "create") create(row.query);
+      else runAction(row.action);
+    },
+    [selectOption, create, runAction],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (rowCount === 0) return;
+      // While loading, the list shows none of its rows.
+      if (rowCount === 0 || loading) return;
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlightIndex((prev) => (prev + 1) % rowCount);
+        setHighlightIndex(nextEnabled(rows, active, 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlightIndex((prev) => (prev <= 0 ? rowCount - 1 : prev - 1));
+        setHighlightIndex(nextEnabled(rows, active, -1));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        const target = filtered[highlightIndex];
-        if (target) {
-          selectOption(target.value);
-        } else if (createQuery) {
-          create(createQuery);
-        }
+        pickRow(rows[active]);
       }
     },
-    [rowCount, filtered, highlightIndex, selectOption, createQuery, create],
+    [rowCount, loading, rows, active, pickRow],
   );
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setSearch(e.target.value);
-      setHighlightIndex(0);
+      setHighlightIndex(-1);
     },
     [],
   );
-
   useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const el = list.children[highlightIndex] as HTMLElement | undefined;
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-row="${active}"]`,
+    );
     el?.scrollIntoView({ block: "nearest" });
-  }, [highlightIndex]);
+  }, [active]);
 
   const highlightedId =
-    rowCount > 0 ? `searchable-select-option-${highlightIndex}` : undefined;
+    rowCount > 0 && !loading ? `searchable-select-option-${active}` : undefined;
+
+  /** One row of the list, named by its index for aria-activedescendant. */
+  const renderRow = (row: ListRow, index: number) => {
+    const disabled = rowDisabled(row);
+    const highlighted = index === active && !disabled;
+    const common = {
+      id: `searchable-select-option-${index}`,
+      "data-row": index,
+      role: "option" as const,
+      "aria-selected": highlighted,
+      "aria-disabled": disabled || undefined,
+      onMouseEnter: () => {
+        if (!disabled) setHighlightIndex(index);
+      },
+      onMouseDown: (e: React.MouseEvent) => {
+        e.preventDefault();
+        pickRow(row);
+      },
+    };
+    const classes = (...extra: (string | false | undefined)[]) =>
+      [styles.option, highlighted && styles.optionHighlighted, ...extra]
+        .filter(Boolean)
+        .join(" ");
+
+    if (row.kind === "create") {
+      return (
+        <div
+          key="create"
+          {...common}
+          className={classes()}
+          data-testid={dataTestId ? `${dataTestId}-create` : undefined}
+        >
+          <Plus size={12} />
+          {createLabel(row.query)}
+        </div>
+      );
+    }
+    if (row.kind === "action") {
+      const first = index === rowCount - (actions?.length ?? 0);
+      return (
+        <div
+          key={`action-${index}`}
+          {...common}
+          className={classes(first && index > 0 && styles.actionFirst)}
+          data-testid={row.action["data-testid"]}
+        >
+          {row.action.icon}
+          <span className={styles.optionLabel}>{row.action.label}</span>
+        </div>
+      );
+    }
+    const { option } = row;
+    const previous = rows[index - 1];
+    const heading =
+      grouped &&
+      option.group &&
+      (previous?.kind !== "option" || previous.option.group !== option.group)
+        ? option.group
+        : null;
+    const hint = option.disabledReason || option.hint;
+    return (
+      <React.Fragment key={`${option.group ?? ""}:${option.value}`}>
+        {heading && (
+          <div
+            className={`${styles.groupHeading} ${index > 0 ? styles.groupHeadingAfter : ""}`}
+            role="presentation"
+          >
+            {heading}
+          </div>
+        )}
+        <div
+          {...common}
+          className={classes(
+            index === 0 && dividerAfterFirst && styles.optionSelected,
+            disabled && styles.optionDisabled,
+          )}
+        >
+          {option.icon}
+          <span className={styles.optionLabel}>
+            {option.label}
+            {hint && <span className={styles.optionHint}>{hint}</span>}
+          </span>
+          {option.trailing && (
+            <span className={styles.optionTrailing}>{option.trailing}</span>
+          )}
+          {option.value === value && (
+            <Check size={12} className={styles.optionCheck} />
+          )}
+        </div>
+      </React.Fragment>
+    );
+  };
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
@@ -201,7 +368,9 @@ export function SearchableSelect(props: SearchableSelectProps) {
         >
           <div className={styles.triggerContent}>
             {icon ?? selected?.icon}
-            <span className={styles.triggerText}>{selectedLabel}</span>
+            <span className={styles.triggerText}>
+              {triggerLabel ?? selectedLabel}
+            </span>
             {selected?.trailing && (
               <span className={styles.triggerTrailing}>{selected.trailing}</span>
             )}
@@ -222,7 +391,9 @@ export function SearchableSelect(props: SearchableSelectProps) {
         <input
           ref={inputRef}
           className={styles.searchInput}
-          placeholder={onCreate ? "Search or create..." : "Search..."}
+          placeholder={
+            searchPlaceholder ?? (onCreate ? "Search or create..." : "Search...")
+          }
           value={search}
           onChange={handleSearchChange}
           onKeyDown={handleKeyDown}
@@ -241,56 +412,13 @@ export function SearchableSelect(props: SearchableSelectProps) {
               <Loader2 size={14} className={styles.spinner} />
               Loading...
             </div>
-          ) : rowCount === 0 ? (
-            <div className={styles.empty}>{emptyMessage}</div>
           ) : (
-            filtered.map((option, index) => (
-              <div
-                key={option.value}
-                id={`searchable-select-option-${index}`}
-                role="option"
-                aria-selected={index === highlightIndex}
-                className={`${styles.option} ${index === highlightIndex ? styles.optionHighlighted : ""} ${index === 0 && dividerAfterFirst ? styles.optionSelected : ""}`}
-                onMouseEnter={() => setHighlightIndex(index)}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  selectOption(option.value);
-                }}
-              >
-                {option.icon}
-                <span className={styles.optionLabel}>
-                  {option.label}
-                  {option.hint && (
-                    <span className={styles.optionHint}>{option.hint}</span>
-                  )}
-                </span>
-                {option.trailing && (
-                  <span className={styles.optionTrailing}>
-                    {option.trailing}
-                  </span>
-                )}
-                {option.value === value && (
-                  <Check size={12} className={styles.optionCheck} />
-                )}
-              </div>
-            ))
-          )}
-          {!loading && createQuery && (
-            <div
-              id={`searchable-select-option-${filtered.length}`}
-              role="option"
-              aria-selected={highlightIndex === filtered.length}
-              className={`${styles.option} ${highlightIndex === filtered.length ? styles.optionHighlighted : ""}`}
-              data-testid={dataTestId ? `${dataTestId}-create` : undefined}
-              onMouseEnter={() => setHighlightIndex(filtered.length)}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                create(createQuery);
-              }}
-            >
-              <Plus size={12} />
-              {createLabel(createQuery)}
-            </div>
+            <>
+              {filtered.length === 0 && !createQuery && (
+                <div className={styles.empty}>{emptyMessage}</div>
+              )}
+              {rows.map(renderRow)}
+            </>
           )}
         </div>
       </Popover.Content>

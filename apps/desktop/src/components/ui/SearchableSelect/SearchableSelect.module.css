@@ -168,3 +168,40 @@
     transform: rotate(360deg);
   }
 }
+
+.optionDisabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* A group's name, above its first option; not a row the keyboard visits. */
+.groupHeading {
+  padding: 6px 12px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.groupHeadingAfter {
+  margin-top: 4px;
+  border-top: 1px solid var(--surface);
+  padding-top: 8px;
+}
+
+/* The actions follow the options, set off by a divider. */
+.actionFirst {
+  position: relative;
+  margin-top: 9px;
+}
+
+.actionFirst::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -5px;
+  border-top: 1px solid var(--surface);
+  pointer-events: none;
+}

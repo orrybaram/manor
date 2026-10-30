@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.24.1] - 2026-10-29
+
+### Features
+
+- Automations: The command palette has an **Automations** group. **New Automation** opens Settings → Automations on an empty automation, each automation opens its page in Settings, and **Run Now: <name>** starts a run and shows a toast saying it started or why it was refused.
+- Automations: The palette lists automations from This Mac and connected hosts, without waking a sleeping host. Remote automations show their host's name, and a project scope narrows the list. The palette also gains a **Settings: Automations** row.
+- The New Workspace dialog is now a composer card. The workspace name is its title, above the branch it makes. The agent prompt box is always visible, with host, project, folder and branch chips along its foot.
+- New Workspace: The branch chip picks a base to branch off or an existing branch to check out. The host chip's list ends with the set-up rows, such as **Set up on another host…**, and it names hosts as soon as they pair.
+
+### Fixes
+
+- When Manor is opened from the Dock or Finder, the shell now gets a UTF-8 character set. A prompt with multi-byte characters no longer leaves the first letter you type behind (`cclaude`). Only the character set changes, so message language and date formats stay the same, and a locale you set yourself always wins.
+
+### Improvements
+
+- Automations: Each automation in Settings → Automations is now a card that shows its full name over its schedule, project and agent. The next run shows as a pill, or Paused, above the last run's status.
+
 ## [0.24.0] - 2026-10-29
 
 ### Features

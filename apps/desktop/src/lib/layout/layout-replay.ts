@@ -160,6 +160,11 @@ export function mapUnderRoot(path: string, sourceRoot: string, targetRoot: strin
   return null;
 }
 
+/** C0 and C1 control characters and DEL. */
+function hasControlChars(value: string): boolean {
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
 function trimSeparator(path: string): string {
   return path.length > 1 && /[/\\]$/.test(path) ? path.slice(0, -1) : path;
 }
@@ -309,7 +314,11 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
       if (!sourceId || held.has(sourceId)) return;
       const lastCwd = paneSessions[sourceId]?.lastCwd;
       const mapped = lastCwd ? mapUnderRoot(lastCwd, sourceRoot, targetRoot) : null;
-      if (mapped && mapped !== trimSeparator(targetRoot)) cwds[node.paneId] = mapped;
+      // Typed into a shell as a `cd`: a control byte (Ctrl-U, CR) would
+      // defeat its quoting, so such a pane starts at the root instead.
+      if (mapped && mapped !== trimSeparator(targetRoot) && !hasControlChars(mapped)) {
+        cwds[node.paneId] = mapped;
+      }
     };
     walk(rootNode);
     return { id: newTabId(), title: tab.title, rootNode: remapLeaves(rootNode) };

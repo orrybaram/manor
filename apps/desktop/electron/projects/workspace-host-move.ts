@@ -208,6 +208,8 @@ export interface CreateOnTarget {
 export interface WorkspaceHostMoveDeps {
   /** Every project, this desktop's and adopted hosts', in the desktop's form. */
   projects(): Promise<ProjectInfo[]>;
+  /** Whether `project` is an adopted host's: its records are that host server's word. */
+  isAdopted(project: ProjectInfo): boolean;
   /** Throw for an unknown host; connect (waking) a remote one. */
   connect(hostId: string): Promise<void>;
   /** `hostId`'s git, wherever it is. */
@@ -633,8 +635,14 @@ export async function moveWorkspaceToHost(
     ? before.find((p) => p.id === pre.targetProjectId)
     : undefined;
   // A project set up during the move takes its start script from the
-  // group, so the source's stands in for it in the plan.
-  const startScript = (knownTarget ?? source).worktreeStartScript;
+  // source, so the source's stands in for it in the plan. An adopted
+  // host's scripts are that host's word, never run on another.
+  const carryScripts = !deps.isAdopted(source);
+  const startScript = knownTarget
+    ? knownTarget.worktreeStartScript
+    : carryScripts
+      ? source.worktreeStartScript
+      : null;
   const recreateSteps = await recreator.plan({
     projectId: source.id,
     hostId: sourceHostId,
@@ -677,12 +685,14 @@ export async function moveWorkspaceToHost(
 
     // The start and teardown scripts are each member's own, not the
     // group's: a project just set up on the target has none. Carry the
-    // source's over where the target has none, so a fresh box installs.
+    // source's over where the target has none, so a fresh box installs,
+    // unless the source is an adopted host's: a host could otherwise run
+    // whatever it reports as a script on this desktop or another host.
     const carried: Pick<Partial<ProjectInfo>, "worktreeStartScript" | "worktreeTeardownScript"> = {};
-    if (!target.worktreeStartScript && source.worktreeStartScript) {
+    if (carryScripts && !target.worktreeStartScript && source.worktreeStartScript) {
       carried.worktreeStartScript = source.worktreeStartScript;
     }
-    if (!target.worktreeTeardownScript && source.worktreeTeardownScript) {
+    if (carryScripts && !target.worktreeTeardownScript && source.worktreeTeardownScript) {
       carried.worktreeTeardownScript = source.worktreeTeardownScript;
     }
     if (Object.keys(carried).length > 0) {
@@ -837,6 +847,7 @@ export function createWorkspaceHostMoveDeps(server: {
 
   return {
     projects: () => pm.getProjects(),
+    isAdopted: onServer,
     async connect(hostId) {
       pm.assertKnownHost(hostId);
       if (hostId !== LOCAL_HOST_ID) await server.backendRegistry.ensureConnected(hostId);

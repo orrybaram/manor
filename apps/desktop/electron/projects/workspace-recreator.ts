@@ -285,7 +285,9 @@ export function workspaceRecreator(
         // An Agent whose tab an earlier try already put back was started then.
         const paneId = replay.paneIds[agent.paneId!];
         if (!paneId) continue;
-        const command = agentCommandFor(agent.agentKind, [base, agent.agentCommand]);
+        // Never the source record's own command: a remote host's records
+        // are its word, and this line is typed into the target's shell.
+        const command = agentCommandFor(agent.agentKind, [base]);
         // Queued before the apply that adds the pane: that apply launches it.
         await target.queue(paneId, command, "agent-startup", {
           prompt: await handoff(move, agent),

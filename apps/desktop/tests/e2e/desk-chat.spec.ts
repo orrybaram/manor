@@ -160,8 +160,11 @@ test.describe("desk chat view", () => {
     // 9. A split: the new pane is a plain shell, so it has no chat button.
     await pane.getByRole("button", { name: "Split pane" }).click();
     await expect(window.locator('[data-testid="workspace-pane"]')).toHaveCount(2, { timeout: 15_000 });
-    const otherId = await activePaneId(window);
-    expect(otherId).not.toBe(paneId);
+    const ids = await window
+      .locator('[data-testid="workspace-pane"]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")));
+    const otherId = ids.find((id) => id && id !== paneId)!;
+    expect(otherId).toBeTruthy();
     const other = paneLocator(window, otherId);
     await awaitShellReady(window, tempHome, otherId);
     await expect(other.getByTestId("pane-chat-toggle")).toHaveCount(0);

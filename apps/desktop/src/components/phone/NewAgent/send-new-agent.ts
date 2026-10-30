@@ -1,5 +1,6 @@
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "../../../agent-defaults";
 import { launchAgentInWorkspace } from "../../../lib/agent-prompt-launch";
+import { hasChat } from "../../../lib/agent-chat";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { worktreeNameFromPrompt } from "../../../utils/branch-name";
@@ -29,9 +30,9 @@ async function takenNames(project: ProjectInfo): Promise<Set<string>> {
   return taken;
 }
 
-/** Whether `project` launches Claude (a chat from the start). */
-function isClaude(project: ProjectInfo): boolean {
-  return getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND) === "claude";
+/** Whether `project` launches an agent that has a chat (open on it from the start). */
+function launchesChat(project: ProjectInfo): boolean {
+  return hasChat(getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND));
 }
 
 /** Start the agent in an existing workspace (or main) right away. */
@@ -41,7 +42,7 @@ function sendToWorkspace(prompt: string, resolved: ResolvedTarget<ProjectInfo>):
   // there was nowhere to open it, the composer and its draft stay.
   const opened = launchAgentInWorkspace(workspace.path, { prompt, hostId: project.hostId });
   if (!opened) return;
-  if (isClaude(project)) markChatStarting(opened.paneId, null, prompt);
+  if (launchesChat(project)) markChatStarting(opened.paneId, null, prompt);
   if (project.group) void useProjectStore.getState().setGroupLastUsedHost(project.group.id, hostId);
   useAppStore.getState().clearComposerDraft();
 }
@@ -54,7 +55,7 @@ function sendToWorkspace(prompt: string, resolved: ResolvedTarget<ProjectInfo>):
  */
 async function sendToNewWorktree(prompt: string, resolved: ResolvedTarget<ProjectInfo>): Promise<void> {
   const { project } = resolved;
-  const claude = isClaude(project);
+  const chat = launchesChat(project);
   useAppStore.getState().closeComposer();
   const name = worktreeNameFromPrompt(prompt, await takenNames(project));
   // No `branch`: the name is a dir slug, already a valid ref, and creation
@@ -63,7 +64,7 @@ async function sendToNewWorktree(prompt: string, resolved: ResolvedTarget<Projec
     baseBranch: baseBranchOf(resolved),
     agentPrompt: prompt,
     onAgentPane: (paneId) => {
-      if (claude) markChatStarting(paneId, null, prompt);
+      if (chat) markChatStarting(paneId, null, prompt);
     },
   });
   if (created !== null) useAppStore.getState().clearComposerDraft();

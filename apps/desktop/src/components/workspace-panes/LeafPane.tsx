@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, memo, lazy, Suspense } from "react";
+import { useRef, useState, useCallback, useEffect, memo, lazy, Suspense } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -78,7 +78,7 @@ import {
 import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
-import { togglePaneChat, useDeskChatDefault } from "../phone/ChatPane/pane-chat-toggle";
+import { focusShownView, togglePaneChat, useDeskChatDefault } from "../phone/ChatPane/pane-chat-toggle";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -152,6 +152,16 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const [chatOpened, setChatOpened] = useState(showChat);
   if (showChat && !chatOpened) setChatOpened(true);
   const mountChat = layoutMode === "phone" || chatOpened;
+  // A desk flip, asked for or not (the setting flips a pane whose transcript
+  // just landed), takes focus along to the shown view. The phone leaves focus
+  // alone: focusing the composer would raise its keyboard.
+  const shownBefore = useRef(showChat);
+  useEffect(() => {
+    if (shownBefore.current === showChat) return;
+    shownBefore.current = showChat;
+    if (layoutMode !== "desk") return;
+    return focusShownView(containerRef.current, showChat);
+  }, [showChat, layoutMode]);
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   // While the chat has handed the terminal a TUI menu, a key bar

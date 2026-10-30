@@ -221,7 +221,7 @@ function isOpenPicker(entry: ChatEntry): boolean {
 }
 
 type Resolved =
-  | ({ ok: true } & TranscriptTarget)
+  | ({ ok: true; kind: AgentKind } & TranscriptTarget)
   | { ok: false; reason: ChatUnavailableReason };
 
 export class ChatMirror {
@@ -282,7 +282,7 @@ export class ChatMirror {
     const caught = await this.catchUp(paneId);
     if (!caught.ok) return caught;
     const { m } = caught;
-    if (agentChat(this.deps.agentForPane(paneId)?.agentKind).commands !== "claude") {
+    if (agentChat(caught.kind).commands !== "claude") {
       return { ok: true, commands: [], skillsKnown: true };
     }
 
@@ -388,7 +388,7 @@ export class ChatMirror {
     if (!caught.ok) return caught;
     const { m } = caught;
     // An agent whose pickers can't be driven from the PTY is answered in its terminal.
-    if (!agentChat(this.deps.agentForPane(paneId)?.agentKind).answersPickers) {
+    if (!agentChat(caught.kind).answersPickers) {
       return { ok: false, reason: "unsupported" };
     }
 
@@ -459,6 +459,7 @@ export class ChatMirror {
     if (!agent.transcriptPath) return { ok: false, reason: "no-transcript" };
     return {
       ok: true,
+      kind: agent.agentKind,
       path: agent.transcriptPath,
       adapter,
       source: this.deps.sourceFor(agent),
@@ -495,13 +496,16 @@ export class ChatMirror {
    */
   private async catchUp(
     paneId: string,
-  ): Promise<{ ok: true; m: PaneMirror } | { ok: false; reason: ChatUnavailableReason }> {
+  ): Promise<
+    { ok: true; m: PaneMirror; kind: AgentKind } | { ok: false; reason: ChatUnavailableReason }
+  > {
     const resolved = this.resolve(paneId);
     if (!resolved.ok) return resolved;
     const m = this.point(paneId, resolved);
     await m.stream.read();
     if (m.stream.readError !== null) return { ok: false, reason: "host-offline" };
-    return { ok: true, m };
+    // The kind as it was when the read began: the agent may be gone by now.
+    return { ok: true, m, kind: resolved.kind };
   }
 
   /** What the pane's stream found: publish it, and settle what it answers. */

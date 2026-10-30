@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import { useAppStore } from "../../../store/app-store";
+import { selectPaneUrl, useAppStore } from "../../../store/app-store";
 import { toast } from "../../../toast";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
@@ -8,6 +8,9 @@ import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
 import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
+import { isLocalhostHttpUrl } from "../../../lib/hosts";
+import type { PageDialog } from "../../../../electron/webview-dialogs";
+import { PageDialogOverlay } from "./PageDialogOverlay";
 
 import styles from "./BrowserPane.module.css";
 
@@ -25,16 +28,6 @@ interface WebviewElement extends HTMLElement {
 interface WebviewTitleEvent extends Event {
   title: string;
 }
-
-/** Electron <webview> dialog event — returnValue must be set synchronously. */
-type WebviewDialogEvent = Event & {
-  readonly url: string;
-  readonly message: string;
-  readonly defaultPromptText: string;
-  readonly dialogType: "alert" | "confirm" | "prompt";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  returnValue: any;
-};
 
 export interface BrowserPaneNavState {
   url: string;
@@ -119,6 +112,20 @@ function formatPickedElement(result: PickedElementResult): string {
   return sections.join("\n\n");
 }
 
+/**
+ * The site a page dialog names: its origin's host. A remote pane's page is
+ * served through a port forward on this machine, so a loopback origin is
+ * named by the box's own address the pane remembers (`remembered`).
+ */
+function dialogSite(origin: string, remembered: string | null): string {
+  const source = remembered && isLocalhostHttpUrl(origin) && isLocalhostHttpUrl(remembered) ? remembered : origin;
+  try {
+    return new URL(source).host || source;
+  } catch {
+    return source;
+  }
+}
+
 // React 19 silently drops a boolean `allowpopups={true}` on <webview>, leaving
 // the attribute absent — which makes Electron block all guest window.open /
 // target=_blank before they reach setWindowOpenHandler. Emit it as a string
@@ -148,6 +155,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The page's open alert/confirm/prompt; the first is shown. The page is
+    // blocked on it, so there is rarely more than one.
+    const [dialogs, setDialogs] = useState<PageDialog[]>([]);
 
     const isDragActive = useDragOverlayStore(selectIsDragActive);
 
@@ -385,6 +395,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const remoteHostIdRef = useRef(remoteHostId);
     remoteHostIdRef.current = remoteHostId;
 
+    const answerDialog = (dialog: PageDialog, ok: boolean, text?: string) => {
+      void window.electronAPI.webview.replyDialog(dialog.id, ok, text);
+      setDialogs((open) => open.filter((d) => d.id !== dialog.id));
+      // Back to the page, unless the user has moved on elsewhere in Manor.
+      const active = document.activeElement;
+      if (active && active.closest("[data-testid='page-dialog']")) webviewRef.current?.focus();
+    };
+
     useMountEffect(() => {
       const wv = webviewRef.current;
       if (!wv) return;
@@ -419,30 +437,23 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         window.electronAPI.webview.register(paneId, webContentsId, remoteHostIdRef.current);
       };
 
-      // Handle JavaScript dialogs (alert, confirm, prompt) from the guest page.
-      // Without this handler Electron silently dismisses them.
-      const onDialog = (e: Event) => {
-        const de = e as WebviewDialogEvent;
-        if (de.dialogType === "alert") {
-          window.alert(de.message);
-          de.returnValue = { action: "accept" };
-        } else if (de.dialogType === "confirm") {
-          const ok = window.confirm(de.message);
-          de.returnValue = { action: ok ? "accept" : "dismiss" };
-        } else if (de.dialogType === "prompt") {
-          const result = window.prompt(de.message, de.defaultPromptText);
-          de.returnValue =
-            result !== null
-              ? { action: "accept", text: result }
-              : { action: "dismiss" };
-        }
-      };
-
       wv.addEventListener("did-navigate", onNavigate);
       wv.addEventListener("did-navigate-in-page", onNavigate);
       wv.addEventListener("page-title-updated", onTitleUpdate);
       wv.addEventListener("did-attach", onDidAttach);
-      wv.addEventListener("dialog", onDialog);
+
+      const unsubDialog = window.electronAPI.webview.onDialog(
+        (dialogPaneId: string, dialog: PageDialog) => {
+          if (dialogPaneId !== paneId) return;
+          setDialogs((open) => [...open, dialog]);
+        },
+      );
+      const unsubDialogClosed = window.electronAPI.webview.onDialogClosed(
+        (dialogPaneId: string, dialogId: string) => {
+          if (dialogPaneId !== paneId) return;
+          setDialogs((open) => open.filter((d) => d.id !== dialogId));
+        },
+      );
 
       const unsubPickerResult = window.electronAPI.webview.onPickerResult(
         (resultPaneId: string, result: PickedElementResult) => {
@@ -550,10 +561,11 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
-        wv.removeEventListener("dialog", onDialog);
         wv.removeEventListener("focus", onWebviewFocus);
         wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);
+        unsubDialog();
+        unsubDialogClosed();
         unsubPickerResult();
         unsubPickerCancel();
         unsubEscape();
@@ -596,6 +608,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             </div>
           ) : (
             isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>
+          )}
+          {dialogs[0] && (
+            <PageDialogOverlay
+              key={dialogs[0].id}
+              dialog={dialogs[0]}
+              site={dialogSite(dialogs[0].origin, remoteHostId ? selectPaneUrl(useAppStore.getState(), paneId) : null)}
+              onAnswer={(ok, text) => answerDialog(dialogs[0], ok, text)}
+            />
           )}
           {isDragActive && <div className={styles.dragOverlay} />}
         </div>

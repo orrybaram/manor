@@ -61,6 +61,68 @@
   height: 100%;
 }
 
+/* ── Page dialog (alert / confirm / prompt) ── */
+
+/* Covers only this pane: the page waits on its dialog, Manor doesn't. */
+.dialogScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.dialogCard {
+  width: min(320px, 100%);
+  max-height: 100%;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.dialogSite {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.dialogMessage {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dialogInput {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.dialogInput:focus {
+  border-color: var(--accent);
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 /* ── URL Autocomplete ── */
 
 .autocompleteDropdown {

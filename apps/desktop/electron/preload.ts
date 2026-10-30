@@ -7,6 +7,7 @@ import type { MenuContext } from "../src/lib/menu-commands";
 import type { RecordingCommand } from "../src/lib/webview-recorder";
 import { SubscriptionRegistry } from "../src/bridge/subscription-registry";
 import type { BridgeEvents } from "./bridge/events";
+import type { PageDialog } from "./webview-dialogs";
 import {
   BRIDGE_EVENT,
   BRIDGE_INVOKE,
@@ -308,6 +309,15 @@ const nativeApi = {
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
     ) => onChannelArgs("webview:audio-state-changed", callback),
+    /** A page's alert/confirm/prompt, to show in its pane (`webview-dialogs.ts`). */
+    onDialog: (callback: (paneId: string, dialog: PageDialog) => void) =>
+      onChannelArgs("webview:dialog", callback),
+    /** A dialog main dismissed itself: the page navigated, crashed or closed. */
+    onDialogClosed: (callback: (paneId: string, dialogId: string) => void) =>
+      onChannelArgs("webview:dialog-closed", callback),
+    /** The user's answer; `text` is a prompt's. */
+    replyDialog: (dialogId: string, ok: boolean, text?: string) =>
+      invoke("webview:dialog-reply", dialogId, ok, text),
   },
 
   /**

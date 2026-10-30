@@ -36,6 +36,7 @@ import { WebviewServer } from "../webview-server";
 import type { HostDeps } from "./types";
 import { resolveBindings } from "../../src/lib/keybinding-defs";
 import { createPageKeyHandler } from "./webview-keys";
+import { attachPageDialogs, registerPageDialogIpc } from "../webview-dialogs";
 import {
   buildPopupWindowOptions,
   closeAllChildWindows,
@@ -83,6 +84,7 @@ const webviewUnloadCleanup = new Map<string, () => void>();
 const webviewEventCleanup = new Map<string, () => void>();
 const webviewAudioCleanup = new Map<string, () => void>();
 const webviewPopupCleanup = new Map<string, () => void>();
+const webviewDialogCleanup = new Map<string, () => void>();
 
 export function createWebviewServer(getDeps: () => HostDeps): WebviewServer {
   return new WebviewServer(webviewRegistry, getDeps);
@@ -323,6 +325,8 @@ export function register(deps: HostDeps): void {
     pageBindings = resolveBindings(overrides, bindingPlatform).bindings;
   });
 
+  registerPageDialogIpc();
+
   ipcMain.handle(
     "webview:register",
     (
@@ -559,6 +563,13 @@ export function register(deps: HostDeps): void {
         webviewUnloadCleanup.set(paneId, () => {
           wc.off("will-prevent-unload", preventUnloadHandler);
         });
+
+        // alert/confirm/prompt as an overlay in the pane — see webview-dialogs.ts.
+        webviewDialogCleanup.get(paneId)?.();
+        webviewDialogCleanup.set(
+          paneId,
+          attachPageDialogs(paneId, wc, rendererWebContents),
+        );
       }
     },
   );
@@ -577,6 +588,8 @@ export function register(deps: HostDeps): void {
     webviewAudioCleanup.delete(paneId);
     webviewPopupCleanup.get(paneId)?.();
     webviewPopupCleanup.delete(paneId);
+    webviewDialogCleanup.get(paneId)?.();
+    webviewDialogCleanup.delete(paneId);
     deps.webviewServer.detachConsoleListener(paneId);
     deps.paneHosts.delete(paneId);
     webviewRegistry.delete(paneId);

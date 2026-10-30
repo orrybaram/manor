@@ -12,21 +12,21 @@ import { readFileText, toText } from "../file-text";
  */
 const diffTheme = EditorView.theme({
   "&.cm-merge-b .cm-changedLine": {
-    backgroundColor: "color-mix(in srgb, var(--green) 12%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--green) 7%, transparent)",
   },
   "&.cm-merge-b .cm-changedText": {
-    background: "color-mix(in srgb, var(--green) 26%, transparent)",
+    background: "color-mix(in srgb, var(--green) 12%, transparent)",
   },
   ".cm-deletedChunk": {
     paddingLeft: "0",
-    backgroundColor: "color-mix(in srgb, var(--red) 8%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--red) 5%, transparent)",
   },
   ".cm-deletedChunk .cm-deletedLine": { paddingLeft: "10px" },
   ".cm-deletedChunk .cm-deletedLine, .cm-deletedChunk del": {
     textDecoration: "none",
   },
   ".cm-deletedChunk .cm-deletedText": {
-    background: "color-mix(in srgb, var(--red) 22%, transparent)",
+    background: "color-mix(in srgb, var(--red) 10%, transparent)",
   },
   ".cm-changeGutter": { width: "3px", paddingLeft: "0" },
   "&.cm-merge-b .cm-changedLineGutter": { background: "var(--green)" },

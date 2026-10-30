@@ -22,6 +22,7 @@ import { ghRepoOf } from "../../src/lib/gh-repo";
 import { startAgentInWorkspace } from "./agents";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
 import type { Json, RouteContext, ServerRoute, ServerRouteDeps } from "./types";
+import { issuePrompt } from "../../src/lib/issue-prompt";
 
 type Ctx = RouteContext<ServerRouteDeps>;
 
@@ -385,12 +386,13 @@ function renderPrompt(
   ws: WorkspaceFromIssue,
 ): string {
   if (template) {
+    // Function replacers: a string one would expand `$&` written in the issue.
     return template
-      .replace(/\{number\}/g, String(ws.number))
-      .replace(/\{title\}/g, ws.title)
-      .replace(/\{body\}/g, ws.body ?? "");
+      .replace(/\{number\}/g, () => String(ws.number))
+      .replace(/\{title\}/g, () => ws.title)
+      .replace(/\{body\}/g, () => ws.body ?? "");
   }
-  return `Work on GitHub issue #${ws.number}: ${ws.title}.\n\n${ws.body ?? ""}`;
+  return issuePrompt(`GitHub issue #${ws.number}`, ws.title, ws.body);
 }
 
 /**

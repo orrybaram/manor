@@ -17,6 +17,7 @@ import { toast } from "../toast";
 import { sanitizeBranchName, branchesEqual } from "../utils/branch-name";
 import type { CommandPaletteProps } from "../components/command-palette/types";
 import type { GhRepo } from "./gh-repo";
+import { issuePrompt } from "./issue-prompt";
 
 export type NewWorkspaceHandler = CommandPaletteProps["onNewWorkspace"];
 
@@ -97,7 +98,7 @@ export function startGitHubIssueWork(
     projectId: project.id,
     name: issue.title,
     branch,
-    agentPrompt: issue.title + "\n\n" + (issue.body ?? ""),
+    agentPrompt: issuePrompt(`GitHub issue #${issue.number}`, issue.title, issue.body),
     linkedIssue,
   });
   assignIssueBestEffort(repo, issue.number);
@@ -135,7 +136,7 @@ export function startLinearIssueWork(
     projectId: project.id,
     name: issue.title,
     branch: issue.branchName,
-    agentPrompt: issue.title + "\n\n" + (issue.description ?? ""),
+    agentPrompt: issuePrompt(`Linear issue ${issue.identifier}`, issue.title, issue.description),
     linkedIssue,
   });
   // Best effort, like the GitHub assign. A host server without Linear turned

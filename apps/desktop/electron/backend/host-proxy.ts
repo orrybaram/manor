@@ -68,7 +68,7 @@ import type { PaneAgentStatusUpdate } from "../../src/electron";
 import type { LayoutBroadcast, LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
 import type { WorkspaceLayout } from "../../src/lib/layout/workspace-layout";
-import { keyFor, toDesktop, toDesktopResult, toHostArgs } from "../bridge/host-rewrite";
+import { hostRecord, keyFor, toDesktopResult, toHostArgs } from "../bridge/host-rewrite";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import {
   HostServerUnavailableError,
@@ -338,17 +338,17 @@ export class HostProxy {
 
   /** The host's projects, `hostId` stamped. */
   projects(): ProjectInfo[] {
-    return this.projectList.map((project) => toDesktop(this.hostId, project));
+    return this.projectList.map((project) => hostRecord(this.hostId, project));
   }
 
   /** The host's agents, `hostId` stamped. */
   agents(): AgentInfo[] {
-    return [...this.agentList.values()].map((agent) => toDesktop(this.hostId, agent));
+    return [...this.agentList.values()].map((agent) => hostRecord(this.hostId, agent));
   }
 
   /** The host's automation notifications, `hostId` stamped, newest first. */
   notifications(): NotificationRecord[] {
-    return this.notificationList.map((record) => toDesktop(this.hostId, record));
+    return this.notificationList.map((record) => hostRecord(this.hostId, record));
   }
 
   /** The host's panes' last Agent statuses. */
@@ -654,11 +654,11 @@ export class HostProxy {
     for (const agent of this.agentList.values()) {
       const was = before.get(agent.id);
       if (was && was.updatedAt === agent.updatedAt) continue;
-      const desktop = toDesktop(this.hostId, agent);
+      const desktop = hostRecord(this.hostId, agent);
       const flags = { responded: responded.has(agent.id), requires_input: input.has(agent.id) };
       if (this.opts.republishAgents) this.opts.bus.publish("agents", "updated", desktop, flags);
       if (was && was.lastAgentStatus !== agent.lastAgentStatus) {
-        this.opts.onAgentUpdate?.(desktop, flags, toDesktop(this.hostId, was));
+        this.opts.onAgentUpdate?.(desktop, flags, hostRecord(this.hostId, was));
       }
     }
   }
@@ -796,9 +796,9 @@ export class HostProxy {
     const previous = this.agentList.get(agent.id);
     this.agentList.set(agent.id, agent);
     this.saveSoon();
-    const desktop = toDesktop(this.hostId, agent);
+    const desktop = hostRecord(this.hostId, agent);
     if (this.opts.republishAgents) this.opts.bus.publish("agents", "updated", desktop, unseen);
-    this.opts.onAgentUpdate?.(desktop, unseen, previous && toDesktop(this.hostId, previous));
+    this.opts.onAgentUpdate?.(desktop, unseen, previous && hostRecord(this.hostId, previous));
   }
 
   private layoutMoved(

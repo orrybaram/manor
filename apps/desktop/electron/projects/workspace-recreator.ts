@@ -416,7 +416,8 @@ export function createWorkspaceRecreator(server: RecreatorServer): WorkspaceRecr
     ],
     transcript: (hostId, agent) => readAgentTranscript(sessionReads(server), hostId, agent),
     agentCommand: async (key) => resolveAgentCommand({ key, projects: await pm.getProjects() }),
-    hostName: (hostId) => hostDisplayName(pm, hostId),
+    // Mid-sentence in the handoff ("moved from this machine to …").
+    hostName: (hostId) => (hostId === LOCAL_HOST_ID ? "this machine" : hostDisplayName(pm, hostId)),
     async notePane(move, paneId, agentCommand) {
       // An adopted host's server launches the pane, and keeps its own.
       if (pm.isRemoteProject(move.targetProjectId)) return;

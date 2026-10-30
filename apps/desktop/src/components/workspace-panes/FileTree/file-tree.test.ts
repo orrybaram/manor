@@ -4,15 +4,15 @@ import { buildFileTree, flattenFileTree } from "./file-tree";
 const f = (path: string) => ({ path });
 
 describe("buildFileTree", () => {
-  it("nests files under directories, dirs and files sorted together", () => {
+  it("nests files under directories, dirs before files", () => {
     const tree = buildFileTree([
       f("src/b.ts"),
       f("README.md"),
       f("src/a.ts"),
       f("electron/main.ts"),
     ]);
-    expect(tree.map((n) => n.name)).toEqual(["electron", "README.md", "src"]);
-    const src = tree[2];
+    expect(tree.map((n) => n.name)).toEqual(["electron", "src", "README.md"]);
+    const src = tree[1];
     expect(src.kind).toBe("dir");
     if (src.kind !== "dir") return;
     expect(src.children.map((n) => n.name)).toEqual(["a.ts", "b.ts"]);
@@ -38,8 +38,8 @@ describe("buildFileTree", () => {
     if (src.kind !== "dir") throw new Error("expected dir");
     expect(src.name).toBe("src/sidebar");
     expect(src.children.map((n) => n.name)).toEqual([
-      "AgentsList.tsx",
       "AgentsView",
+      "AgentsList.tsx",
     ]);
   });
 
@@ -51,8 +51,8 @@ describe("buildFileTree", () => {
       f("top.ts"),
     ]);
     expect(flattenFileTree(tree).map((x) => x.path)).toEqual([
-      "src/b.ts",
       "src/inner/a.ts",
+      "src/b.ts",
       "src/z.ts",
       "top.ts",
     ]);

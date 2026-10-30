@@ -20,6 +20,8 @@ export type UiRequest =
   | { type: "rename-agent"; agentId: string }
   | { type: "merge-worktree"; projectId: string; path: string }
   | { type: "delete-worktree"; projectId: string; path: string }
+  /** Open the Move to Host dialog for a workspace; with no `hostId` it asks which host. */
+  | { type: "move-workspace-to-host"; projectId: string; path: string; hostId?: string }
   | { type: "remove-project"; projectId: string }
   | { type: "open-notifications" }
   | { type: "pane-search"; paneId: string }

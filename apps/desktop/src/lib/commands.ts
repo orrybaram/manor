@@ -853,6 +853,17 @@ export const COMMANDS: readonly CommandDef[] = [
     },
   },
   {
+    id: "move-workspace-to-host",
+    label: "Move Workspace to Host",
+    category: "workspace",
+    scope: "primary",
+    run: (ctx) => {
+      // The dialog asks which host.
+      const { project, path } = ctx.active();
+      if (project && path) ctx.requestUi({ type: "move-workspace-to-host", projectId: project.id, path });
+    },
+  },
+  {
     id: "project-settings",
     label: "Project Settings",
     category: "workspace",

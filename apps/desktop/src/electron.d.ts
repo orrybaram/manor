@@ -525,6 +525,14 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
+/** Moving a workspace to another host: its preflight and progress. */
+export type {
+  WorkspaceMovePreflight,
+  WorkspaceMoveRefusal,
+  WorkspaceMoveStep,
+  WorkspaceMoveStepId,
+} from "../electron/projects/workspace-host-move";
+
 /** A Session in an agent CLI's own store on a host: `sessions.list`'s rows. */
 export type { SessionSummary } from "../electron/sessions/types";
 /** `sessions.transcript`'s answer: a Session's last turns, for the Agents modal's preview. */

@@ -120,6 +120,19 @@ export function transferTargets(
   return disambiguateHostLabels(targets, hosts);
 }
 
+/**
+ * The hosts a workspace can move to: every host but its own, whether or
+ * not the project is set up there yet (the move sets it up). A host offline
+ * after a failed connect is disabled, as for a transfer.
+ */
+export function workspaceMoveTargets(
+  project: TransferProject,
+  hosts: readonly HostStatusInfo[],
+): TransferTarget[] {
+  // No projects: a host the group is already on is a target, not "taken".
+  return transferTargets(project, [], hosts, "move");
+}
+
 /** "In a new pod" for one host profile. */
 export interface NewHostTarget {
   kind: "newHost";

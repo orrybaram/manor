@@ -197,6 +197,19 @@ describe("abandoning a pane's agent", () => {
       expect(deps.statsStore.record).not.toHaveBeenCalled();
     });
 
+    it("records no kill for a mid-turn agent whose workspace moved, and ends it as moved", () => {
+      deps.agentManager.getAgentByPaneId.mockReturnValue({
+        id: "t1",
+        status: "active",
+        lastAgentStatus: "working",
+      });
+
+      createAgentService(deps as never).abandonForPanes([{ paneId: "pane-1" }], { moved: true });
+
+      expect(deps.statsStore.record).not.toHaveBeenCalled();
+      expect(deps.agentStatus.signal).toHaveBeenCalledWith("pane-1", { type: "user", action: "move" });
+    });
+
     it("does not record a kill for a non-active agent", () => {
       deps.agentManager.getAgentByPaneId.mockReturnValue({
         id: "t1",

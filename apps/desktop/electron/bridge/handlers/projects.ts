@@ -22,6 +22,8 @@
  * each host's server itself where they touch a remote project.
  */
 
+import type { PaneEnding } from "../../layout/layout-store";
+import crypto from "node:crypto";
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
 import type {
   CreateWorktreeOptions,
@@ -38,7 +40,19 @@ import {
   type OpenInNewHostInput,
   type OpenInNewHostResult,
 } from "../../projects/new-host-for-project";
-import { publishRendererBroadcast } from "../../renderer-broadcast";
+import {
+  createWorkspaceHostMoveDeps,
+  moveWorkspaceToHost,
+  preflightWorkspaceMove,
+  type WorkspaceHostMoveDeps,
+  type WorkspaceMovePreflight,
+  type WorkspaceMoveProgress,
+  type WorkspaceMoveRequest,
+  type WorkspaceMoveResult,
+} from "../../projects/workspace-host-move";
+import { createWorkspaceRecreator } from "../../projects/workspace-recreator";
+import { publishRendererBroadcast, publishToRenderer } from "../../renderer-broadcast";
+import { START_SCRIPT_MAX_WAIT_MS, type SetupScriptEnd } from "../../workspace-ops";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
@@ -213,6 +227,137 @@ export async function projectsTransfer(
   );
 }
 
+/** What a workspace move reads of the server: all of it the desktop's own. */
+type WorkspaceMoveServer = Pick<
+  SharedDeps,
+  | "projectManager"
+  | "workspaceOps"
+  | "backendRegistry"
+  | "hostRouting"
+  | "layoutStore"
+  | "agentManager"
+  | "paneContextMap"
+>;
+
+/**
+ * A workspace move over this server's own deps, layout and agents included.
+ * It waits for the start script as long as any host allows one
+ * (`START_SCRIPT_MAX_WAIT_MS`); the CLI's wait for a move is that and more.
+ */
+export function workspaceMoveDeps(deps: WorkspaceMoveServer): WorkspaceHostMoveDeps {
+  return createWorkspaceHostMoveDeps({
+    projectManager: deps.projectManager,
+    workspaceOps: deps.workspaceOps,
+    backendRegistry: deps.backendRegistry,
+    setupTimeoutMs: START_SCRIPT_MAX_WAIT_MS,
+    ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
+    recreator: createWorkspaceRecreator({
+      layoutStore: deps.layoutStore,
+      ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
+      agentManager: deps.agentManager,
+      projectManager: deps.projectManager,
+      paneContextMap: deps.paneContextMap,
+    }),
+  });
+}
+
+/** The workspaces a move is running for, as `<projectId>\0<path>`: one move each. */
+const activeWorkspaceMoves = new Set<string>();
+
+/**
+ * Run one workspace move, refusing a second of the same workspace while the
+ * first runs. Shared by the bridge and the control route.
+ */
+export async function runWorkspaceMove(
+  deps: WorkspaceMoveServer,
+  req: WorkspaceMoveRequest,
+  onProgress?: (event: WorkspaceMoveProgress) => void,
+): Promise<WorkspaceMoveResult> {
+  const lock = `${req.projectId}\0${req.path}`;
+  if (activeWorkspaceMoves.has(lock)) {
+    throw new Error("This workspace is already being moved.");
+  }
+  activeWorkspaceMoves.add(lock);
+  try {
+    return await moveWorkspaceToHost(workspaceMoveDeps(deps), req, onProgress);
+  } finally {
+    activeWorkspaceMoves.delete(lock);
+  }
+}
+
+/** A move's request off the wire, checked. */
+function assertMoveRequest(opts: {
+  projectId: string;
+  path: string;
+  targetHostId: string;
+}): void {
+  if (typeof opts !== "object" || opts === null) throw new Error("opts must be an object");
+  assertString(opts.projectId, "projectId");
+  assertString(opts.path, "path");
+  assertString(opts.targetHostId, "targetHostId");
+}
+
+/**
+ * What moving a workspace to `targetHostId` would do, and what refuses it,
+ * for the confirm dialog. Changes nothing.
+ */
+export async function projectsMoveWorkspaceToHostPreflight(
+  ctx: HandlerCtx<ServerDeps>,
+  opts: { projectId: string; path: string; targetHostId: string },
+): Promise<WorkspaceMovePreflight> {
+  assertMoveRequest(opts);
+  ctx.deps.projectManager.assertKnownHost(opts.targetHostId);
+  return preflightWorkspaceMove(workspaceMoveDeps(ctx.deps), {
+    projectId: opts.projectId,
+    path: opts.path,
+    targetHostId: opts.targetHostId,
+  });
+}
+
+/** One `projects.moveWorkspaceToHostProgress` frame: a move's plan or step, by its id. */
+export type WorkspaceMoveProgressEvent = WorkspaceMoveProgress & { moveId: string };
+
+/**
+ * Move a workspace to another host (`workspace-host-move.ts`), telling the
+ * caller each step as a `projects.moveWorkspaceToHostProgress` event that
+ * carries `moveId`: the caller's own, so it can listen before it asks, or
+ * a fresh one. Answers when the move ends, with the same id.
+ */
+export async function projectsMoveWorkspaceToHost(
+  ctx: HandlerCtx<ServerDeps>,
+  opts: {
+    projectId: string;
+    path: string;
+    targetHostId: string;
+    keepSource?: boolean;
+    moveId?: string;
+  },
+): Promise<WorkspaceMoveResult & { moveId: string }> {
+  assertMoveRequest(opts);
+  if (opts.keepSource !== undefined && opts.keepSource !== null && typeof opts.keepSource !== "boolean") {
+    throw new Error("keepSource must be a boolean");
+  }
+  if (opts.moveId !== undefined && opts.moveId !== null) assertString(opts.moveId, "moveId");
+  ctx.deps.projectManager.assertKnownHost(opts.targetHostId);
+  const moveId = opts.moveId ?? crypto.randomUUID();
+  const result = await runWorkspaceMove(
+    ctx.deps,
+    {
+      projectId: opts.projectId,
+      path: opts.path,
+      targetHostId: opts.targetHostId,
+      keepSource: opts.keepSource === true,
+    },
+    (event) => {
+      publishToRenderer(ctx.caller.id, "projects", "moveWorkspaceToHostProgress", {
+        ...event,
+        moveId,
+      });
+    },
+  );
+  return { ...result, moveId };
+}
+
 /**
  * "In a new pod": make a host from profile `profileId`, bring
  * it up, and clone `repoUrl` onto it — or, with `sourceProjectId` (Set up
@@ -332,9 +477,11 @@ export async function projectsRemoveWorktree(
   projectId: string,
   worktreePath: string,
   deleteBranch?: boolean,
+  ending?: PaneEnding | null,
 ): Promise<void> {
   // Through `workspaceOps`, which owes the stats counter and the
-  // `projects.changed` broadcast.
+  // `projects.changed` broadcast. `ending` comes off the wire: only a
+  // literal `moved: true` (a workspace move's removal) counts.
   await ctx.deps.workspaceOps.remove(
     projectId,
     worktreePath,
@@ -342,6 +489,7 @@ export async function projectsRemoveWorktree(
     (step: string) => {
       ctx.deps.workspaceOps.publishRemoveProgress(ctx.caller.id, step);
     },
+    ending?.moved === true ? { moved: true } : {},
   );
 }
 
@@ -369,7 +517,7 @@ export async function projectsCreateWorktree(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   name: string,
-  opts: Omit<CreateWorktreeOptions, "origin"> = {},
+  opts: Omit<CreateWorktreeOptions, "origin"> & { skipStartScript?: boolean } = {},
 ): Promise<ProjectInfo | null> {
   // Picked field by field rather than spread: `origin` is who asked, and that
   // is the transport's to say, never the frame's. The setup script starts on
@@ -383,8 +531,38 @@ export async function projectsCreateWorktree(
     useExistingBranch: opts.useExistingBranch,
     folderId: opts.folderId,
     origin: ctx.caller.id,
+    ...(opts.skipStartScript === true ? { skipStartScript: true } : {}),
   });
   return project;
+}
+
+/**
+ * Run a workspace's start script and wait for it to end, up to
+ * `timeoutMs` (10 minutes by default, 30 at most): for a caller that made
+ * the workspace with `skipStartScript` and readied it first (a move to
+ * another host). Null when the project has no start script.
+ */
+export async function projectsRunStartScript(
+  ctx: HandlerCtx<SharedDeps>,
+  projectId: string,
+  workspacePath: string,
+  timeoutMs?: number | null,
+): Promise<SetupScriptEnd | null> {
+  assertString(projectId, "projectId");
+  assertString(workspacePath, "workspacePath");
+  const wait =
+    typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? Math.min(timeoutMs, START_SCRIPT_MAX_WAIT_MS)
+      : 10 * 60_000;
+  const project = (await ctx.deps.projectManager.getProjects()).find((p) => p.id === projectId);
+  if (!project) throw new Error(`Unknown project "${projectId}".`);
+  if (!project.workspaces.some((ws) => ws.path === workspacePath)) {
+    throw new Error(`"${workspacePath}" is not a workspace of ${project.name}.`);
+  }
+  return ctx.deps.workspaceOps.runStartScript(project, workspacePath, {
+    timeoutMs: wait,
+    origin: ctx.caller.id,
+  });
 }
 
 export function projectsConvertMainToWorktree(
@@ -645,6 +823,7 @@ export const projects = {
     route: byProject(0),
   }),
   createWorktree: method(projectsCreateWorktree, { mutating: true, route: byProject(0) }),
+  runStartScript: method(projectsRunStartScript, { mutating: true, route: byProject(0) }),
   convertMainToWorktree: method(projectsConvertMainToWorktree, {
     mutating: true,
     route: byProject(0),
@@ -690,6 +869,15 @@ export const projects = {
   clone: method(projectsClone, { mutating: true, route: LOCAL_ROUTE }),
   moveToHost: method(projectsMoveToHost, { mutating: true, route: LOCAL_ROUTE }),
   transfer: method(projectsTransfer, { mutating: true, route: LOCAL_ROUTE }),
+  // A workspace's move to another host: orchestrated here, reaching both
+  // hosts itself. Its progress goes to the caller, by `moveId`.
+  moveWorkspaceToHostPreflight: method(projectsMoveWorkspaceToHostPreflight, {
+    route: LOCAL_ROUTE,
+  }),
+  moveWorkspaceToHost: method(projectsMoveWorkspaceToHost, {
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
   // Runs a recipe on this machine to start a box:
   // the desktop user's call alone, like `hosts.addRecipeHost`.
   openInNewHost: method(projectsOpenInNewHost, {

@@ -73,6 +73,7 @@ import { useHostStore } from "../../store/host-store";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
+import { WorkspaceMoveToHostMenu } from "./WorkspaceMoveToHostMenu";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { DeleteWorktreeDialog } from "./DeleteWorktreeDialog";
 import { BulkDeleteWorktreesDialog } from "./BulkDeleteWorktreesDialog";
@@ -1105,6 +1106,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 Remove from Folder
               </ContextMenu.Item>
             )}
+            {!ws.isMain && <WorkspaceMoveToHostMenu project={project} path={ws.path} />}
             {!ws.isMain && (
               <>
                 <ContextMenu.Separator

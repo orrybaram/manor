@@ -209,6 +209,39 @@ describe("create", () => {
     expect(result.setup).toEqual({ status: "timed-out" });
   });
 
+  it("with skipStartScript, makes the workspace but leaves its script", async () => {
+    deps.projectManager.createWorktree.mockResolvedValue(
+      project({ worktreeStartScript: "pnpm i", workspaces: [created] }),
+    );
+    const result = await ops.create({ projectId: "p1", name: "Feature", skipStartScript: true });
+    expect(result.workspacePath).toBe("/wt/feature");
+    expect(deps.runSetupScript).not.toHaveBeenCalled();
+  });
+
+  it("runStartScript runs the project's script and answers with how it ended", async () => {
+    deps.runSetupScript.mockImplementation(async (_p, _s, _h, _o, onEnd) => {
+      onEnd!({ status: "exited", exitCode: 4 });
+    });
+    const end = await ops.runStartScript(
+      { hostId: "remote-1", worktreeStartScript: "pnpm i" },
+      "/wt/feature",
+      { timeoutMs: 60_000, origin: "7" },
+    );
+    expect(end).toEqual({ status: "exited", exitCode: 4 });
+    expect(deps.runSetupScript).toHaveBeenCalledWith(
+      "/wt/feature",
+      "pnpm i",
+      "remote-1",
+      "7",
+      expect.any(Function),
+    );
+    expect(
+      await ops.runStartScript({ hostId: "local", worktreeStartScript: null }, "/wt/x", {
+        timeoutMs: 5,
+      }),
+    ).toBeNull();
+  });
+
   it("logs, rather than throws, when the last-used host write fails", async () => {
     const updated = project({ group: GROUP, workspaces: [created] });
     deps.projectManager.createWorktree.mockResolvedValue(updated);
@@ -389,13 +422,14 @@ describe("remove", () => {
     deps.projectManager.removeWorktree.mockResolvedValue(undefined);
     const onProgress = vi.fn();
 
-    await ops.remove("p1", "/wt/feature", true, onProgress);
+    await ops.remove("p1", "/wt/feature", true, onProgress, { moved: true });
 
     expect(deps.projectManager.removeWorktree).toHaveBeenCalledWith(
       "p1",
       "/wt/feature",
       true,
       onProgress,
+      { moved: true },
     );
     expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
     expect(deps.statsStore.record).toHaveBeenCalledWith("worktreesRemoved");

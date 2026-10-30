@@ -49,6 +49,7 @@ import { RemoveFromHostDialog } from "./components/sidebar/RemoveFromHostDialog"
 import { DeletePodDialogHost } from "./components/hosts/DeletePodDialogHost";
 import { ProfileEditorDialog } from "./components/settings/HostsPage/ProfileEditorDialog";
 import { useHostProfileStore } from "./store/host-profile-store";
+const MoveWorkspaceToHostDialogHost = lazy(() => import("./components/sidebar/MoveWorkspaceToHostDialog").then(m => ({ default: m.MoveWorkspaceToHostDialogHost })));
 const TransferDialogHost = lazy(() => import("./components/hosts/TransferDialogHost").then(m => ({ default: m.TransferDialogHost })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
@@ -973,6 +974,7 @@ function App() {
               onRemoteProjectAdded={handleRemoteProjectAdded}
             />
             <TransferDialogHost />
+            <MoveWorkspaceToHostDialogHost />
             {layoutMode === "desk" && <MoveToWorkspacePicker />}
             <RemoveFromHostDialog />
             <DeletePodDialogHost />

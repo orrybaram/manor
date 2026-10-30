@@ -49,6 +49,7 @@ import type { Theme } from "../../src/store/theme-store";
 import type { AppCommand } from "../renderer-bridge";
 import type { ChatPush } from "../chat-mirror/transcript";
 import type { PushProgressEvent } from "./handlers/branches-diffs";
+import type { WorkspaceMoveProgressEvent } from "./handlers/projects";
 import type { FileChangedEvent } from "../open-file-watcher";
 
 /**
@@ -101,6 +102,8 @@ export interface BridgeEvents {
     cloneProgress: [
       event: { status: "in-progress" | "done" | "error"; message?: string },
     ];
+    /** A workspace move's plan and steps, to the caller that asked, by `moveId`. */
+    moveWorkspaceToHostProgress: [event: WorkspaceMoveProgressEvent];
   };
   /**
    * The full host list whenever any host's status changes, and a remote host
@@ -258,6 +261,7 @@ export const SUBSCRIPTIONS = {
   "projects.onRemoveWorktreeProgress": "projects.removeWorktreeProgress",
   "projects.onWorktreeSetupProgress": "projects.worktreeProgress",
   "projects.onCloneProgress": "projects.cloneProgress",
+  "projects.onMoveWorkspaceToHostProgress": "projects.moveWorkspaceToHostProgress",
   "hosts.onStatusChanged": "hosts.statusChanged",
   "hosts.onReconnected": "hosts.reconnected",
   "hosts.onServerChanged": "hosts.serverChanged",

@@ -58,6 +58,7 @@ import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
 import { declinesWake, stringsIn, wakesHost } from "../bridge/routes";
 import type { BridgeForward } from "../bridge/server";
+import { START_SCRIPT_MAX_WAIT_MS } from "../workspace-ops";
 import {
   BridgeUnavailableRefusal,
   UNAVAILABLE_HOST_AWAY_CODE,
@@ -152,7 +153,17 @@ const LONG_CALLS = new Set([
 ]);
 const LONG_CALL_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * `projects.runStartScript` waits for a script up to the most the host
+ * allows (`START_SCRIPT_MAX_WAIT_MS`), so its answer is given that and a
+ * minute more.
+ */
+const START_SCRIPT_CALL_TIMEOUT_MS = START_SCRIPT_MAX_WAIT_MS + 60_000;
+
 function callTimeout(ns: string, method: string): { timeoutMs?: number } {
+  if (ns === "projects" && method === "runStartScript") {
+    return { timeoutMs: START_SCRIPT_CALL_TIMEOUT_MS };
+  }
   return LONG_CALLS.has(`${ns}.${method}`) ? { timeoutMs: LONG_CALL_TIMEOUT_MS } : {};
 }
 
@@ -868,20 +879,20 @@ export class HostRouting implements BridgeForward {
     return {
       list: () => this.proxies().flatMap((proxy) => proxy.projects()),
       owns: (hostId) => this.proxy(hostId) !== null,
-      call: async (hostId, method, args) => {
+      call: async (hostId, method, args, ns = "projects") => {
         const proxy = this.proxy(hostId);
         if (!proxy) {
           throw new BridgeUnavailableRefusal(`${hostId} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
         }
-        if (wakesHost("projects", method)) await this.wakeIfAsleep(hostId);
+        if (wakesHost(ns, method)) await this.wakeIfAsleep(hostId);
         let result: unknown;
         try {
-          result = await proxy.invoke("projects", method, args, callTimeout("projects", method));
+          result = await proxy.invoke(ns, method, args, callTimeout(ns, method));
         } catch (err) {
           throw this.refusal(proxy, err);
         }
         // The next read here sees the change, not the list from before it.
-        if (method === "selectWorkspace") {
+        if (ns === "projects" && method === "selectWorkspace") {
           proxy.noteSelectedWorkspace(args[0] as string, args[1] as number);
         } else {
           await proxy.refreshProjects();

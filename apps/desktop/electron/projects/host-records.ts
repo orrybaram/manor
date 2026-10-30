@@ -7,6 +7,17 @@ import { hostSpecLabel } from "../backend/providers/recipes";
 import { isHostSpec, LOCAL_HOST_ID, type HostSpec } from "../backend/types";
 import type { StateStore } from "./state-store";
 
+/**
+ * A host as the sidebar names it: "This machine", or the remote host's
+ * `label` (its ssh target or recipe name), which main reports for it.
+ */
+export function hostDisplayName(
+  hosts: { hostLabel(hostId: string): string },
+  hostId: string,
+): string {
+  return hostId === LOCAL_HOST_ID ? "This machine" : hosts.hostLabel(hostId);
+}
+
 export class HostRecords {
   constructor(private readonly store: StateStore) {}
 

@@ -67,7 +67,7 @@ import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { GitHubManager } from "../github";
 import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
-import { LayoutStore } from "../layout/layout-store";
+import { LayoutStore, workspaceLayoutOwner } from "../layout/layout-store";
 import { LinearManager } from "../linear";
 import { NotificationStore, type NotificationRecord } from "../notification-store";
 import { ProjectManager } from "../persistence";
@@ -342,13 +342,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId), dataDir, {
     // Removing a worktree or a project tears its layout down first, whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
     // Read at call time: the store is built just below.
-    layout: {
-      remove: (key) => layoutStore.remove(key),
-      take: async (entries): Promise<void> => {
-        await layoutStore.adopt(entries, null);
-      },
-      release: (keys): Promise<void> => layoutStore.release(keys),
-    },
+    layout: workspaceLayoutOwner((): LayoutStore => layoutStore),
     // Setup and clone progress go to the server's renderers.
     publish: bus.publishTo,
     // Adopted hosts' projects, from their servers.
@@ -429,7 +423,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     // legacy Home entry dropped on load. Read at call time: the agent side
     // is built below.
     {
-      abandonForPanes: (panes) => agentService.abandonForPanes(panes),
+      abandonForPanes: (panes, ending) => agentService.abandonForPanes(panes, ending),
       moveToWorkspace: (paneIds, workspacePath) =>
         agentService.moveToWorkspace(paneIds, workspacePath),
     },

@@ -116,7 +116,16 @@ describe("projects worktree calls", () => {
         "/path/to/wt",
         false,
         expect.any(Function),
+        {},
       );
+    });
+
+    it("passes a workspace move's ending on, and nothing else off the wire", async () => {
+      await projectsRemoveWorktree(ctxOf(deps), "p1", "/wt", false, { moved: true });
+      expect(deps.workspaceOps.remove.mock.calls[0][4]).toEqual({ moved: true });
+
+      await projectsRemoveWorktree(ctxOf(deps), "p1", "/wt", false, { moved: "yes" } as never);
+      expect(deps.workspaceOps.remove.mock.calls[1][4]).toEqual({});
     });
 
     it("addresses its progress to the caller that asked", async () => {

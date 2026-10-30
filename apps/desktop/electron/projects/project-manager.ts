@@ -13,6 +13,7 @@
  * reach here: the bridge forwards them to its host (`BridgeForward`).
  */
 
+import type { PaneEnding } from "../layout/layout-store";
 import crypto from "node:crypto";
 
 import { ExecShellBackend } from "../backend/exec-shell";
@@ -1317,8 +1318,9 @@ export class ProjectManager {
     worktreePath: string,
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
+    ending?: PaneEnding,
   ): Promise<void> {
-    return worktrees.removeWorktree(this.ctx, projectId, worktreePath, deleteBranch, onProgress);
+    return worktrees.removeWorktree(this.ctx, projectId, worktreePath, deleteBranch, onProgress, ending);
   }
 
   canQuickMerge(

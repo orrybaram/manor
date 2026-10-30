@@ -502,6 +502,13 @@ export function useCommands({
                     keywords: ["delete", "remove", "worktree", "branch"],
                     closeFirst: true as const,
                   },
+                  {
+                    command: "move-workspace-to-host",
+                    label: "Move Workspace to Host…",
+                    icon: <Server size={14} />,
+                    keywords: ["move", "host", "remote", "server", "pod", "transfer", "workspace"],
+                    closeFirst: true as const,
+                  },
                 ]),
             {
               command: "project-settings",

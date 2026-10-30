@@ -19,6 +19,9 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { hostSpecLabel } from "../backend/providers/recipes";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
+import { runWorkspaceMove } from "../bridge/handlers/projects";
+import { hostDisplayName } from "../projects/host-records";
+import type { WorkspaceMoveResult } from "../projects/workspace-host-move";
 import { startAgentInWorkspace } from "./agents";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
 import type { Json, RouteContext, ServerRoute, ServerRouteDeps } from "./types";
@@ -898,6 +901,94 @@ export const projectRoutes: ServerRoute[] = [
       await deps.projectManager.resyncDefaultBranches();
       deps.notifyProjectsChanged();
       json(200, { ok: true });
+    },
+  },
+];
+
+/** `POST /workspaces/move-to-host`'s answer: the move's, with both hosts named. */
+export type WorkspaceMoveAnswer = WorkspaceMoveResult & {
+  /** The source's host, as the sidebar names it ("This machine" for local). */
+  sourceHost: string;
+  /** The target's host id and its name, the same way. */
+  targetHostId: string;
+  targetHost: string;
+};
+
+/**
+ * The CLI's and MCP's `move_workspace_to_host`: move the workspace at
+ * `worktreePath` to `host` (a host id, an ssh target, or a label as listings
+ * show it), as the sidebar's Move to Host does. The project is the one with a
+ * workspace at that path; `projectId` picks one when two hosts have it.
+ * Answers when the move ends, 200 with its result: a refusal or a failed step
+ * is the move's answer, not an HTTP error.
+ *
+ * The desktop's alone (`./index.ts` lists it, `./server-routes.ts` does not):
+ * the move reaches both hosts from here, so a host server has no part in it.
+ */
+export const workspaceMoveRoutes: ServerRoute[] = [
+  {
+    method: "POST",
+    path: "/workspaces/move-to-host",
+    async handler({ deps, json, readBody }) {
+      const body = await readBody();
+      const { worktreePath, host, keepSource, projectId } = body;
+      if (typeof worktreePath !== "string" || !worktreePath) {
+        json(400, { error: "Missing 'worktreePath' string in request body" });
+        return;
+      }
+      if (typeof host !== "string" || !host) {
+        json(400, { error: "Missing 'host' string in request body" });
+        return;
+      }
+      if (keepSource !== undefined && typeof keepSource !== "boolean") {
+        json(400, { error: "'keepSource' must be a boolean" });
+        return;
+      }
+      if (projectId !== undefined && typeof projectId !== "string") {
+        json(400, { error: "'projectId' must be a string" });
+        return;
+      }
+      const pm = deps.projectManager;
+      const owners = (await pm.getProjects()).filter(
+        (p) =>
+          (projectId === undefined || p.id === projectId) &&
+          p.workspaces.some((ws) => ws.path === worktreePath),
+      );
+      if (owners.length === 0) {
+        json(404, { error: `Workspace not found: ${worktreePath}` });
+        return;
+      }
+      if (owners.length > 1) {
+        const list = owners.map((p) => `${p.id} (${p.name} on ${hostDisplayName(pm, p.hostId)})`);
+        json(400, {
+          error: `More than one project has a workspace at ${worktreePath}: ${list.join(", ")}. Pass projectId.`,
+        });
+        return;
+      }
+      const resolved = resolveHostArg(pm, host);
+      if (!resolved.ok) {
+        json(400, {
+          error:
+            resolved.reason === "unknown"
+              ? `Unknown host '${host}'.`
+              : `'${host}' names more than one host. Pass the host id instead.`,
+        });
+        return;
+      }
+      const [project] = owners;
+      const result = await runWorkspaceMove(deps, {
+        projectId: project.id,
+        path: worktreePath,
+        targetHostId: resolved.hostId,
+        keepSource: keepSource === true,
+      });
+      const answer: WorkspaceMoveAnswer = {
+        ...result,
+        sourceHost: hostDisplayName(pm, project.hostId),
+        targetHostId: resolved.hostId,
+        targetHost: hostDisplayName(pm, resolved.hostId),
+      };
+      json(200, answer);
     },
   },
 ];

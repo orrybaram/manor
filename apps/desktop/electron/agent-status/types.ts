@@ -44,6 +44,11 @@ export type UserAction =
   | "abandon"
   /** The session was ended from outside (`/sessions/end`). */
   | "end"
+  /**
+   * The pane's workspace moved to another host, where its Agent goes on as a
+   * fresh one (`workspace-host-move.ts`): this pane's Agent is done here.
+   */
+  | "move"
   /** The user looked at the pane (`agents:markSeen`, `/agents/:id/seen`). */
   | "markSeen";
 

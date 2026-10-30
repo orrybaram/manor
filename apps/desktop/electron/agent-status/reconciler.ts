@@ -77,6 +77,8 @@
  * User signals (`reconcileUser`)
  *  U1  abandon / end: an active Agent's lifecycle becomes `abandoned`; pane →
  *      idle and forgets its root.
+ *  U1a move: as U1, but the lifecycle becomes `completed`: the Agent goes on
+ *      on another host, so here it ended rather than was abandoned.
  *  U2  markSeen: clears the Agent's unseen flags; status unchanged.
  */
 
@@ -1039,10 +1041,17 @@ function reconcileUser(
 
   // `agents:abandonForPane` and `/sessions/end` both move only an *active*
   // Agent to `abandoned`; one that completed or errored keeps that outcome.
-  const reason = action === "abandon" ? "pane closed by the user" : "session ended by the user";
+  // A move ends it `completed`: it goes on on the other host.
+  const reason =
+    action === "abandon"
+      ? "pane closed by the user"
+      : action === "move"
+        ? "workspace moved to another host"
+        : "session ended by the user";
+  const to = action === "move" ? "completed" : "abandoned";
   const effects: Effect[] =
     agent && agent.status === "active"
-      ? [{ kind: "PersistAgentStatus", sessionId: agent.agentSessionId, transition: { to: "abandoned" } }]
+      ? [{ kind: "PersistAgentStatus", sessionId: agent.agentSessionId, transition: { to } }]
       : [];
   const next = { ...withStatus(withoutRoot(state), "idle", reason), kind: null };
   return result(state, next, reason, effects);

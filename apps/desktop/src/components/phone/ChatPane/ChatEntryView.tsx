@@ -168,17 +168,20 @@ function TurnEnd(props: TurnEndProps) {
     <div className={styles.turnEnd} data-testid="chat-turn-end">
       <GableMark />
       <span className={styles.turnEndText}>
-        <span className={styles.turnVerb}>{pastVerb(entry.id)}</span> for{" "}
-        <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+        <span className={styles.turnPhrase}>
+          <span className={styles.turnVerb}>{pastVerb(entry.id)}</span> for{" "}
+          <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+        </span>
+        {agents > 0 && (
+          <>
+            {" "}
+            <span aria-hidden>·</span>{" "}
+            <span className={styles.turnAgents}>
+              {agents === 1 ? "1 background agent" : `${agents} background agents`} still running
+            </span>
+          </>
+        )}
       </span>
-      {agents > 0 && (
-        <>
-          <span aria-hidden>·</span>
-          <span className={styles.turnAgents}>
-            {agents === 1 ? "1 background agent" : `${agents} background agents`} still running
-          </span>
-        </>
-      )}
     </div>
   );
 }

@@ -196,7 +196,7 @@ describe("ChatPane — entries", () => {
 
     expect(all("chat-thought")[0].textContent).toBe("·Thought for 5s");
     const [first, second] = all("chat-turn-end");
-    expect(first.textContent).toBe(`${pastVerb("e1")} for 2m 14s·2 background agents still running`);
+    expect(first.textContent).toBe(`${pastVerb("e1")} for 2m 14s · 2 background agents still running`);
     expect(first.querySelector("svg")).not.toBeNull();
     expect(second.textContent).toBe(`${pastVerb("e2")} for 48s`);
   });

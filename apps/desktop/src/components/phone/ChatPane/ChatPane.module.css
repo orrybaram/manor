@@ -420,6 +420,11 @@ button.toolLine:disabled {
   text-align: center;
 }
 
+/* Each phrase stays whole; between them the line may wrap. */
+.turnPhrase {
+  white-space: nowrap;
+}
+
 .turnVerb {
   color: var(--text-primary);
 }

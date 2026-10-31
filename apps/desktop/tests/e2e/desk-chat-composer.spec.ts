@@ -76,6 +76,12 @@ test.describe("desk chat composer", () => {
     await pane.getByTestId("pane-chat-toggle").click();
     await expect(chat.getByTestId("chat-user").filter({ hasText: FAKE_CHAT_PROMPT })).toBeVisible({ timeout: 20_000 });
 
+    // 0. Typed text starts on the transcript's left edge.
+    const textLeft = (el: Element) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft);
+    const entriesLeft = await chat.locator('[class*="entries"]').first().evaluate(textLeft);
+    expect(await input.evaluate(textLeft)).toBeCloseTo(entriesLeft, 0);
+    await film.shot(window, "composer-aligned");
+
     // 1. A prompt with a paste: the paste folds, its tags never show.
     append({
       type: "user",

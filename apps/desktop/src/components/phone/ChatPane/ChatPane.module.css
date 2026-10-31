@@ -1270,3 +1270,10 @@ button.editToggle {
 .chatPane[data-layout="desk"] .composerField {
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.12);
 }
+
+/* The field reaches past the gutters by its border and the textarea's left
+   padding, so typed text starts on the transcript's left edge. Not with an
+   attach button, which sits before the text. */
+.chatPane[data-layout="desk"] .composerField:has(> .composerInput:first-child) {
+  margin: 0 -13px;
+}

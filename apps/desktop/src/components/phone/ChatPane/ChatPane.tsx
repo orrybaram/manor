@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
-import type { ChatEntry, ChatHistory } from "../../../electron.d";
+import type { ChatEntry, ChatHistory, ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
@@ -107,6 +107,8 @@ export function ChatPane(props: ChatPaneProps) {
   const [settledIds, setSettledIds] = useState<Set<string> | null>(null);
   /** The session's context size; a fresh transcript remounts this. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  /** The session's model, effort and transcript branch; null until told. */
+  const [session, setSession] = useState<ChatSessionInfo | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
   /** The transcript's ended turn outranks a busy hook status, for display. */
   const [turnSettled, setTurnSettled] = useState(false);
@@ -163,6 +165,7 @@ export function ChatPane(props: ChatPaneProps) {
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
             if (history.turnState != null) turnSettle.setTurn(history.turnState);
+            if (history.session) setSession(history.session);
             setUnavailable(null);
           } else {
             shown = false;
@@ -186,9 +189,12 @@ export function ChatPane(props: ChatPaneProps) {
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
-      // The context size and turn state ride the entry channel but are no entries.
+      // The context size, turn state and session info ride the entry channel
+      // but are no entries.
       if (entry.kind === "usage") {
         setContextTokens(entry.contextTokens);
+      } else if (entry.kind === "session") {
+        setSession({ model: entry.model, effort: entry.effort, gitBranch: entry.gitBranch });
       } else if (entry.kind === "turn") {
         turnSettle.setTurn(entry.state);
         if (entry.state !== "working") clearQueuedPrompts(paneId);
@@ -397,6 +403,8 @@ export function ChatPane(props: ChatPaneProps) {
             transcript={transcript}
             contextTokens={contextTokens}
             runningTasks={runningTaskCount(items)}
+            session={session}
+            layout={layout}
           />
         </>
       )}

@@ -12,11 +12,12 @@
  * triggers that land while one is waiting coalesce into it.
  *
  * Everything it finds goes to its owner's `onPush`: each new or updated
- * entry, and the context size and turn state whenever they change.
+ * entry, and the context size, turn state and session info whenever they
+ * change.
  */
 
 import type { OversizedRecord, TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
-import type { ChatPush, ChatTurnState } from "./transcript";
+import type { ChatPush, ChatSessionInfo, ChatTurnState } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
 /** What a stream reads: one file, in one agent's format, from one host. */
@@ -46,6 +47,8 @@ export interface TranscriptStreamOptions {
   onReset?(): void;
 }
 
+const NO_SESSION_INFO: ChatSessionInfo = { model: null, effort: null, gitBranch: null };
+
 export class TranscriptStream {
   private target: { path: string | null; adapter: TranscriptAdapter; source: TranscriptSource | null };
   private currentParser: TranscriptLineParser;
@@ -57,6 +60,8 @@ export class TranscriptStream {
   private contextTokens: number | null = null;
   /** The turn state last pushed, or that the history carries. */
   private turnState: ChatTurnState | null = null;
+  /** The session info last pushed, or that the history carries. */
+  private sessionInfo: ChatSessionInfo = NO_SESSION_INFO;
   /** Bumped on every reset, so a read or timer from before it is discarded. */
   private currentGeneration = 0;
   /** Why the last read failed; null once one succeeds. */
@@ -172,6 +177,7 @@ export class TranscriptStream {
     this.primed = false;
     this.contextTokens = null;
     this.turnState = null;
+    this.sessionInfo = NO_SESSION_INFO;
     this.readError = null;
   }
 
@@ -227,8 +233,12 @@ export class TranscriptStream {
       // nowhere is a line still being written; the next trigger tries again.
       if (reached < result.size && this.offset > start) continue;
       this.pushContextTokens(this.primed);
-      // A task's turn is its launching tool's; only the pane's is published.
-      if (this.opts.child !== true) this.pushTurnState(this.primed);
+      // A task's turn is its launching tool's, and its model and branch the
+      // pane's session's: only the pane's are published.
+      if (this.opts.child !== true) {
+        this.pushTurnState(this.primed);
+        this.pushSessionInfo(this.primed);
+      }
       this.primed = true;
       if (replaced) this.opts.onPush({ kind: "reset", id: "reset", ts: new Date().toISOString() }, true);
       return;
@@ -271,6 +281,17 @@ export class TranscriptStream {
     if (state !== null) {
       this.opts.onPush({ kind: "turn", id: "turn", ts: new Date().toISOString(), state }, publish);
     }
+  }
+
+  /** Push the session info if any of it changed since the last push. */
+  private pushSessionInfo(publish: boolean): void {
+    const info = this.currentParser.sessionInfo();
+    const was = this.sessionInfo;
+    if (info.model === was.model && info.effort === was.effort && info.gitBranch === was.gitBranch) {
+      return;
+    }
+    this.sessionInfo = info;
+    this.opts.onPush({ kind: "session", id: "session", ts: new Date().toISOString(), ...info }, publish);
   }
 
   /** Push the context size if it changed since the last push. */

@@ -147,6 +147,29 @@ describe("pi session fixture", () => {
   });
 });
 
+describe("piAdapter parser, session info", () => {
+  it("takes the model and thinking level from the fixture, and names no branch", () => {
+    const parser = parseAll(fs.readFileSync(FIXTURE, "utf8"));
+    expect(parser.sessionInfo()).toEqual({ model: "claude-sonnet-4-5", effort: "medium", gitBranch: null });
+  });
+
+  it("follows a model change and the newest assistant message's model", () => {
+    const parser = piAdapter.createParser();
+    parser.push(line({ type: "model_change", id: "m1", parentId: null, provider: "anthropic", modelId: "claude-opus-5-5" }));
+    expect(parser.sessionInfo().model).toBe("claude-opus-5-5");
+    parser.push(
+      line({
+        type: "message",
+        id: "a1",
+        parentId: "m1",
+        message: { role: "assistant", content: [{ type: "text", text: "hi" }], model: "claude-haiku-5-5" },
+      }),
+    );
+    parser.push(line({ type: "thinking_level_change", id: "t1", parentId: "a1", thinkingLevel: "high" }));
+    expect(parser.sessionInfo()).toEqual({ model: "claude-haiku-5-5", effort: "high", gitBranch: null });
+  });
+});
+
 describe("piAdapter parser, line by line", () => {
   const user = (id: string, content: unknown) => line({ type: "message", id, message: { role: "user", content } });
   const assistant = (id: string, message: Record<string, unknown>) =>

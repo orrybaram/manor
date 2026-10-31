@@ -162,6 +162,26 @@ export type ChatTurn = {
 };
 
 /**
+ * What the transcript says about the session as of its newest main-thread
+ * line: the model and effort the agent last answered with, and the git
+ * branch it was on. Each is null until a line says, or when the agent's
+ * transcript never does.
+ */
+export type ChatSessionInfo = {
+  /** As written, e.g. `claude-opus-5-5`; the renderer names it for display. */
+  model: string | null;
+  /** e.g. `medium`. */
+  effort: string | null;
+  gitBranch: string | null;
+};
+
+/**
+ * The session info. Published by the mirror when it changes; never a
+ * `ChatEntry`, never drawn.
+ */
+export type ChatSession = { kind: "session"; id: "session"; ts: string } & ChatSessionInfo;
+
+/**
  * The transcript's history changed in place, not just at its end (opencode
  * deleted the rows `/undo` reverted): what was pushed before may be gone.
  * Published once the mirror has read the changed history; a subscriber
@@ -174,10 +194,10 @@ export type ChatReset = {
 };
 
 /**
- * What the `chat.entry` channel carries: an entry, a context-size or a
- * turn-state update, or word that the history changed.
+ * What the `chat.entry` channel carries: an entry, a context-size,
+ * turn-state or session-info update, or word that the history changed.
  */
-export type ChatPush = ChatEntry | ChatUsage | ChatTurn | ChatReset;
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn | ChatSession | ChatReset;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
@@ -578,6 +598,9 @@ export class TranscriptParser {
   private lastCommandId: string | null = null;
   private lastContextTokens: number | null = null;
   private turn: ChatTurnState | null = null;
+  private model: string | null = null;
+  private effort: string | null = null;
+  private gitBranch: string | null = null;
   /** The line being read is the main thread's, so it may move the turn. */
   private mainThread = true;
   /**
@@ -608,6 +631,15 @@ export class TranscriptParser {
    */
   turnState(): ChatTurnState | null {
     return this.turn;
+  }
+
+  /**
+   * The newest main-thread model, effort and git branch. Claude Code's own
+   * synthetic lines (an API error, an interrupt) name no real model, so
+   * they move neither model nor effort; sidechain lines move nothing.
+   */
+  sessionInfo(): ChatSessionInfo {
+    return { model: this.model, effort: this.effort, gitBranch: this.gitBranch };
   }
 
   /** Skills from the transcript's skill listings, sorted by name. */
@@ -693,6 +725,8 @@ export class TranscriptParser {
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true && !this.sidechain) return [];
     this.mainThread = parsed.isSidechain !== true;
+    const branch = str(parsed.gitBranch);
+    if (this.mainThread && branch) this.gitBranch = branch;
     const type = parsed.type;
     const ts = str(parsed.timestamp) ?? "";
     const uuid =
@@ -782,6 +816,10 @@ export class TranscriptParser {
     if (message.model !== "<synthetic>") {
       const size = contextSize(message.usage);
       if (size !== null) this.lastContextTokens = size;
+      if (this.mainThread) {
+        this.model = str(message.model) || this.model;
+        this.effort = str(parsed.effort) || str(parsed.perTurnEffort) || this.effort;
+      }
     }
     const stop = str(message.stop_reason);
     this.setTurn(stop !== undefined && TURN_ENDS.has(stop) ? "done" : "working");

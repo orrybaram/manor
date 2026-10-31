@@ -1187,3 +1187,71 @@ describe("TranscriptParser — edits", () => {
     expect(n).toMatchObject({ summary: "/a/c.ipynb" });
   });
 });
+
+describe("TranscriptParser — session info", () => {
+  function reply(uuid: string, msg: Record<string, unknown>, extra: Record<string, unknown> = {}): string {
+    return line({
+      type: "assistant",
+      uuid,
+      message: { role: "assistant", content: [{ type: "text", text: "ok" }], ...msg },
+      ...extra,
+    });
+  }
+
+  it("is all null before any line says", () => {
+    expect(new TranscriptParser().sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
+  });
+
+  it("keeps the newest model, effort and branch", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "hi", { gitBranch: "main" }));
+    expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: "main" });
+    p.push(reply("a1", { model: "claude-sonnet-5-5" }, { effort: "low", gitBranch: "main" }));
+    p.push(userBlocks("u2", "go on", { gitBranch: "feat/x" }));
+    p.push(reply("a2", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "feat/x" }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "feat/x" });
+  });
+
+  it("reads perTurnEffort when a line has no effort", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { perTurnEffort: "medium" }));
+    expect(p.sessionInfo().effort).toBe("medium");
+  });
+
+  it("keeps what it knew when a line leaves a field out", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "main" }));
+    p.push(reply("a2", {}, {}));
+    p.push(line({ type: "system", subtype: "turn_duration", gitBranch: "" }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("ignores a synthetic line's model and effort", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high" }));
+    p.push(
+      reply(
+        "a2",
+        { model: "<synthetic>", content: [{ type: "text", text: "API Error" }] },
+        { perTurnEffort: "low", isApiErrorMessage: true, gitBranch: "main" },
+      ),
+    );
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("ignores sidechain lines", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "main" }));
+    p.push(
+      reply("s1", { model: "claude-haiku-5-5" }, { effort: "low", gitBranch: "other", isSidechain: true }),
+    );
+    p.push(userBlocks("s2", "sub", { gitBranch: "other", isSidechain: true }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("says nothing of a task's own transcript, which is all sidechain", () => {
+    const p = new TranscriptParser({ sidechain: true });
+    p.push(reply("s1", { model: "claude-haiku-5-5" }, { effort: "low", gitBranch: "main", isSidechain: true }));
+    expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
+  });
+});

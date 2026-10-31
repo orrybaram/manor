@@ -215,6 +215,30 @@ describe("ChatPane — entries", () => {
     expect(container.querySelectorAll("[data-enter]")).toHaveLength(0);
   });
 
+  it("shows the session's model from history, and follows a session push", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [],
+      session: { model: "claude-opus-5-5", effort: "medium", gitBranch: null },
+    });
+    await renderChat();
+    expect(all("chat-model-chip")[0]?.textContent).toBe("Opus 5.5");
+    await act(async () =>
+      listener?.(PANE, {
+        kind: "session",
+        id: "session",
+        ts: "",
+        model: "claude-sonnet-5-5",
+        effort: "high",
+        gitBranch: null,
+      }),
+    );
+    expect(all("chat-model-chip")[0]?.textContent).toBe("Sonnet 5.5");
+    expect(all("chat-effort-chip")[0]?.textContent).toBe("high");
+    expect(container.textContent).toContain("Nothing in this conversation yet.");
+  });
+
   it("replaces what it shows with a fresh history on a reset push", async () => {
     const user = (id: string, text: string): ChatEntry => ({ kind: "user", id, ts: "", text });
     installChat({ ok: true, contextTokens: null, entries: [user("u1", "first"), user("u2", "undone")] });

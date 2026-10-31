@@ -156,6 +156,15 @@ describe("opencode parser, v1 rows", () => {
     expect(p.turnState()).toBe("interrupted");
   });
 
+  it("takes the model from the newest assistant message, and names no effort or branch", () => {
+    const p = opencodeAdapter.createParser();
+    expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
+    p.push(msg("msg_2", { role: "assistant", modelID: "claude-sonnet-5-5", providerID: "anthropic" }));
+    p.push(msg("msg_1", { role: "assistant", modelID: "gpt-5.5", providerID: "openai" }));
+    p.push(msg("msg_3", { role: "user" }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-sonnet-5-5", effort: null, gitBranch: null });
+  });
+
   it("keeps the session's order whatever order rows were updated in", () => {
     const p = opencodeAdapter.createParser();
     p.push(msg("msg_2", { role: "assistant" }));

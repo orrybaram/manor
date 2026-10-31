@@ -573,6 +573,7 @@ export type {
   ChatDiffHunk,
   ChatEntry,
   ChatPush,
+  ChatSessionInfo,
   ChatSkill,
   ChatTaskEntry,
   ChatTurnState,

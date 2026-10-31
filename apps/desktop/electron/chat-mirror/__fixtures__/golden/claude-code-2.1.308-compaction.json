@@ -1,6 +1,11 @@
 {
   "turnState": "done",
   "contextTokens": 265202,
+  "session": {
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "gitBranch": "feat/branch"
+  },
   "skills": 44,
   "entries": [
     {

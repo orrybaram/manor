@@ -1,5 +1,6 @@
 import type { PrInfo } from "../../../lib/pr-info";
 import type { DiffStats } from "../../../store/project-store";
+import { branchesEqual } from "../../../utils/branch-name";
 
 export type CiTone = "passing" | "failing" | "pending";
 
@@ -64,4 +65,54 @@ export function formatContextTokens(n: number): string {
 /** The status line's running-tasks chip: "2 running", or null with none. */
 export function runningChipLabel(count: number): string | null {
   return count > 0 ? `${count} running` : null;
+}
+
+/**
+ * A model id as people say it: `claude-opus-5-5` is "Opus 5.5",
+ * `claude-haiku-4-5-20251001` "Haiku 4.5", `claude-3-5-sonnet-20241022`
+ * "Sonnet 3.5". A date suffix and a context tag (`[1m]`) are dropped.
+ * Anything else (another vendor's model) is shown as written.
+ */
+export function modelDisplayName(model: string): string {
+  const id = model
+    .trim()
+    .replace(/\[[^\]]*\]$/, "")
+    .replace(/-\d{8}$/, "");
+  const familyFirst = /^claude-([a-z]+)((?:-\d+)+)$/i.exec(id);
+  const versionFirst = /^claude((?:-\d+)+)-([a-z]+)$/i.exec(id);
+  const family = familyFirst?.[1] ?? versionFirst?.[2];
+  const digits = familyFirst?.[2] ?? versionFirst?.[1];
+  if (!family || !digits) return model;
+  const version = digits.slice(1).split("-").join(".");
+  return `${family[0].toUpperCase()}${family.slice(1).toLowerCase()} ${version}`;
+}
+
+/** A branch as the phone's chip shows it: the part after the last "/". */
+export function shortBranchName(branch: string): string {
+  const i = branch.lastIndexOf("/");
+  return i === -1 || i === branch.length - 1 ? branch : branch.slice(i + 1);
+}
+
+export type BranchChip = {
+  /** The workspace's live branch. */
+  branch: string;
+  /**
+   * The branch the agent's transcript last named, when it differs from the
+   * workspace's; null when they agree or the transcript names none.
+   */
+  agentBranch: string | null;
+};
+
+/**
+ * The status line's branch chip: the workspace's live branch, flagged when
+ * the transcript's newest line says the agent is on another. Null without a
+ * workspace branch.
+ */
+export function branchChip(
+  workspaceBranch: string | null | undefined,
+  transcriptBranch: string | null | undefined,
+): BranchChip | null {
+  if (!workspaceBranch) return null;
+  const differs = !!transcriptBranch && !branchesEqual(transcriptBranch, workspaceBranch);
+  return { branch: workspaceBranch, agentBranch: differs ? transcriptBranch : null };
 }

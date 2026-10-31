@@ -14,7 +14,7 @@ import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal
 /**
  * The desk chat's composer and what it shows of a prompt: a paste folds to a
  * "Pasted N lines" row, Enter sends and Shift+Enter breaks the line, an image
- * pastes as its path, one round button is Stop or Send, a prompt sent
+ * pastes as a thumbnail and sends as its path, one round button is Stop or Send, a prompt sent
  * mid-turn shows as queued until its line lands, and an edit card opens its
  * file beside the chat.
  *
@@ -147,24 +147,38 @@ test.describe("desk chat composer", () => {
     await expect.poll(() => inputLog(inputLogFile), { timeout: 15_000 }).toContain("sent with enter" + ENTER);
     await expect(input).toHaveValue("");
 
-    // 4. A pasted image is uploaded and its path typed at the caret.
+    // 4. A pasted image shows as a thumbnail, and sends as its path after the text.
     await input.click();
     await window.evaluate(async () => {
       const el = document.activeElement as HTMLTextAreaElement;
-      // A 1×1 PNG.
-      const bytes = Uint8Array.from(
-        atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
-        (c) => c.charCodeAt(0),
-      );
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 120;
+      const ctx = canvas.getContext("2d")!;
+      const g = ctx.createLinearGradient(0, 0, 120, 120);
+      g.addColorStop(0, "#f5c2e7");
+      g.addColorStop(1, "#74c7ec");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 120, 120);
+      const blob = await new Promise<Blob>((done) => canvas.toBlob((b) => done(b!), "image/png"));
       const data = new DataTransfer();
-      data.items.add(new File([bytes], "shot.png", { type: "image/png" }));
+      data.items.add(new File([blob], "shot.png", { type: "image/png" }));
       el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     });
-    await expect(input).toHaveValue(/\/\S+\.png $/, { timeout: 15_000 });
-    const imagePath = (await input.inputValue()).trim();
+    const thumbs = chat.getByTestId("image-attachment");
+    await expect(thumbs).toHaveCount(1);
+    await expect(chat.locator("[data-uploading]")).toHaveCount(0, { timeout: 15_000 });
+    await expect(input).toHaveValue("");
+    await input.fill("what is this");
+    await film.shot(window, "image-attached");
+    await useTheme(window, "Catppuccin Latte");
+    await film.shot(window, "image-attached-light");
+    await useTheme(window, "Catppuccin Mocha");
+    await input.press("Enter");
+    await expect.poll(() => inputLog(inputLogFile), { timeout: 15_000 }).toMatch(/what is this \/\S+\.png\r/);
+    const imagePath = inputLog(inputLogFile).match(/what is this (\/\S+\.png)\r/)![1];
     expect(fs.existsSync(imagePath)).toBe(true);
-    await film.shot(window, "image-pasted");
-    await input.fill("");
+    await expect(thumbs).toHaveCount(0);
+    await expect(input).toHaveValue("");
 
     // 5. Mid-turn: one round button, Stop while empty and Send once typed.
     await input.fill("lose the stop hook");

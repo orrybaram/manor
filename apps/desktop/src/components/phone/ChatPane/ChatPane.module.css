@@ -634,6 +634,7 @@ button.more {
 /* The field: the textarea and its round buttons, inside one border. */
 .composerField {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px;
   padding: 3px;
@@ -705,6 +706,12 @@ button.more {
 
 .composerAttach ~ .composerInput {
   padding-left: 0;
+}
+
+/* Attached images: their own row, above the text. */
+.composerImages {
+  flex-basis: 100%;
+  padding-bottom: 0;
 }
 
 /* The `/` menu: floats above the composer, so it doesn't push
@@ -819,11 +826,6 @@ button.more {
 .composerError {
   font-size: 12px;
   color: var(--red);
-}
-
-.composerHint {
-  font-size: 12px;
-  color: var(--text-dim);
 }
 
 .commandRow {
@@ -1564,8 +1566,21 @@ button.editToggle {
 }
 
 /* The field reaches past the gutters by its border and the textarea's left
-   padding, so typed text starts on the transcript's left edge. Not with an
-   attach button, which sits before the text. */
-.chatPane[data-layout="desk"] .composerField:has(> .composerInput:first-child) {
+   padding, so typed text starts on the transcript's left edge. The attach
+   button moves to the end, beside Send, to keep it there. */
+.chatPane[data-layout="desk"] .composerField {
   margin: 0 -13px;
+}
+
+.chatPane[data-layout="desk"] .composerAttach {
+  order: 1;
+  margin-left: 0;
+}
+
+.chatPane[data-layout="desk"] .composerButton {
+  order: 2;
+}
+
+.chatPane[data-layout="desk"] .composerAttach ~ .composerInput {
+  padding-left: 12px;
 }

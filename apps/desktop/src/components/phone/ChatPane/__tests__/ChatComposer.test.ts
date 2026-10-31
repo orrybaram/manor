@@ -4,13 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { uploadPastedImage, isWebApp } = vi.hoisted(() => ({
-  uploadPastedImage: vi.fn(),
-  isWebApp: vi.fn(),
-}));
+const { uploadPastedImage } = vi.hoisted(() => ({ uploadPastedImage: vi.fn() }));
 
 vi.mock("../../../../lib/paste-image-upload", () => ({ uploadPastedImage }));
-vi.mock("../../../../lib/platform", () => ({ isWebApp }));
 vi.mock("../useSlashCommands", () => ({
   useSlashCommands: () => ({
     level: null,
@@ -34,7 +30,6 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  isWebApp.mockReturnValue(true);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -75,46 +70,104 @@ function paste(types: string[], file?: File): Event {
 
 const png = () => new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" });
 
-describe("ChatComposer image paste", () => {
-  it("inserts the uploaded path at the caret with a trailing space", async () => {
+function thumbs(): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-testid=image-attachment]"));
+}
+
+function sendButton(): HTMLButtonElement {
+  return container.querySelector<HTMLButtonElement>("[data-testid=chat-send]")!;
+}
+
+describe("ChatComposer images", () => {
+  const send = vi.fn();
+
+  beforeEach(() => {
+    send.mockResolvedValue(undefined);
+    (window as unknown as { electronAPI: unknown }).electronAPI = { chat: { send } };
+  });
+
+  it("shows a pasted image as a thumbnail, not a path", async () => {
     uploadPastedImage.mockResolvedValue("/tmp/img.png");
-    typeAt("hello world", 5);
+    typeAt("hello", 5);
 
     const event = paste(["Files"], png());
     expect(event.defaultPrevented).toBe(true);
-    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File));
-    expect(container.querySelector("[data-testid=chat-composer-uploading]")).not.toBeNull();
-    expect(container.querySelector<HTMLButtonElement>("[data-testid=chat-send]")!.disabled).toBe(
-      true,
-    );
+    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File), {
+      signal: expect.any(AbortSignal),
+    });
+    expect(thumbs()).toHaveLength(1);
+    expect(thumbs()[0].dataset.uploading).toBe("true");
+    expect(sendButton().disabled).toBe(true);
 
     await act(async () => {});
-    expect(input().value).toBe("hello/tmp/img.png  world");
-    expect(container.querySelector("[data-testid=chat-composer-uploading]")).toBeNull();
+    expect(input().value).toBe("hello");
+    expect(thumbs()[0].dataset.uploading).toBeUndefined();
+    expect(sendButton().disabled).toBe(false);
   });
 
-  it("keeps text typed while the image uploads", async () => {
-    let resolve!: (path: string) => void;
-    uploadPastedImage.mockReturnValue(new Promise<string>((r) => (resolve = r)));
-    typeAt("hello", 5);
+  it("sends the text, then each path in the order added, and clears the images", async () => {
+    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
+    typeAt("look at these  ", 15);
+    pick(png(), png());
+    await act(async () => {});
 
-    paste(["Files"], png());
-    typeAt("hello there", 11);
-    await act(async () => resolve("/tmp/img.png"));
-
-    expect(input().value).toBe("hello/tmp/img.png  there");
+    await act(async () => sendButton().click());
+    expect(send).toHaveBeenCalledWith("p1", "look at these /tmp/a.png /tmp/b.png");
+    expect(thumbs()).toHaveLength(0);
   });
 
-  it("appends the path when the text before the paste changed", async () => {
-    let resolve!: (path: string) => void;
-    uploadPastedImage.mockReturnValue(new Promise<string>((r) => (resolve = r)));
-    typeAt("hello", 5);
-
+  it("sends images alone", async () => {
+    uploadPastedImage.mockResolvedValue("/tmp/a.png");
+    expect(sendButton().disabled).toBe(true);
     paste(["Files"], png());
+    await act(async () => {});
+    expect(sendButton().disabled).toBe(false);
+    await act(async () => sendButton().click());
+    expect(send).toHaveBeenCalledWith("p1", "/tmp/a.png");
+  });
+
+  it("leaves a removed image out of the message", async () => {
+    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
     typeAt("hi", 2);
-    await act(async () => resolve("/tmp/img.png"));
+    pick(png(), png());
+    await act(async () => {});
 
-    expect(input().value).toBe("hi/tmp/img.png ");
+    act(() => thumbs()[0].querySelector<HTMLButtonElement>("[data-testid=image-attachment-remove]")!.click());
+    expect(thumbs()).toHaveLength(1);
+    await act(async () => sendButton().click());
+    expect(send).toHaveBeenCalledWith("p1", "hi /tmp/b.png");
+  });
+
+  it("cancels an image removed while it uploads", async () => {
+    let resolve!: (path: string) => void;
+    uploadPastedImage.mockReturnValue(new Promise<string>((r) => (resolve = r)));
+    typeAt("hi", 2);
+    paste(["Files"], png());
+    act(() => thumbs()[0].querySelector<HTMLButtonElement>("[data-testid=image-attachment-remove]")!.click());
+    expect(sendButton().disabled).toBe(false);
+    const { signal } = uploadPastedImage.mock.calls[0][2] as { signal: AbortSignal };
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolve("/tmp/a.png"));
+    expect(thumbs()).toHaveLength(0);
+    await act(async () => sendButton().click());
+    expect(send).toHaveBeenCalledWith("p1", "hi");
+  });
+
+  it("keeps an image added while the message sends", async () => {
+    let sent!: () => void;
+    send.mockReturnValue(new Promise<void>((r) => (sent = r)));
+    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
+    typeAt("hi", 2);
+    paste(["Files"], png());
+    await act(async () => {});
+    await act(async () => sendButton().click());
+    paste(["Files"], png());
+    await act(async () => {});
+    await act(async () => sent());
+
+    expect(send).toHaveBeenCalledWith("p1", "hi /tmp/a.png");
+    expect(thumbs()).toHaveLength(1);
+    expect(thumbs()[0].dataset.uploading).toBeUndefined();
   });
 
   it("leaves a text paste alone", () => {
@@ -123,19 +176,26 @@ describe("ChatComposer image paste", () => {
     expect(uploadPastedImage).not.toHaveBeenCalled();
   });
 
-  it("uploads a pasted image in the desktop app too", () => {
-    isWebApp.mockReturnValue(false);
-    const event = paste(["Files"], png());
-    expect(event.defaultPrevented).toBe(true);
-    expect(uploadPastedImage).toHaveBeenCalled();
-  });
-
-  it("shows an upload error in the error slot", async () => {
+  it("drops a failed image and shows why", async () => {
     uploadPastedImage.mockRejectedValue(new Error("Image is too large"));
     paste(["Files"], png());
     await act(async () => {});
     expect(container.textContent).toContain("Image is too large");
-    expect(container.querySelector("[data-testid=chat-composer-uploading]")).toBeNull();
+    expect(thumbs()).toHaveLength(0);
+  });
+
+  it("attaches dropped images and ignores other files", () => {
+    uploadPastedImage.mockResolvedValue("/tmp/a.png");
+    const field = input().parentElement!;
+    const event = new Event("drop", { bubbles: true, cancelable: true });
+    const pdf = new File(["x"], "a.pdf", { type: "application/pdf" });
+    Object.defineProperty(event, "dataTransfer", { value: { types: ["Files"], files: [pdf, png()] } });
+    act(() => {
+      field.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(uploadPastedImage).toHaveBeenCalledTimes(1);
+    expect(thumbs()).toHaveLength(1);
   });
 });
 
@@ -157,31 +217,11 @@ describe("ChatComposer attach button", () => {
     expect(click).toHaveBeenCalled();
   });
 
-  it("inserts a picked image's path at the caret", async () => {
+  it("adds each picked image as a thumbnail", () => {
     uploadPastedImage.mockResolvedValue("/tmp/img.png");
-    typeAt("hello world", 6);
-
-    pick(png());
-    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File));
-    await act(async () => {});
-    expect(input().value).toBe("hello /tmp/img.png world");
-  });
-
-  it("inserts several picked images in the order picked", async () => {
-    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
-    typeAt("see  please", 4);
     pick(png(), png());
-    await act(async () => {});
-    await act(async () => {});
-    expect(input().value).toBe("see /tmp/a.png /tmp/b.png  please");
-  });
-
-  it("is hidden outside the web app", () => {
-    isWebApp.mockReturnValue(false);
-    act(() => {
-      root.render(createElement(ChatComposer, { paneId: "p2", agentKind: "claude", busy: false }));
-    });
-    expect(container.querySelector("[data-testid=chat-attach]")).toBeNull();
+    expect(uploadPastedImage).toHaveBeenCalledTimes(2);
+    expect(thumbs()).toHaveLength(2);
   });
 });
 

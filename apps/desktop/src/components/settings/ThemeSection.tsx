@@ -10,7 +10,6 @@ import { SectionTitle } from "./SectionTitle";
 import { ThemeEditor } from "./ThemePicker/ThemeEditor";
 import {
   THEME_FILTERS,
-  THEME_SORTS,
   copyName,
   filterCounts,
   gridMove,
@@ -18,6 +17,7 @@ import {
   type ThemeFilter,
   type ThemeSort,
 } from "./ThemePicker/theme-picker";
+import { ThemeSortMenu } from "./ThemePicker/ThemeSortMenu";
 import styles from "./ThemePicker/ThemePicker.module.css";
 
 const EMPTY: ThemeCatalog = { themes: [], recent: [] };
@@ -246,21 +246,7 @@ export function ThemeSection() {
               autoFocus
               aria-label="Search themes"
             />
-            <div className={styles.sort} role="radiogroup" aria-label="Sort themes">
-              {THEME_SORTS.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={sort === o.id}
-                  className={`${styles.sortButton} ${sort === o.id ? styles.sortButtonActive : ""}`}
-                  onClick={() => setSort(o.id)}
-                  data-testid={`theme-sort-${o.id}`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            <ThemeSortMenu sort={sort} onChange={setSort} />
           </div>
           <div
             ref={wallRef}

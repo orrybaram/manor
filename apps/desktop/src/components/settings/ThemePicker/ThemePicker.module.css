@@ -74,33 +74,10 @@
   min-width: 0;
 }
 
-.sort {
-  display: flex;
-  flex-shrink: 0;
-  padding: 2px;
-  border: 1px solid var(--control-border, var(--surface));
-  border-radius: 6px;
-}
-
-.sortButton {
-  padding: 0 10px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.sortButton:hover {
-  color: var(--text-selected);
-}
-
-.sortButtonActive,
-.sortButtonActive:hover {
-  background: var(--surface);
-  color: var(--text-selected);
+/* The Tasks view's Display popover, above the Settings modal. */
+.sortPopover {
+  composes: popover from "../../tasks/TaskDisplayMenu.module.css";
+  z-index: 200;
 }
 
 .wall {

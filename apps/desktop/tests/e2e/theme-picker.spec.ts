@@ -294,17 +294,22 @@ test.describe("Settings › Theme", () => {
     await expect(tile(window, names[columns + 1])).toHaveAttribute("aria-selected", "true");
 
     // Sort by background colour: greys first, then round the hue wheel.
+    await window.getByTestId("theme-sort-menu").click();
     await window.getByTestId("theme-sort-color").click();
-    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-checked", "true");
+    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-pressed", "true");
+    await shot(window, testInfo, "21-sort-menu");
+    await window.keyboard.press("Escape");
+    await window.getByTestId("theme-wall").focus();
     const byColor = await tileNames(window);
     expect(byColor).not.toEqual(names);
     expect([...byColor].sort()).toEqual([...names].sort());
     await window.getByTestId("theme-wall").evaluate((el) => (el.scrollTop = 0));
-    await shot(window, testInfo, "21-sort-by-color");
+    await shot(window, testInfo, "22-sort-by-color");
     // Remembered across opens.
     await closeSettings(window);
     await openThemes(window);
-    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-checked", "true");
+    await window.getByTestId("theme-sort-menu").click();
+    await expect(window.getByTestId("theme-sort-color")).toHaveAttribute("aria-pressed", "true");
     await window.getByTestId("theme-sort-name").click();
     await expect.poll(() => tileNames(window)).toEqual(names);
   });

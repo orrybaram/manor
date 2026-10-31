@@ -1,6 +1,11 @@
 {
   "turnState": "working",
   "contextTokens": 80102,
+  "session": {
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "gitBranch": "feat/branch"
+  },
   "skills": 0,
   "entries": [
     {
@@ -8,6 +13,13 @@
       "id": "00000000-0000-4000-8000-000000000005:0",
       "ts": "2026-01-01T00:00:00.000Z",
       "text": "L consequat sit lorem ipsum do `pariatur` sed tempor ut et `amet`, dolor non eiusmod `labore/elit`. I dolore enim qui quis magna D nostrud est nisi sit sed `Ad-Occaecat-Ex` duis, non qui aute esse.\n\nEst minim irure velit's sint ullamco ea sit laboris sed."
+    },
+    {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-00000000000a",
+      "ts": "2026-01-01T00:00:00.085Z",
+      "durationMs": 7429,
+      "backgroundAgents": 0
     },
     {
       "kind": "user",

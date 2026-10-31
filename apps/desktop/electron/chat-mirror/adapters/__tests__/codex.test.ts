@@ -48,6 +48,17 @@ describe("the Codex fixture", () => {
     );
   });
 
+  it("takes the model from the newest turn_context, and names no effort or branch it lacks", () => {
+    expect(parseFixture().sessionInfo()).toEqual({ model: "gpt-5.5-codex", effort: null, gitBranch: null });
+  });
+
+  it("reads a turn_context's effort when it carries one", () => {
+    const p = new CodexRolloutParser();
+    p.push(line("turn_context", { cwd: "/w", model: "gpt-5.5-codex", effort: "high" }));
+    p.push(line("turn_context", { cwd: "/w", model: "gpt-5.5" }));
+    expect(p.sessionInfo()).toEqual({ model: "gpt-5.5", effort: "high", gitBranch: null });
+  });
+
   it("reads the prompts as typed, never Codex's injected context, each once", () => {
     const users = of(parseFixture().entries(), "user").map((e) => e.text);
     expect(users).toEqual([

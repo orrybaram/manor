@@ -1,13 +1,31 @@
 {
   "turnState": "done",
   "contextTokens": 136702,
+  "session": {
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "gitBranch": "feat/branch"
+  },
   "skills": 0,
   "entries": [
+    {
+      "kind": "thought",
+      "id": "msg_461Iy6WXkL5PPTw2Ep9ouvav:thought",
+      "ts": "2026-01-01T00:00:02.994Z",
+      "durationMs": 2362
+    },
     {
       "kind": "assistant",
       "id": "00000000-0000-4000-8000-00000000000a:0",
       "ts": "2026-01-01T00:00:03.000Z",
       "text": "L labore'i lorem do. Sit enim-quis adipiscing ipsum eiusmod `ut et dolor` nostrud dolore d aliqua, sed AD #929 ex magna nisi.\n\nVeniam ullamco ea in consequat duis id voluptate. Non aute qui do UT cillum incididunt, et laboris est sit ad ex fugiat ea minim irure. Sed velit nulla's esse culpa aliquip a sint sunt non.\n\nIn lorem id pariatur, ipsum c dolor mollit anim qui tempor Est, amet elit enim do magna labore sit `!`:\n\n```\n!ut et minim 963 --irure\n```\n\nVelit quis A sed dolore nisi occaecat duis ad `aute` non esse. Qui est sint sit e adipiscing sunt sed `ex ea nulla` in anim proident id non amet do ut culpa Qui et aliqua."
+    },
+    {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-00000000000d",
+      "ts": "2026-01-01T00:00:03.102Z",
+      "durationMs": 34634,
+      "backgroundAgents": 0
     },
     {
       "kind": "command",
@@ -25,6 +43,12 @@
       "summary": "Laboris minim est fugiat irure enim",
       "status": "ok",
       "detail": "LABORE\ndeserunt Ipsum sunt officia #985 anim excepteur/sit/dolore-aliqua-sed-dolor-magna\npariatur non(minim-amet): Veniam ut laborum elit eiusmod et occaecat e cillum"
+    },
+    {
+      "kind": "thought",
+      "id": "msg_749Pw7u4EleiN8jodaGDthxd:thought",
+      "ts": "2026-01-01T00:11:20.122Z",
+      "durationMs": 1317
     },
     {
       "kind": "edit",
@@ -76,6 +100,13 @@
       "id": "00000000-0000-4000-8000-000000000029:0",
       "ts": "2026-01-01T00:11:30.401Z",
       "text": "AD #963 ex fugiat anim `amet` ea `pariatur`, sit elit occaecat in enim id `quis` sed do ut nisi. Et AD non ex ea, qui duis in est irure velit sit aute nulla laboris e esse sint sed.\n\n**Sunt anim non culpa mollit:**\n- **Lorem ipsum:** dolor qui aliquip est commodo sit.\n- **Tempor:** magna amet elit enim sed non labore qui est quis dolore proident. Minim irure id 80×24 aliqua nisi veniam sit officia'l duis velit. Sed non cillum qui aute laborum esse est deserunt.\n- **Nulla eiusmod:** nostrud ullamco do ut sint sit. Sed laboris sunt fugiat aliquip culpa commodo et pariatur l mollit.\n\nI anim lorem d tempor amet ipsum officia elit: s non dolor laborum qui enim eiusmod'a nostrud, ad excepteur magna'c ullamco est quis labore, sit sed dolore occaecat aliqua proident. Nisi veniam duis aute."
+    },
+    {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-00000000002c",
+      "ts": "2026-01-01T00:11:30.494Z",
+      "durationMs": 35628,
+      "backgroundAgents": 0
     }
   ]
 }

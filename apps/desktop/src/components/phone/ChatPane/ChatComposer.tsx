@@ -1,10 +1,13 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
 import { useRef, useState } from "react";
+import type { ChatSessionInfo } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { agentChat } from "../../../lib/agent-chat";
 import { uploadPastedImage } from "../../../lib/paste-image-upload";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import type { TaskItem } from "./chat-entries";
 import styles from "./ChatPane.module.css";
 import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
@@ -26,8 +29,14 @@ type ChatComposerProps = {
   transcript?: string;
   /** The session's context size, for the status line. */
   contextTokens?: number | null;
-  /** Tasks running in the chat, for the status line's chip. */
-  runningTasks?: number;
+  /** The chat's tasks, for the status line's running and agents chips. */
+  tasks?: readonly TaskItem[];
+  /** Bring a task's card into view: picked from the status line's agents list. */
+  onRevealTask?: (id: string) => void;
+  /** The session's model, effort and transcript branch, for the status line. */
+  session?: ChatSessionInfo | null;
+  /** The pane's layout, which orders the status line's chips. */
+  layout?: LayoutMode;
 };
 
 /**
@@ -49,7 +58,8 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, agentKind, busy, transcript, contextTokens, runningTasks } = props;
+  const { paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, session, layout } =
+    props;
   const chatOf = agentChat(agentKind);
 
   const [text, setText] = useState("");
@@ -239,7 +249,13 @@ export function ChatComposer(props: ChatComposerProps) {
           </Button>
         )}
       </div>
-      <ChatStatusLine contextTokens={contextTokens} runningTasks={runningTasks} />
+      <ChatStatusLine
+        contextTokens={contextTokens}
+        tasks={tasks}
+        onRevealTask={onRevealTask}
+        session={session}
+        layout={layout}
+      />
     </div>
   );
 }

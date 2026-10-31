@@ -650,7 +650,7 @@ test.describe("phone chat background tasks", () => {
       await expect(task).toHaveAttribute("data-task-status", "running");
       await expect(task).toHaveAttribute("data-task-id", toolUseId);
       await expect(task).toContainText("Survey the repo");
-      await expect(chat.getByTestId("chat-running-chip")).toHaveText(/1 running/);
+      await expect(chat.getByTestId("chat-agents-chip")).toHaveText("1 agent");
 
       // Tap: the sheet shows the subagent's own conversation.
       await task.getByRole("button").first().tap();
@@ -671,7 +671,7 @@ test.describe("phone chat background tasks", () => {
       );
       await expect(task).toHaveAttribute("data-task-status", "ok", { timeout: 20_000 });
       await expect(task).toContainText(summary);
-      await expect(chat.getByTestId("chat-running-chip")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-agents-chip")).toHaveCount(0);
       await expect(chat.getByTestId("chat-notice")).toHaveCount(0);
     } finally {
       await client.close();

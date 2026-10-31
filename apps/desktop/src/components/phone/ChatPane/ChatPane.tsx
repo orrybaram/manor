@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
-import type { ChatEntry, ChatHistory } from "../../../electron.d";
+import type { ChatEntry, ChatHistory, ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
@@ -12,12 +12,14 @@ import {
   answerablePickerId,
   groupEntries,
   mergeHistory,
-  runningTaskCount,
+  newestContent,
+  chatTasks,
   upsertEntry,
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
+import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
@@ -87,7 +89,7 @@ type ChatPaneProps = {
  *
  * Busy is the hook status, unless the transcript has said the turn ended
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
- * the chat on "Thinking" with its composer held.
+ * the chat on its live line with its composer held.
  *
  * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
  * top mounts earlier ones; back at the bottom, the window drops back to the
@@ -107,6 +109,8 @@ export function ChatPane(props: ChatPaneProps) {
   const [settledIds, setSettledIds] = useState<Set<string> | null>(null);
   /** The session's context size; a fresh transcript remounts this. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  /** The session's model, effort and transcript branch; null until told. */
+  const [session, setSession] = useState<ChatSessionInfo | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
   /** The transcript's ended turn outranks a busy hook status, for display. */
   const [turnSettled, setTurnSettled] = useState(false);
@@ -163,6 +167,7 @@ export function ChatPane(props: ChatPaneProps) {
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
             if (history.turnState != null) turnSettle.setTurn(history.turnState);
+            if (history.session) setSession(history.session);
             setUnavailable(null);
           } else {
             shown = false;
@@ -186,9 +191,12 @@ export function ChatPane(props: ChatPaneProps) {
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
-      // The context size and turn state ride the entry channel but are no entries.
+      // The context size, turn state and session info ride the entry channel
+      // but are no entries.
       if (entry.kind === "usage") {
         setContextTokens(entry.contextTokens);
+      } else if (entry.kind === "session") {
+        setSession({ model: entry.model, effort: entry.effort, gitBranch: entry.gitBranch });
       } else if (entry.kind === "turn") {
         turnSettle.setTurn(entry.state);
         if (entry.state !== "working") clearQueuedPrompts(paneId);
@@ -307,6 +315,30 @@ export function ChatPane(props: ChatPaneProps) {
     }
     placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
+  /**
+   * A task card to bring into view once it mounts: picked from the status
+   * line's agents list while above the window.
+   */
+  const revealing = useRef<string | null>(null);
+  const revealTask = (id: string) => {
+    const index = items.findIndex((item) => item.id === id);
+    if (index !== -1 && index < start) {
+      // Mount from the card down, then scroll to it; reading up there, the
+      // chat no longer follows the bottom.
+      stuck.current = false;
+      revealing.current = id;
+      setAnchorId(id);
+      return;
+    }
+    revealTaskCard(contentRef.current, id);
+  };
+  useLayoutEffect(() => {
+    if (revealing.current === null) return;
+    // At once: a smooth scroll would start from the bottom, where the chat
+    // would stick again and drop the items just mounted.
+    revealTaskCard(contentRef.current, revealing.current, { smooth: false });
+    revealing.current = null;
+  });
   // Live entries above the window have left it (it only ever trims the top).
   useLayoutEffect(() => {
     if (settledIds === null) return;
@@ -316,10 +348,14 @@ export function ChatPane(props: ChatPaneProps) {
   });
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
-  // A running tool call already has its own live line.
+  // A running tool call already has its own live line. A timing line
+  // ("Thought for 5s") after it doesn't hide it.
+  const latest = newestContent(items);
   const toolRunning =
-    newest?.kind === "tool-group" && newest.tools.some((t) => t.status === "pending");
-  const thinking = busy && answerableId === null && !toolRunning;
+    latest?.kind === "tool-group" && latest.tools.some((t) => t.status === "pending");
+  // A turn's closing line says it's over: no live line under it while the
+  // status catches up (a late Stop hook, or one held for background agents).
+  const thinking = busy && answerableId === null && !toolRunning && newest?.kind !== "turn-end";
   const needsYou = status === "requires_input" && answerableId === null;
 
   return (
@@ -396,7 +432,10 @@ export function ChatPane(props: ChatPaneProps) {
             busy={busy}
             transcript={transcript}
             contextTokens={contextTokens}
-            runningTasks={runningTaskCount(items)}
+            tasks={chatTasks(items)}
+            onRevealTask={revealTask}
+            session={session}
+            layout={layout}
           />
         </>
       )}

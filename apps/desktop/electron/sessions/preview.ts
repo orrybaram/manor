@@ -465,6 +465,8 @@ function claudeTurn(entry: ChatEntry): PreviewTurn | null {
     case "plan":
       return assistantTurn(entry.plan);
     case "notice":
+    case "thought":
+    case "turn-end":
       return null;
   }
 }

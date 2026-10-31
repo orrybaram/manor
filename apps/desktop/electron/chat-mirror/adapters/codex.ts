@@ -3,7 +3,8 @@
  * read as a chat. Each line is `{timestamp, type, payload}`:
  *
  * - `session_meta` and `turn_context` give the working directory (and
- *   `session_meta.history_mode`, legacy or paginated);
+ *   `session_meta.history_mode`, legacy or paginated); `turn_context` the
+ *   model and reasoning effort, when it carries one;
  * - `response_item`s are what the model saw and said: messages, tool calls
  *   (`function_call`, `custom_tool_call`, `local_shell_call`,
  *   `web_search_call`) and their outputs by `call_id`;
@@ -33,6 +34,7 @@ import {
   relativeTo,
   type ChatDiffHunk,
   type ChatEntry,
+  type ChatSessionInfo,
   type ChatSkill,
   type ChatTurnState,
 } from "../transcript";
@@ -214,6 +216,9 @@ export class CodexRolloutParser implements TranscriptLineParser {
   private paginated = false;
   private lastContextTokens: number | null = null;
   private turn: ChatTurnState | null = null;
+  /** From the newest `turn_context`. */
+  private model: string | null = null;
+  private effort: string | null = null;
   /**
    * A compaction was just shown. Codex can write it twice (the `compacted`
    * record and its `context_compacted` event); the second adds nothing.
@@ -240,6 +245,11 @@ export class CodexRolloutParser implements TranscriptLineParser {
 
   turnState(): ChatTurnState | null {
     return this.turn;
+  }
+
+  /** The model and effort of the newest turn; a rollout names no git branch per line. */
+  sessionInfo(): ChatSessionInfo {
+    return { model: this.model, effort: this.effort, gitBranch: null };
   }
 
   /** Codex lists no skills in its rollout; its chat offers no `/` menu. */
@@ -308,6 +318,8 @@ export class CodexRolloutParser implements TranscriptLineParser {
         return [];
       case "turn_context":
         this.cwd = str(payload.cwd) ?? this.cwd;
+        this.model = str(payload.model) || this.model;
+        this.effort = str(payload.effort) || this.effort;
         return [];
       case "compacted":
         return this.compaction(lineId, ts);

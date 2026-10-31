@@ -308,4 +308,25 @@ test.describe("Settings › Theme", () => {
     await window.getByTestId("theme-sort-name").click();
     await expect.poll(() => tileNames(window)).toEqual(names);
   });
+
+  test("a new theme is named for the pick, not the project's theme under it", async ({
+    app,
+    window,
+    tempHome,
+  }, testInfo) => {
+    installGhosttyThemes(tempHome);
+    await importSeededProject(app, window, tempHome);
+    await openThemes(window);
+    await window.getByRole("button", { name: "test-project", exact: true }).click();
+    await window.getByTestId("project-theme-select").click();
+    await window.getByRole("option", { name: /Manor/ }).click();
+    await expect(window.getByTestId("project-theme-select")).toContainText("Manor");
+    await closeSettings(window);
+
+    await openThemes(window);
+    await pick(window, "Catppuccin Latte");
+    await window.getByTestId("theme-new").click();
+    await expect(window.getByTestId("theme-name")).toHaveValue("Catppuccin Latte copy");
+    await shot(window, testInfo, "16-new-from-pick-under-project-theme");
+  });
 });

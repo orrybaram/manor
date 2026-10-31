@@ -51,6 +51,8 @@ export function ThemeSection() {
   // By name, not index: a reload (recents reorder, a theme saved) moves tiles.
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  // A pick here paints over a project's override without clearing it.
+  const [picked, setPicked] = useState<string | null>(null);
   const selectedThemeName = useThemeStore((s) => s.selectedThemeName);
   const projectThemeOverride = useThemeStore((s) => s.projectThemeOverride);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -95,6 +97,7 @@ export function ThemeSection() {
   const select = useCallback(
     async (name: string) => {
       await setTheme(name);
+      setPicked(name);
       await reload();
     },
     [setTheme, reload],
@@ -112,7 +115,7 @@ export function ThemeSection() {
   const startNew = () => {
     const shown = useThemeStore.getState().theme;
     if (!shown) return;
-    const onScreen = projectThemeOverride ?? selectedThemeName;
+    const onScreen = picked ?? projectThemeOverride ?? selectedThemeName;
     const base = catalog.themes.find((t) => t.name === onScreen)?.displayName ?? "Theme";
     setEditing({
       initial: shown,
@@ -179,6 +182,7 @@ export function ThemeSection() {
           }}
           onDeleted={() => {
             setEditing(null);
+            setPicked(null);
             // The draft is still painted, and with a project override
             // showing, the delete's broadcast won't repaint it: put back what
             // the surface should show (the override falls back if it was

@@ -290,10 +290,11 @@ test("images pasted, picked or dropped show as thumbnails and start the agent as
 }) => {
   installLightTheme(tempHome);
   await importSeededProject(app, window, tempHome);
-  // An agent that records the prompt it was started with.
+  // An agent that records the prompt it was started with, a line per launch
+  // (a launch with no prompt adds an empty one).
   const promptLog = path.join(tempHome, "agent-prompt.txt");
   const agent = path.join(tempHome, "record-prompt.sh");
-  fs.writeFileSync(agent, `#!/bin/sh\nprintf '%s' "$1" > '${promptLog}'\nexec sleep 300\n`, { mode: 0o755 });
+  fs.writeFileSync(agent, `#!/bin/sh\nprintf '%s\\n' "$1" >> '${promptLog}'\nexec sleep 300\n`, { mode: 0o755 });
   await setAgentCommand(window, "test-project", `"${agent}"`);
 
   const prompt = window.getByTestId("new-workspace-agent-prompt");
@@ -333,7 +334,7 @@ test("images pasted, picked or dropped show as thumbnails and start the agent as
   await window.getByTestId("new-workspace-submit").click();
   await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
   const readPrompt = () => (fs.existsSync(promptLog) ? fs.readFileSync(promptLog, "utf8") : "");
-  const expected = /^The redirect lands on a blank page, see these (\S+\.png) (\S+\.png)$/;
+  const expected = /^The redirect lands on a blank page, see these (\S+\.png) (\S+\.png)$/m;
   await expect.poll(readPrompt, { timeout: 20_000 }).toMatch(expected);
   const match = readPrompt().match(expected);
   // The paste first, then the drop: each is a file on the host the agent runs on.
@@ -349,7 +350,7 @@ test("images pasted, picked or dropped show as thumbnails and start the agent as
   await expect(dialog(window).locator("[data-uploading]")).toHaveCount(0, { timeout: 10_000 });
   await window.getByTestId("new-workspace-agent-prompt").press("ControlOrMeta+Enter");
   await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
-  await expect.poll(readPrompt, { timeout: 20_000 }).toMatch(/^\S+\.png$/);
+  await expect.poll(readPrompt, { timeout: 20_000 }).toMatch(/^\S+\.png$/m);
 });
 
 test("the folder chip makes a folder from its search and picks it", async ({

@@ -13,7 +13,7 @@ import {
 import { pendingLines } from "../components/workspace-panes/FilePane/pending-line";
 import type { PaneNode, SplitDirection } from "./layout/pane-tree";
 import type { WorkspaceLayout } from "./layout/workspace-layout";
-import type { WorkspaceKey } from "./workspace-key";
+import { parseWorkspaceKey, type ParsedWorkspaceKey, type WorkspaceKey } from "./workspace-key";
 
 /** Where in the file to put the cursor, 1-based. */
 type At = { line?: number; col?: number };
@@ -37,6 +37,12 @@ function placeOf(layouts: Record<string, WorkspaceLayout>, paneId: string) {
     }
   }
   return null;
+}
+
+/** The host and path of the workspace `paneId` is in, or null when no layout has it. */
+export function workspaceOfPane(paneId: string): ParsedWorkspaceKey | null {
+  const place = placeOf(useAppStore.getState().workspaceLayouts, paneId);
+  return place ? parseWorkspaceKey(place.workspaceKey) : null;
 }
 
 /**

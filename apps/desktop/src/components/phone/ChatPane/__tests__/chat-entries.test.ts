@@ -9,6 +9,7 @@ import {
   resultPreview,
   runningTaskCount,
   sameItem,
+  splitPrompt,
   staleTaskIds,
   summarizeTools,
 } from "../chat-entries";
@@ -181,5 +182,29 @@ describe("task card text", () => {
     expect(resultPreview(undefined)).toBeNull();
     expect(resultPreview("\n  \n")).toBeNull();
     expect(resultPreview("\n  Found it.\nMore")).toBe("Found it.");
+  });
+});
+
+describe("splitPrompt", () => {
+  it("leaves a prompt with no paste whole", () => {
+    expect(splitPrompt("  fix it\n")).toEqual([{ kind: "typed", text: "  fix it\n" }]);
+  });
+
+  it("folds out a paste, whose closing tag may carry attributes", () => {
+    const text =
+      'look:\n\n<pasted_content id="db6d">\nline 1\nline 2\n</pasted_content id="db6d">\n\nany fix?';
+    expect(splitPrompt(text)).toEqual([
+      { kind: "typed", text: "look:" },
+      { kind: "pasted", text: "line 1\nline 2" },
+      { kind: "typed", text: "any fix?" },
+    ]);
+  });
+
+  it("keeps several pastes, with nothing typed around them", () => {
+    const text = "<pasted_content>a</pasted_content><pasted_content>b</pasted_content>";
+    expect(splitPrompt(text)).toEqual([
+      { kind: "pasted", text: "a" },
+      { kind: "pasted", text: "b" },
+    ]);
   });
 });

@@ -75,6 +75,45 @@
   overflow-wrap: anywhere;
 }
 
+.userQueued {
+  opacity: 0.6;
+}
+
+.queuedLabel {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+
+.userParts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pasted {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-selected) 8%, transparent);
+}
+
+.pastedSummary {
+  padding: 4px 8px;
+  font-size: 0.9em;
+  opacity: 0.75;
+  cursor: pointer;
+}
+
+.pastedText {
+  max-height: 240px;
+  overflow: auto;
+  padding: 0 8px 6px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
 .assistant {
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -588,22 +627,6 @@ button.more {
   color: var(--bg);
 }
 
-/* Stop beside a queued Send. */
-:global(:root[data-layout="phone"]) .composerStopSmall.composerStopSmall,
-.composerStopSmall.composerStopSmall {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border: 1px solid var(--control-border);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--text-selected);
-}
-
 /* Attach image, at the field's start. */
 :global(:root[data-layout="phone"]) .composerAttach.composerAttach,
 .composerAttach.composerAttach {
@@ -867,6 +890,11 @@ button.commandChip {
 
 .ratioBar > span.ratioDel {
   background: var(--red);
+}
+
+.editActions {
+  display: flex;
+  gap: 16px;
 }
 
 button.editToggle {
@@ -1241,4 +1269,11 @@ button.editToggle {
 
 .chatPane[data-layout="desk"] .composerField {
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.12);
+}
+
+/* The field reaches past the gutters by its border and the textarea's left
+   padding, so typed text starts on the transcript's left edge. Not with an
+   attach button, which sits before the text. */
+.chatPane[data-layout="desk"] .composerField:has(> .composerInput:first-child) {
+  margin: 0 -13px;
 }

@@ -10,7 +10,7 @@ import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
+import { markChatStarting, noteSentPrompt, startMenuHandoff } from "./usePaneChatView";
 import { useImageAttach, type ComposerSnapshot } from "./useImageAttach";
 import { useSlashCommands } from "./useSlashCommands";
 
@@ -37,7 +37,7 @@ type ChatComposerProps = {
  *
  * One round button inside the field sends, and turns into Stop while the
  * agent works. Typing mid-turn turns it back into Send, which Claude Code
- * queues, with a smaller Stop beside it.
+ * queues; Esc still stops.
  *
  * Typing `/` at the start opens the command menu, for an agent that has one. Sending a
  * command that opens a TUI menu (`commandEffect`) hands the pane to the
@@ -107,6 +107,7 @@ export function ChatComposer(props: ChatComposerProps) {
         setSending(false);
         const command = splitCommand(sent);
         const effect = commandEffect(command, slash.lookup, chatOf.clearCommands);
+        noteSentPrompt(paneId, sent, busy && effect === null);
         if (effect === "menu" && command) {
           startMenuHandoff(paneId, command.name, transcript ?? null);
         } else if (effect === "clear" && transcript) {
@@ -197,25 +198,24 @@ export function ChatComposer(props: ChatComposerProps) {
                 return;
               }
             }
-            // A hardware keyboard's ⌘/Ctrl+Enter sends; a plain Enter is a
-            // new line, as on a phone's own keyboard.
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // Mid-turn, Esc stops the agent, which the button doesn't
+            // offer while there's text to send.
+            if (e.key === "Escape" && busy) {
+              e.preventDefault();
+              stop();
+              return;
+            }
+            // Enter sends and Shift+Enter is a new line. On a touch screen,
+            // whose keyboard has no Shift+Enter, Enter is a new line and
+            // ⌘/Ctrl+Enter or the button sends.
+            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+            const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+            if (e.metaKey || e.ctrlKey || (!touch && !e.shiftKey && !e.altKey)) {
               e.preventDefault();
               send();
             }
           }}
         />
-        {busy && mode === "send" && (
-          <Button
-            variant="ghost"
-            className={styles.composerStopSmall}
-            aria-label={`Stop ${chatOf.name}`}
-            onClick={stop}
-            data-testid="chat-stop"
-          >
-            <Square size={10} fill="currentColor" />
-          </Button>
-        )}
         {mode === "stop" ? (
           <Button
             variant="primary"

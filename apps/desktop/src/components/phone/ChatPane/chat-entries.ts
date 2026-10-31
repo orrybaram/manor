@@ -243,3 +243,30 @@ export function resultPreview(result: string | undefined): string | null {
   const line = result?.split("\n").find((l) => l.trim() !== "");
   return line ? line.trim() : null;
 }
+
+/** A piece of a prompt: what was typed, or a block that was pasted in. */
+export type PromptPart = { kind: "typed" | "pasted"; text: string };
+
+const PASTED = /<pasted_content\b[^>]*>([\s\S]*?)<\/pasted_content\b[^>]*>/g;
+
+/**
+ * Split a prompt into what was typed and the `<pasted_content>` blocks the
+ * agent wraps a paste in, so the chat can fold a paste rather than print its
+ * tags. Text around a block is trimmed; an empty piece is dropped.
+ */
+export function splitPrompt(text: string): PromptPart[] {
+  const parts: PromptPart[] = [];
+  const push = (kind: PromptPart["kind"], piece: string) => {
+    const trimmed = kind === "typed" ? piece.trim() : piece.replace(/^\n+|\n+$/g, "");
+    if (trimmed) parts.push({ kind, text: trimmed });
+  };
+  let at = 0;
+  for (const match of text.matchAll(PASTED)) {
+    push("typed", text.slice(at, match.index));
+    push("pasted", match[1]);
+    at = match.index + match[0].length;
+  }
+  if (at === 0) return [{ kind: "typed", text }];
+  push("typed", text.slice(at));
+  return parts;
+}

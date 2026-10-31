@@ -36,3 +36,9 @@ export function pastVerb(id: string): string {
   return MANOR_VERBS[hash(id) % MANOR_VERBS.length].past;
 }
 
+
+/** The present-tense verb at `index`, wrapping round the list. */
+export function presentVerb(index: number): string {
+  const n = MANOR_VERBS.length;
+  return MANOR_VERBS[((Math.floor(index) % n) + n) % n].present;
+}

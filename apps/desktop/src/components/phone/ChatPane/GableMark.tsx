@@ -1,10 +1,18 @@
 import styles from "./ChatPane.module.css";
 
+type GableMarkProps = {
+  /** Breathes while the agent works; still on a finished turn's line. */
+  breathing?: boolean;
+};
+
 /** Manor's mark in the chat: a gable roof over a door. */
-export function GableMark() {
+export function GableMark(props: GableMarkProps) {
+  const { breathing = false } = props;
+
   return (
     <svg
       className={styles.gable}
+      data-breathing={breathing || undefined}
       viewBox="0 0 14 14"
       fill="none"
       stroke="currentColor"

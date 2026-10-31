@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MANOR_VERBS, pastVerb } from "../manor-verbs";
+import { MANOR_VERBS, pastVerb, presentVerb } from "../manor-verbs";
 
 describe("manor verbs", () => {
   it("has the twelve present / past pairs", () => {
@@ -27,5 +27,12 @@ describe("manor verbs", () => {
     // Different turns don't all say the same.
     const picked = new Set(Array.from({ length: 50 }, (_, i) => pastVerb(`turn-${i}`)));
     expect(picked.size).toBeGreaterThan(4);
+  });
+
+  it("walks the present tense round the list", () => {
+    expect(presentVerb(0)).toBe("Tending");
+    expect(presentVerb(11)).toBe("Furnishing");
+    expect(presentVerb(12)).toBe("Tending");
+    expect(presentVerb(-1)).toBe("Furnishing");
   });
 });

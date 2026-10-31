@@ -18,7 +18,7 @@ import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../.
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
 import { TURN_SETTLE_MS } from "../turn-settle";
-import { pastVerb } from "../manor-verbs";
+import { MANOR_VERBS, pastVerb, presentVerb } from "../manor-verbs";
 import {
   endMenuHandoff,
   noteChatEntries,
@@ -34,6 +34,8 @@ import { useHostStore, type HostStatusInfo } from "../../../../store/host-store"
 import { emitBridgeResync } from "../../../../bridge/resync";
 
 const PANE = "pane-1";
+/** The live line: a present-tense Manor verb, "…", and the time so far. */
+const LIVE_LINE = new RegExp(`^(${MANOR_VERBS.map((v) => v.present).join("|")})…\\d`);
 const TRANSCRIPT = "/t/a.jsonl";
 
 type EntryListener = (paneId: string, entry: ChatPush) => void;
@@ -386,7 +388,7 @@ describe("ChatPane — entries", () => {
         expect(diff.textContent).toContain("Diff truncated");
   });
 
-  it("shows Thinking while Claude works with nothing to show", async () => {
+  it("shows the live line while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {
       installChat({ ok: true, contextTokens: null, entries: [] });
@@ -394,7 +396,9 @@ describe("ChatPane — entries", () => {
       await renderChat();
       expect(all("chat-thinking")).toHaveLength(0);
       await act(async () => vi.advanceTimersByTime(800));
-      expect(all("chat-thinking")[0].textContent).toBe("Thinking0s");
+      expect(all("chat-thinking")[0].textContent).toMatch(LIVE_LINE);
+      expect(all("chat-thinking")[0].textContent).toMatch(/…0s$/);
+      expect(all("chat-thinking")[0].getAttribute("role")).toBe("status");
 
       const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Bash", summary: "ls", status: "pending" };
       await act(async () => listener?.(PANE, pending));
@@ -403,11 +407,31 @@ describe("ChatPane — entries", () => {
 
       await act(async () => listener?.(PANE, { ...pending, status: "ok" }));
       await act(async () => vi.advanceTimersByTime(2200));
-      expect(all("chat-thinking")[0].textContent).toBe("Thinking2s");
+      expect(all("chat-thinking")[0].textContent).toMatch(/…2s$/);
 
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "idle", reason: "", kind: "claude" } } });
       await act(async () => {});
       expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rotates the live line's verb every 2.6s from one the clock picks, and counts minutes past one", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(2_600 * 5);
+      installChat({ ok: true, contextTokens: null, entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      const line = () => all("chat-thinking")[0];
+      expect(line().textContent).toBe(`${presentVerb(5)}…0s`);
+      expect(line().querySelector("svg[data-breathing]")).not.toBeNull();
+      await act(async () => vi.advanceTimersByTime(2_000));
+      expect(line().textContent).toBe(`${presentVerb(6)}…2s`);
+      await act(async () => vi.advanceTimersByTime(2_600 * 23 - 2_800 + 4_000));
+      expect(line().textContent).toBe(`${presentVerb(5 + 24)}…1m 03s`);
     } finally {
       vi.useRealTimers();
     }

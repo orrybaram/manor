@@ -17,7 +17,7 @@ function ended(turn: ChatTurnState | null): boolean {
  * still says busy: the transcript ended the turn (`done` or `interrupted`)
  * after the hooks' busy stretch began, and has said so for `settleMs`
  * straight. A Stop hook that went missing would otherwise leave the phone
- * on "Thinking" for good.
+ * on its live line ("Tending… 12s") for good.
  *
  * A turn that had already ended when the busy stretch began never settles
  * it: a prompt just sent goes busy before its line reaches the transcript,

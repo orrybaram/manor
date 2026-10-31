@@ -436,48 +436,41 @@ button.toolLine:disabled {
   height: 13px;
 }
 
-/* Claude is working with nothing to show yet: a light sweeps the label. */
+/* Claude is working with nothing to show yet: Manor's mark breathes beside
+   a verb that changes every few seconds. */
 .thinking {
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 32px;
   font-size: 14px;
-  color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
+  color: var(--text-dim);
 }
 
-.thinkingLabel {
-  /* Not currentColor: the label's own color is transparent. */
-  background: linear-gradient(
-    90deg,
-    var(--text-dim) 0%,
-    var(--text-dim) 35%,
-    var(--text-selected) 50%,
-    var(--text-dim) 65%,
-    var(--text-dim) 100%
-  );
-  /* At 200%, 100% → 0% carries the highlight exactly across the word. */
-  background-size: 200% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: thinkingSweep 1.6s linear infinite;
+.thinkingVerb {
+  color: var(--text-primary);
+  white-space: nowrap;
+  animation: chatFade 350ms ease-out;
 }
 
-@keyframes thinkingSweep {
-  from {
-    background-position: 100% 0;
+.gable[data-breathing] {
+  animation: gableBreathe 1.6s ease-in-out infinite;
+}
+
+@keyframes gableBreathe {
+  0%,
+  100% {
+    opacity: 0.45;
   }
-  to {
-    background-position: 0% 0;
+  50% {
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thinkingLabel {
+  .thinkingVerb,
+  .gable[data-breathing] {
     animation: none;
-    background: none;
-    color: inherit;
   }
 }
 

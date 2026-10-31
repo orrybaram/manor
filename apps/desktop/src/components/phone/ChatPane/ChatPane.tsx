@@ -88,7 +88,7 @@ type ChatPaneProps = {
  *
  * Busy is the hook status, unless the transcript has said the turn ended
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
- * the chat on "Thinking" with its composer held.
+ * the chat on its live line with its composer held.
  *
  * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
  * top mounts earlier ones; back at the bottom, the window drops back to the

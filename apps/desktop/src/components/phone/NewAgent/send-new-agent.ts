@@ -1,9 +1,8 @@
-import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "../../../agent-defaults";
 import { launchAgentInWorkspace } from "../../../lib/agent-prompt-launch";
-import { hasChat } from "../../../lib/agent-chat";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { worktreeNameFromPrompt } from "../../../utils/branch-name";
+import { commandStartsOnChat } from "../ChatPane/chat-view";
 import { markChatStarting } from "../ChatPane/usePaneChatView";
 import { baseBranchOf, resolveTarget, type NewAgentTarget, type ResolvedTarget } from "./new-agent-target";
 
@@ -30,15 +29,9 @@ async function takenNames(project: ProjectInfo): Promise<Set<string>> {
   return taken;
 }
 
-/**
- * Whether `project` launches an agent whose chat opens before its Agent
- * exists: only Claude's. Until the first hook there is no agent to route the
- * composer's typing by, and it is typed the Claude way; other kinds with a
- * chat (`hasChat`) open on it once their transcript is known.
- */
+/** Whether `project` launches an agent whose chat opens before its Agent exists. */
 function launchesChat(project: ProjectInfo): boolean {
-  const kind = getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND);
-  return kind === "claude" && hasChat(kind);
+  return commandStartsOnChat(project.agentCommand);
 }
 
 /** Start the agent in an existing workspace (or main) right away. */

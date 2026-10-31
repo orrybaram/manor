@@ -38,7 +38,11 @@ import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
 import { isHostServer } from "../bridge/connection";
 import { currentLayoutMode } from "../hooks/useLayoutMode";
-import { togglePaneChat } from "../components/phone/ChatPane/pane-chat-toggle";
+import {
+  openNewAgentOnChat,
+  paneShowsChat,
+  togglePaneChat,
+} from "../components/phone/ChatPane/pane-chat-toggle";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -98,6 +102,8 @@ export function resolveWorkspaceCommand(key: WorkspaceKey | null): string {
  * Only the primary window may do that: the prewarmed session's cwd tracks the
  * PRIMARY window's active workspace, so a popout sitting on a different
  * workspace would inherit the wrong directory. Popouts pay the cold start.
+ *
+ * Started from a pane showing its chat, the new agent opens on a chat too.
  */
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
@@ -107,11 +113,16 @@ export async function startNewAgent(
   const command = resolveWorkspaceCommand(
     selectActiveWorkspaceKey(useAppStore.getState()),
   );
+  const from = selectFocusedPaneOfActiveTab(useAppStore.getState());
+  const onChat = from !== null && paneShowsChat(from, "desk");
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
   if (!prewarmed) {
-    useAppStore.getState().addTerminalTab(command, { kind: "agent-startup" });
+    const opened = useAppStore
+      .getState()
+      .addTerminalTab(command, { kind: "agent-startup" });
+    if (opened && onChat) openNewAgentOnChat(opened.paneId, command);
     return;
   }
   // The prewarmed session already exists, so its pane id is known before the
@@ -124,7 +135,8 @@ export async function startNewAgent(
       "agent-startup",
     );
   }
-  useAppStore.getState().addTab(prewarmed.paneId);
+  const opened = useAppStore.getState().addTab(prewarmed.paneId);
+  if (opened && onChat) openNewAgentOnChat(opened.paneId, command);
 }
 
 /**

@@ -10,6 +10,7 @@
  * just means the default.
  */
 
+import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "../../../agent-defaults";
 import type { AgentInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { hasChat } from "../../../lib/agent-chat";
@@ -56,4 +57,15 @@ export function writeChatView(paneId: string, view: ChatView, layout: LayoutMode
 export function chatTranscriptPath(agent: AgentInfo | null): string | null {
   if (!agent || !hasChat(agent.agentKind)) return null;
   return agent.transcriptPath || null;
+}
+
+/**
+ * Whether an agent launched by `command` can open on a chat before its Agent
+ * exists: only Claude's. Until the first hook there is no agent to route the
+ * composer's typing by, and it is typed the Claude way; other kinds with a
+ * chat (`hasChat`) open on it once their transcript is known.
+ */
+export function commandStartsOnChat(command: string | null | undefined): boolean {
+  const kind = getAgentKindForCommand(command ?? DEFAULT_AGENT_COMMAND);
+  return kind === "claude" && hasChat(kind);
 }

@@ -3,11 +3,11 @@ import path from "path";
 import type { Page } from "@playwright/test";
 
 import { createWorkspace, expect, importSeededProject, openTerminalTab, test } from "./fixtures";
-import { FAKE_AGENT_BANNER, FAKE_AGENT_TRANSCRIPT, FAKE_CHAT_PROMPT, FAKE_CHAT_REPLY } from "./helpers/fake-agent";
+import { FAKE_AGENT, FAKE_AGENT_BANNER, FAKE_AGENT_TRANSCRIPT, FAKE_CHAT_PROMPT, FAKE_CHAT_REPLY } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
 import { waitForVisibleSession } from "./helpers/local-api";
 import { header as fileHeader, openFileFromPalette } from "./helpers/file-pane";
-import { closeSettings, openSettings } from "./helpers/settings";
+import { closeSettings, openSettings, setAgentCommand } from "./helpers/settings";
 import { useTheme } from "./helpers/theme";
 import { activePaneId, awaitShellReady, paneText, runInTerminal } from "./helpers/terminal";
 
@@ -189,5 +189,50 @@ test.describe("desk chat view", () => {
     await expect(filePane.getByTestId("pane-status-bar")).toBeVisible();
     await expect(filePane.getByTestId("pane-chat-toggle")).toHaveCount(0);
     await film.shot(window, "dark-file-no-toggle");
+  });
+
+  test("⌘N from a pane showing its chat opens the new agent on a chat", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("desk-chat-new-agent");
+    const transcriptFile = path.join(tempHome, "fake-chat", "transcript.jsonl");
+    const inputLogFile = path.join(tempHome, "fake-chat", "input.log");
+
+    await importSeededProject(app, window, tempHome);
+    await createWorkspace(window, "desk-chat-new");
+    await setAgentCommand(window, "test-project", `"${FAKE_AGENT}"`);
+    await openTerminalTab(window);
+    const paneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, paneId);
+    await runInTerminal(window, `"${FAKE_AGENT_TRANSCRIPT}" "${transcriptFile}" "${inputLogFile}" e2e-desk-chat-new`);
+    await waitForVisibleSession(request, tempHome, { name: "e2e-desk-chat-new" });
+
+    const pane = paneLocator(window, paneId);
+    await pane.getByTestId("pane-chat-toggle").click();
+    await expect(pane.getByTestId("chat-pane")).toBeVisible({ timeout: 20_000 });
+    await useTheme(window, "Catppuccin Mocha");
+
+    await window.keyboard.press("ControlOrMeta+n");
+    await expect.poll(() => activePaneId(window), { timeout: 15_000 }).not.toBe(paneId);
+    const fresh = paneLocator(window, await activePaneId(window));
+    // A fresh Claude chat, waiting on the session's first prompt.
+    await expect(fresh.getByTestId("chat-starting")).toBeVisible({ timeout: 20_000 });
+    await expect(fresh.getByTestId("chat-composer-input")).toBeVisible();
+    await expect(fresh.getByTestId("pane-chat-toggle")).toHaveAttribute("aria-pressed", "true");
+    await expect(fresh.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+    await film.shot(window, "dark-new-agent-chat");
+
+    // From the terminal, ⌘N opens on the terminal as before.
+    await fresh.getByTestId("pane-chat-toggle").click();
+    await expect(fresh.locator('[data-testid="terminal-pane"]')).toBeVisible();
+    const before = await activePaneId(window);
+    await window.keyboard.press("ControlOrMeta+n");
+    await expect.poll(() => activePaneId(window), { timeout: 15_000 }).not.toBe(before);
+    const plain = paneLocator(window, await activePaneId(window));
+    await expect(plain.locator('[data-testid="terminal-pane"]')).toBeVisible({ timeout: 20_000 });
+    await expect(plain.getByTestId("chat-starting")).toHaveCount(0);
   });
 });

@@ -55,6 +55,24 @@ export function spawnArgsFor(
 }
 
 /**
+ * How long after its first output a shell that runs Manor's rc may go without
+ * a prompt before queued writes are typed anyway. Manor's hook runs after the
+ * user's rc, so a prompt this late means the rc is waiting on input (an update
+ * prompt, a passphrase) rather than slow.
+ */
+export const PROMPT_FALLBACK_MS = 30_000;
+
+/**
+ * Whether the shell runs Manor's rc and so emits OSC 7 on each prompt: an
+ * interactive zsh (the generated ZDOTDIR) or a bash given Manor's `--rcfile`.
+ */
+export function marksPrompt(shell: string, args: string[]): boolean {
+  const name = path.basename(shell);
+  if (name === "zsh") return args.length === 0;
+  return name === "bash" && args[0] === "--rcfile";
+}
+
+/**
  * Build the environment for a user-facing PTY shell.
  *
  * Strips vars that must not leak from the Manor Electron process into user shells:
@@ -212,9 +230,13 @@ export class Session {
   // Pane facts: the daemon's only source of Status signals.
   private paneFacts: PaneFactsExtractor;
 
-  // Pending writes queued before first output (for prewarmed command injection)
+  // Writes queued until the shell is ready for input (see `writeAfterReady`)
   private pendingWrites: string[] = [];
   private hasReceivedOutput = false;
+  private shellReady = false;
+  // Whether the shell runs Manor's rc, which emits OSC 7 on each prompt.
+  private marksPrompt = false;
+  private readyFallback: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Resizes sent to the subprocess that have not been acknowledged yet, oldest
@@ -266,6 +288,7 @@ export class Session {
     // Not re-scanned per chunk: escape sequences may be split across chunks.
     this.headless.parser.registerOscHandler(7, (payload) => {
       this.extractOsc7Cwd(payload);
+      this.markShellReady();
       return true;
     });
     this.headless.onTitleChange((title) => this.paneFacts.setTitle(title));
@@ -354,9 +377,11 @@ export class Session {
         // HISTFILE for shared history is set directly in the generated .zshrc
         // (see ShellManager.setupZdotdir), not injected here — so it can't go
         // stale when this daemon outlives a code change.
+        const args = spawnArgsFor(shell, this.pendingSpawnArgs);
+        this.marksPrompt = marksPrompt(shell, args);
         const spawnPayload: PtySpawnPayload = {
           shell,
-          args: spawnArgsFor(shell, this.pendingSpawnArgs),
+          args,
           cwd: this.cwd || process.env.HOME || "/",
           cols: this.cols,
           rows: this.rows,
@@ -385,13 +410,16 @@ export class Session {
       case MSG.DATA: {
         const data = payload.toString("utf-8");
 
-        // Flush any writes queued before first output (e.g. prewarmed agent command)
         if (!this.hasReceivedOutput) {
           this.hasReceivedOutput = true;
-          for (const pending of this.pendingWrites) {
-            this.write(pending);
+          if (this.marksPrompt) {
+            this.readyFallback = setTimeout(
+              () => this.markShellReady(),
+              PROMPT_FALLBACK_MS,
+            );
+          } else {
+            this.markShellReady();
           }
-          this.pendingWrites = [];
         }
 
         // Feed headless emulator (async — write callback fires after processing).
@@ -475,12 +503,32 @@ export class Session {
     this.writeToSubprocess(encodeFrame(MSG.WRITE, data));
   }
 
-  /** Queue a write that fires after the shell emits its first output (prompt) */
+  /**
+   * Queue a write that fires once the shell is ready for input: its first
+   * prompt (OSC 7) when it runs Manor's rc, else its first output.
+   *
+   * The first output is not enough for a shell whose rc is still running:
+   * oh-my-zsh's update check asks `[Y/n]` from `.zshrc` and reads one key,
+   * which ate the first letter of an agent's launch line. OSC 7 comes from
+   * `precmd`, after `.zshrc` returns. A prompt that never comes (an rc still
+   * waiting on input) gets the write `PROMPT_FALLBACK_MS` after the first
+   * output.
+   */
   writeAfterReady(data: string): void {
-    if (this.hasReceivedOutput) {
+    if (this.shellReady) {
       this.write(data);
     } else {
       this.pendingWrites.push(data);
+    }
+  }
+
+  private markShellReady(): void {
+    if (this.shellReady) return;
+    this.shellReady = true;
+    if (this.readyFallback) clearTimeout(this.readyFallback);
+    this.readyFallback = null;
+    for (const pending of this.pendingWrites.splice(0)) {
+      this.write(pending);
     }
   }
 
@@ -607,6 +655,8 @@ export class Session {
       this.subprocess = null;
     }
     this._alive = false;
+    if (this.readyFallback) clearTimeout(this.readyFallback);
+    this.readyFallback = null;
     for (const pending of this.pendingResizes.splice(0)) {
       clearTimeout(pending.timer);
       pending.resolve();

@@ -262,10 +262,11 @@ export function toPtyFailure(err: unknown, paneId: string): PtyFailure {
  *
  * An agent launch queued with a `prompt` has it written to a file
  * on the pane's host first, and the typed line only names that file
- * (`promptLaunchLine`). `writeAfterReady` fires on the shell's first output,
- * which is not "line editor ready": a prompt theme can draw before `.zshrc`
- * loads, while the tty is still canonical, and the kernel drops whatever of
- * a typed line runs past `MAX_CANON` — 1024 bytes on macOS.
+ * (`promptLaunchLine`). `writeAfterReady` waits for the first prompt only in
+ * a shell that runs Manor's rc; elsewhere it fires on the first output, which
+ * is not "line editor ready": a prompt theme can draw before the rc loads,
+ * while the tty is still canonical, and the kernel drops whatever of a typed
+ * line runs past `MAX_CANON` — 1024 bytes on macOS.
  */
 async function deliverPendingCommand(
   deps: SpawnPaneDeps,

@@ -34,3 +34,10 @@ export function useTerminalFont(): TerminalFont {
   const size = usePreferencesStore((s) => s.preferences.terminalFontSize);
   return resolveTerminalFont(family ?? "", size, isWebApp());
 }
+
+/** The terminal font as of now, for code that runs outside a render. */
+export function currentTerminalFont(): TerminalFont {
+  const { terminalFontFamily, terminalFontSize } =
+    usePreferencesStore.getState().preferences;
+  return resolveTerminalFont(terminalFontFamily ?? "", terminalFontSize, isWebApp());
+}

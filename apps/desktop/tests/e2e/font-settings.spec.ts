@@ -67,6 +67,25 @@ const terminalOptions = (window: Page, paneId: string) =>
     return { fontFamily, fontSize, rows: handle.term.rows, cols: handle.term.cols };
   }, paneId);
 
+/**
+ * How far each of the first three line numbers sits from its line, as a
+ * share of the line height: the same at any size while CodeMirror's measure
+ * is current, off once it is stale.
+ */
+const gutterOffsets = (window: Page) =>
+  pane(window).evaluate((root) => {
+    const lines = [...root.querySelectorAll(".cm-content .cm-line")];
+    const numbers = [...root.querySelectorAll(".cm-lineNumbers .cm-gutterElement")].filter(
+      (el) =>
+        /^\d+$/.test(el.textContent ?? "") && getComputedStyle(el).visibility !== "hidden",
+    );
+    return lines.slice(0, 3).map((line, i) => {
+      const l = line.getBoundingClientRect();
+      const n = numbers[i].getBoundingClientRect();
+      return Math.round(((l.top - n.top) / l.height) * 10) / 10;
+    });
+  });
+
 test("Settings › Font redraws terminals and the editor in the chosen font", async ({
   app,
   window,
@@ -157,10 +176,20 @@ test("Settings › Font redraws terminals and the editor in the chosen font", as
     return { family: s.fontFamily, size: s.fontSize };
   });
   expect(editorFont.size).toBe("16px");
+  const fresh = await gutterOffsets(window);
   expect(editorFont.family).toMatch(/^"Andale Mono"/);
   await shot(window, testInfo, "08-editor-chosen-dark");
   await useTheme(window, "Catppuccin Latte");
   await shot(window, testInfo, "09-editor-chosen-light");
+
+  // ── An editor already open re-measures: line numbers stay beside their lines ──
+  await useTheme(window, "Catppuccin Mocha");
+  await openFontSettings(window);
+  await setSize(window, "editor-font", 16, 22);
+  await closeSettings(window);
+  await expect.poll(() => content.evaluate((el) => getComputedStyle(el).fontSize)).toBe("22px");
+  await expect.poll(() => gutterOffsets(window)).toEqual(fresh);
+  await shot(window, testInfo, "10-editor-resized-open");
 
   // ── Saved with the other preferences ──
   const prefs = await window.evaluate(() => window.electronAPI.preferences.getAll());
@@ -168,7 +197,7 @@ test("Settings › Font redraws terminals and the editor in the chosen font", as
     terminalFontFamily: "Courier New",
     terminalFontSize: 18,
     editorFontFamily: "Andale Mono",
-    editorFontSize: 16,
+    editorFontSize: 22,
   });
   fs.writeFileSync(
     testInfo.outputPath("preferences.json"),

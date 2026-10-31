@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { AppPreferences } from "../electron.d";
 import { liveValue } from "../bridge/resync";
+import { isWebApp } from "../lib/platform";
 
 interface PreferencesState {
   preferences: AppPreferences;
@@ -67,21 +68,31 @@ export const usePreferencesStore = create<PreferencesState>((set) => {
 /** How long a terminal waits on preferences before opening at the defaults. */
 const PREFERENCES_TIMEOUT_MS = 2_000;
 
+/** Set once a wait has timed out: a read that failed is not waited on again. */
+let gaveUp = false;
+
 /**
  * Resolve once preferences have been read, or when waiting longer stops being
  * worth a blank pane. A terminal opens after this so it is created in the
  * font from Settings: one opened at the default and corrected a moment later
- * would tell its pty a size the pane never showed.
+ * would tell its pty a size the pane never showed. Nothing to wait for in a
+ * phone or browser tab, which ignores the font preferences
+ * (`useTerminalFont`).
  */
 export function whenPreferencesLoaded(): Promise<void> {
-  if (usePreferencesStore.getState().loaded) return Promise.resolve();
+  if (gaveUp || isWebApp() || usePreferencesStore.getState().loaded) {
+    return Promise.resolve();
+  }
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);
       unsubscribe();
       resolve();
     };
-    const timer = setTimeout(done, PREFERENCES_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      gaveUp = true;
+      done();
+    }, PREFERENCES_TIMEOUT_MS);
     const unsubscribe = usePreferencesStore.subscribe((s) => {
       if (s.loaded) done();
     });

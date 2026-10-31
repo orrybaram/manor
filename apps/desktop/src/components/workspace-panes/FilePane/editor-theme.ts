@@ -1,4 +1,5 @@
 import { EditorView } from "@codemirror/view";
+import { Compartment } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 
@@ -119,4 +120,23 @@ const syntax = HighlightStyle.define([
 ]);
 
 /** The file pane's editor theme: chrome and syntax, from manor's tokens. */
-export const manorEditorTheme = [chrome, syntaxHighlighting(syntax)];
+/**
+ * Where `useEditorFont` swaps in a font changed in Settings. The CSS variables
+ * already restyle an open view, but CodeMirror keeps the line heights it
+ * measured until its theme changes, and the gutter then drifts from the text.
+ * Empty in a new view, which measures the variables as they stand.
+ */
+export const editorFont = new Compartment();
+
+/** The font as a theme, the same values as the CSS variables `chrome` reads. */
+export function editorFontTheme(font: { family: string; size: number }) {
+  return EditorView.theme({
+    "&": { fontSize: `${font.size}px` },
+    ".cm-scroller": {
+      fontFamily: font.family,
+      lineHeight: `calc(${font.size}px * 17 / 12)`,
+    },
+  });
+}
+
+export const manorEditorTheme = [chrome, syntaxHighlighting(syntax), editorFont.of([])];

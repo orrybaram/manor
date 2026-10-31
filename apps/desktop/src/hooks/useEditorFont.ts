@@ -1,4 +1,9 @@
 import { useLayoutEffect } from "react";
+import { EditorView } from "@codemirror/view";
+import {
+  editorFont,
+  editorFontTheme,
+} from "../components/workspace-panes/FilePane/editor-theme";
 import { usePreferencesStore } from "../store/preferences-store";
 import { isWebApp } from "../lib/platform";
 import { clampFontSize } from "../terminal/config";
@@ -36,5 +41,12 @@ export function useEditorFont(): void {
     const root = document.documentElement.style;
     root.setProperty("--editor-font-family", font.family);
     root.setProperty("--editor-font-size", `${font.size}px`);
+    // An open view keeps the line heights it measured until its theme
+    // changes: give each one the font as a theme (`editorFont`).
+    for (const el of document.querySelectorAll<HTMLElement>(".cm-editor")) {
+      EditorView.findFromDOM(el)?.dispatch({
+        effects: editorFont.reconfigure(editorFontTheme(font)),
+      });
+    }
   }, [family, size]);
 }

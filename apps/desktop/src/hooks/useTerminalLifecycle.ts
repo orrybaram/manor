@@ -40,7 +40,7 @@ import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
-import { useTerminalFont } from "./useTerminalFont";
+import { currentTerminalFont, useTerminalFont } from "./useTerminalFont";
 import { useMountEffect } from "./useMountEffect";
 import {
   registerTerminal,
@@ -77,10 +77,8 @@ export function useTerminalLifecycle(
     null,
   );
   const termRef = useRef<Terminal | null>(null);
-  /** The font from Settings; a ref so the terminal is created in the latest one. */
+  /** The font from Settings, applied to a live terminal by the effect below. */
   const font = useTerminalFont();
-  const fontRef = useRef(font);
-  fontRef.current = font;
   /** The link under the pointer, for the context menu's link items. */
   const [linkHover] = useState(createLinkHoverTracker);
   /**
@@ -278,10 +276,13 @@ export function useTerminalLifecycle(
       // pane waited, and the render-time sync above had no terminal to apply
       // it to.
       const currentTheme = prevThemeRef.current;
+      // Read from the store, not a render: preferences may have landed
+      // after this pane's last render (`whenTerminalCanOpen` waits on them).
+      const openFont = currentTerminalFont();
       const t = new Terminal(
         terminalOptions({
-          fontFamily: fontRef.current.family,
-          fontSize: fontRef.current.size,
+          fontFamily: openFont.family,
+          fontSize: openFont.size,
           ...(currentTheme ? { theme: currentTheme } : {}),
           linkHandler: {
             activate: (_event, text) => {

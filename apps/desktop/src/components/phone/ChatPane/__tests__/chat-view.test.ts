@@ -1,5 +1,5 @@
 /**
- * Which agents a phone offers the chat for. A Claude agent with a
+ * Which agents a phone offers the chat for. A Claude or Codex agent with a
  * transcript gets it wherever it runs, a remote host included.
  */
 import { describe, expect, it } from "vitest";
@@ -19,15 +19,23 @@ function agent(over: Partial<AgentInfo>): AgentInfo {
 }
 
 describe("chatTranscriptPath", () => {
-  it("is null with no agent, a non-Claude agent, or no transcript yet", () => {
+  it("is null with no agent, an agent of a kind with no chat, or no transcript yet", () => {
     expect(chatTranscriptPath(null)).toBeNull();
-    expect(chatTranscriptPath(agent({ agentKind: "codex" } as Partial<AgentInfo>))).toBeNull();
+    expect(chatTranscriptPath(agent({ agentKind: "aider" } as unknown as Partial<AgentInfo>))).toBeNull();
+    expect(chatTranscriptPath(agent({ agentKind: "codex", transcriptPath: null } as Partial<AgentInfo>))).toBeNull();
     expect(chatTranscriptPath(agent({ transcriptPath: null }))).toBeNull();
     expect(chatTranscriptPath(agent({ transcriptPath: "" }))).toBeNull();
   });
 
   it("is the transcript for a local Claude agent", () => {
     expect(chatTranscriptPath(agent({}))).toBe("/tmp/t.jsonl");
+  });
+
+  it("is the rollout for a Codex agent", () => {
+    const rollout = "/home/me/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-abc.jsonl";
+    expect(chatTranscriptPath(agent({ agentKind: "codex", transcriptPath: rollout } as Partial<AgentInfo>))).toBe(
+      rollout,
+    );
   });
 
   it("is the transcript for a Claude agent on a remote host", () => {

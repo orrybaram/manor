@@ -251,6 +251,18 @@ describe("an opencode preview", () => {
     expect((await readdir(join(dir, "data", "opencode"))).sort()).toEqual(["opencode.db"]);
   });
 
+  it("reads an opencode Agent's transcript locator, <db>#<session>, as its database", async () => {
+    const d = db();
+    d.exec(`CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+      seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`);
+    d.prepare("INSERT INTO session_message VALUES ('m1', 'ses_a', 'user', 1, 0, 0, ?)").run(JSON.stringify({ text: "Hi" }));
+    d.close();
+    const preview = await readSessionPreview(ref("opencode", `${dbPath}#ses_a`, "ses_a"), env);
+    expect(preview.turns).toEqual([{ role: "user", text: "Hi" }]);
+    // Another session's locator names no store of this one's.
+    await expect(readSessionPreview(ref("opencode", `${dbPath}#ses_b`, "ses_a"), env)).rejects.toThrow();
+  });
+
   it("reads v1 messages and parts, keeping only the newest turns", async () => {
     const d = db();
     d.exec(`

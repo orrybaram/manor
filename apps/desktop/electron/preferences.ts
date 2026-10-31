@@ -24,6 +24,11 @@ export interface AppPreferences {
   /** Open Source Control in a panel of its own rather than a tab of the current one. */
   diffOpensInNewPanel: boolean;
   /**
+   * Desk panes with an agent open on its chat rather than its terminal, unless
+   * the pane has a choice of its own. The phone always opens on the chat.
+   */
+  deskChatByDefault: boolean;
+  /**
    * Number of days to retain non-active agents. Agents with `status !== "active"`
    * whose `completedAt` is older than this are pruned on AgentManager construction.
    * Set to 0 (or any non-positive number) to disable pruning.
@@ -66,6 +71,7 @@ const DEFAULTS: AppPreferences = {
   defaultEditor: "",
   editorIsTerminal: false,
   diffOpensInNewPanel: false,
+  deskChatByDefault: false,
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
   statsEnabled: true,

@@ -243,6 +243,41 @@ describe("agent-hook.js — main()", () => {
     expect(new URL(calls[0]!.url).searchParams.get("transcriptPath")).toBe("/t/s.jsonl");
   });
 
+  it("forwards a Codex hook's rollout path as transcriptPath, under kind codex", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "12000");
+    const { fn: fetchFn, calls } = makeFetch();
+    const rollout =
+      "/home/me/.codex/sessions/2026/01/01/rollout-2026-01-01T00-00-00-00000000-0000-4000-8000-000000000001.jsonl";
+
+    // The shape Codex's hooks send on stdin (`codex-rs/hooks/src/schema.rs`).
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(
+        JSON.stringify({
+          session_id: "00000000-0000-4000-8000-000000000001",
+          turn_id: "turn-1",
+          transcript_path: rollout,
+          cwd: "/work/repo",
+          hook_event_name: "UserPromptSubmit",
+          model: "gpt-5.5-codex",
+          permission_mode: "default",
+          prompt: "hi",
+        }),
+      ),
+      env: { MANOR_PANE_ID: "pane-3", MANOR_AGENT_KIND: "codex" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    const params = new URL(calls[0]!.url).searchParams;
+    expect(params.get("kind")).toBe("codex");
+    expect(params.get("eventType")).toBe("UserPromptSubmit");
+    expect(params.get("sessionId")).toBe("00000000-0000-4000-8000-000000000001");
+    expect(params.get("transcriptPath")).toBe(rollout);
+  });
+
   it("uses MANOR_AGENT_KIND from env when provided", async () => {
     fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "11111");

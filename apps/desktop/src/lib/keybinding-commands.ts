@@ -38,6 +38,7 @@ import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
 import { isHostServer } from "../bridge/connection";
 import { currentLayoutMode } from "../hooks/useLayoutMode";
+import { togglePaneChat } from "../components/phone/ChatPane/pane-chat-toggle";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -197,6 +198,7 @@ export function createSharedCommandContext(
       return selectSelectedTabId(state, selectActivePanelId(state));
     },
     focusedPaneId: () => selectFocusedPaneOfActiveTab(useAppStore.getState()),
+    togglePaneChat: (paneId) => togglePaneChat(paneId),
     copyToClipboard,
     startNewAgent: () => void newAgent({ prewarm: prewarmNewAgent }),
     moveTabToNextPanel: () => moveTabToNextPanel(),

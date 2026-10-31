@@ -128,14 +128,16 @@ type Phrase = {
 };
 
 const PHRASES: readonly Phrase[] = [
-  { names: ["Bash"], verb: "ran", noun: ["command", "commands"] },
+  // Codex's calls too: every shell tool it has is "shell" (`adapters/codex.ts`).
+  { names: ["Bash", "shell"], verb: "ran", noun: ["command", "commands"] },
   { names: ["Read"], verb: "read", noun: ["file", "files"] },
   // Only edits still running or that failed: a landed one is its own card.
-  { names: ["Edit", "MultiEdit", "Write", "NotebookEdit"], verb: "edited", noun: ["file", "files"] },
+  { names: ["Edit", "MultiEdit", "Write", "NotebookEdit", "apply_patch"], verb: "edited", noun: ["file", "files"] },
   { names: ["Grep", "Glob"], verb: "searched", noun: ["the code", "the code"] },
-  { names: ["WebSearch", "WebFetch"], verb: "searched the web" },
+  { names: ["WebSearch", "WebFetch", "web_search"], verb: "searched the web" },
   { names: ["Agent", "Task"], verb: "ran", noun: ["agent", "agents"] },
   { names: ["TodoWrite"], verb: "updated the todo list" },
+  { names: ["update_plan"], verb: "updated the plan" },
 ];
 const OTHER: Phrase = { names: [], verb: "used", noun: ["tool", "tools"] };
 

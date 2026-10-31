@@ -209,8 +209,8 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     expect(byTestId("phone-overflow-view")).toBeNull();
     click("phone-overflow-button");
 
-    // Not Claude: no chat.
-    seedAgent({ agentKind: "codex" } as Partial<AgentInfo>);
+    // A kind with no chat adapter yet: no chat.
+    seedAgent({ agentKind: "aider" } as unknown as Partial<AgentInfo>);
     openMenu();
     expect(byTestId("phone-overflow-view")).toBeNull();
     click("phone-overflow-button");

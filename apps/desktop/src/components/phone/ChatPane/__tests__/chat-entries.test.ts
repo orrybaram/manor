@@ -75,6 +75,18 @@ describe("summarizeTools", () => {
       .map((p) => p.text + (p.failed ? ` (${p.failed} failed)` : ""))
       .join(", ");
 
+  it("phrases Codex's calls as Claude's are", () => {
+    expect(
+      text([
+        tool("1", "shell"),
+        tool("2", "shell", "error"),
+        tool("3", "apply_patch", "error"),
+        tool("4", "web_search"),
+        tool("5", "update_plan"),
+      ]),
+    ).toBe("Ran 2 commands (1 failed), edited a file (1 failed), searched the web, updated the plan");
+  });
+
   it("counts each kind in the order it first appears", () => {
     expect(
       text([tool("1", "Bash", "error"), tool("2", "Read"), tool("3", "Bash"), tool("4", "Edit")]),

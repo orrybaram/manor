@@ -86,3 +86,13 @@ export const FAKE_CHAT_OPTIONS = ["Option 1", "Option 2", "Option 3"] as const;
  * hook never comes: what a lost Stop hook looks like.
  */
 export const FAKE_CHAT_LOSE_STOP = "lose the stop hook";
+
+/**
+ * `fake-agent-kind.sh`: a Codex, pi or opencode session's hooks, nothing
+ * else. It reports `<kind>`, a session id and a transcript the test put in
+ * place, so the pane gets an Agent of that kind whose chat reads it.
+ *
+ * Arguments: `<kind> <session id> <transcript path> [title]`. Run it with
+ * `bash`, so the file needs no exec bit.
+ */
+export const FAKE_AGENT_KIND = path.join(__dirname, "fake-agent-kind.sh");

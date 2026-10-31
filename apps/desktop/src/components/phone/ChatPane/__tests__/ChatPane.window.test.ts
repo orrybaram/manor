@@ -44,7 +44,7 @@ async function open(entries: ChatEntry[]): Promise<void> {
   (window as unknown as { electronAPI: unknown }).electronAPI = { claim: null, chat };
   await act(async () => {
     root.render(
-      createElement(ChatPane, { paneId: PANE, transcript: "/t/w.jsonl", hidden: false, onShowTerminal: () => {} }),
+      createElement(ChatPane, { paneId: PANE, agentKind: "claude", transcript: "/t/w.jsonl", hidden: false, onShowTerminal: () => {} }),
     );
   });  // The chat opens at the bottom, which is a scroll like any other.
   await scrollTo(Number.MAX_SAFE_INTEGER);

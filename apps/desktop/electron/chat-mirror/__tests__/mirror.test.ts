@@ -168,7 +168,7 @@ describe("ChatMirror", () => {
     it("has no chat for an agent without an adapter", async () => {
       agent = {
         hostId: "local",
-        agentKind: "codex",
+        agentKind: "aider" as never,
         transcriptPath: file("t.jsonl", user("u1", "hi")),
       };
       expect(await mirror.getHistory(PANE)).toEqual({

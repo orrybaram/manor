@@ -31,6 +31,20 @@ export type TranscriptRead =
        */
       head?: string;
       tail?: string;
+      /**
+       * Where the next read starts, for a source whose offset is a cursor of
+       * its own rather than a byte count (`OpencodeDbSource`): `data` is
+       * whole lines, and the offset moves to `next` instead of on by their
+       * bytes. `size` is then on the same scale as `next`.
+       */
+      next?: number;
+      /**
+       * What was read before changed in place (a cursor source's rows were
+       * deleted): the reader starts over from offset 0, and, unlike a file
+       * rewritten from scratch, tells its subscribers (`ChatReset`). `data`
+       * is empty.
+       */
+      replaced?: true;
     }
   | { ok: false; error: string };
 

@@ -98,6 +98,8 @@ export interface SharedCommandContext {
   activePanelId(): string | null;
   activeTabId(): string | null;
   focusedPaneId(): string | null;
+  /** Flip an agent pane between its chat and its terminal; nothing for a pane with no chat. */
+  togglePaneChat(paneId: string): void;
   copyToClipboard(text: string, label: string): void;
   startNewAgent(): void;
   /** Move the active panel's selected tab to the next panel, wrapping. */
@@ -375,6 +377,17 @@ export const COMMANDS: readonly CommandDef[] = [
     defaultCombo: metaCombo("["),
     scope: "any",
     run: (ctx) => ctx.app().focusPrevPane(),
+  },
+  {
+    id: "toggle-pane-chat",
+    label: "Toggle Chat View",
+    category: "terminal",
+    defaultCombo: metaCombo("m", true), // Cmd+Shift+M, Ctrl+Shift+M off mac
+    scope: "any",
+    run: (ctx) => {
+      const paneId = ctx.focusedPaneId();
+      if (paneId) ctx.togglePaneChat(paneId);
+    },
   },
   {
     id: "history-back",

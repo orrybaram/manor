@@ -1,9 +1,11 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
+import { agentChat } from "../../../lib/agent-chat";
 import { Button } from "../../ui/Button/Button";
 import { PullToRefresh } from "../PullToRefresh";
 import {
@@ -23,14 +25,23 @@ import { noteChatEntries } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
-const UNAVAILABLE_NOTE: Record<Unavailable, string> = {
-  "no-agent": "This pane has no Claude session to show as a chat.",
-  "unsupported-agent": "Chat isn't available for this agent yet.",
-  "no-transcript": "Claude hasn't written a transcript for this session yet.",
-  remote: "Chat isn't available for agents on a remote host yet.",
-  "host-offline": "This host is offline. The chat will catch up when it reconnects.",
-  error: "Couldn't load this chat.",
-};
+/** Why there is no chat, in words naming the agent (`AgentChat.name`). */
+function unavailableNote(reason: Unavailable, agent: string): string {
+  switch (reason) {
+    case "no-agent":
+      return `This pane has no ${agent} session to show as a chat.`;
+    case "unsupported-agent":
+      return "Chat isn't available for this agent yet.";
+    case "no-transcript":
+      return `${agent} hasn't written a transcript for this session yet.`;
+    case "remote":
+      return "Chat isn't available for agents on a remote host yet.";
+    case "host-offline":
+      return "This host is offline. The chat will catch up when it reconnects.";
+    case "error":
+      return "Couldn't load this chat.";
+  }
+}
 
 /**
  * While the host is offline, history is fetched again this often, besides
@@ -44,15 +55,19 @@ const STICK_SLOP_PX = 48;
 
 type ChatPaneProps = {
   paneId: string;
+  /** The **Agent kind** of the agent whose transcript this is. */
+  agentKind: string;
   /** The transcript this chat reads (it is keyed by it). */
   transcript: string;
   /** The terminal is showing instead. The chat stays mounted and subscribed. */
   hidden: boolean;
   onShowTerminal: () => void;
+  /** Which layout the pane is in: the desk keeps the chat to a column. */
+  layout?: LayoutMode;
 };
 
 /**
- * A phone's chat view of a Claude pane: the pane's transcript as
+ * The chat view of an agent pane, on a phone or a desk: the pane's transcript as
  * a conversation, its pickers as cards that answer through the PTY, and a
  * composer. The terminal stays the truth; this is a reader of the transcript
  * and a writer of keystrokes.
@@ -82,7 +97,8 @@ type ChatPaneProps = {
  * everywhere and this does it).
  */
 export function ChatPane(props: ChatPaneProps) {
-  const { paneId, transcript, hidden, onShowTerminal } = props;
+  const { paneId, agentKind, transcript, hidden, onShowTerminal, layout = "phone" } = props;
+  const agentName = agentChat(agentKind).name;
 
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -101,6 +117,13 @@ export function ChatPane(props: ChatPaneProps) {
     /** The last fetch answered `host-offline`: fetch again on a sign of life. */
     let offline = false;
     let fetching = false;
+    /**
+     * The history changed in place (`ChatReset`): the next history that
+     * answers replaces the entries shown rather than merging under them.
+     */
+    let replace = false;
+    /** A reset arrived during a fetch, which may predate it: fetch again after. */
+    let again = false;
     /** The chat is showing a history: the last fetch that answered had one. */
     let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
@@ -121,14 +144,21 @@ export function ChatPane(props: ChatPaneProps) {
     function fetchHistory(): Promise<void> {
       if (fetching) return Promise.resolve();
       fetching = true;
+      const replacing = replace;
       return chat.getHistory(paneId).then(
         (history) => {
           fetching = false;
           if (!alive) return;
+          if (again) {
+            again = false;
+            void fetchHistory();
+            return;
+          }
           if (history.ok) {
             shown = true;
+            if (replacing) replace = false;
             noteChatEntries(paneId, transcript, history.entries);
-            setEntries((prev) => mergeHistory(history.entries, prev));
+            setEntries((prev) => (replacing ? history.entries : mergeHistory(history.entries, prev)));
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
@@ -161,6 +191,11 @@ export function ChatPane(props: ChatPaneProps) {
         setContextTokens(entry.contextTokens);
       } else if (entry.kind === "turn") {
         turnSettle.setTurn(entry.state);
+      } else if (entry.kind === "reset") {
+        replace = true;
+        if (fetching) again = true;
+        else void fetchHistory();
+        return;
       } else {
         setEntries((prev) => upsertEntry(prev, entry));
         noteChatEntries(paneId, transcript, [entry]);
@@ -289,12 +324,13 @@ export function ChatPane(props: ChatPaneProps) {
     <div
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
       data-chat-pane
+      data-layout={layout}
       data-testid="chat-pane"
       aria-hidden={hidden || undefined}
     >
       {unavailable ? (
         <div className={styles.unavailable} data-testid="chat-unavailable">
-          <p>{UNAVAILABLE_NOTE[unavailable]}</p>
+          <p>{unavailableNote(unavailable, agentName)}</p>
           <Button onClick={onShowTerminal}>Show terminal</Button>
         </div>
       ) : (
@@ -338,7 +374,7 @@ export function ChatPane(props: ChatPaneProps) {
           </PullToRefresh>
           {needsYou && (
             <div className={styles.needsYou} data-testid="chat-needs-you">
-              <span>Claude needs you</span>
+              <span>{agentName} needs you</span>
               <Button size="sm" variant="primary" onClick={onShowTerminal}>
                 Open terminal
               </Button>
@@ -346,6 +382,7 @@ export function ChatPane(props: ChatPaneProps) {
           )}
           <ChatComposer
             paneId={paneId}
+            agentKind={agentKind}
             busy={busy}
             transcript={transcript}
             contextTokens={contextTokens}

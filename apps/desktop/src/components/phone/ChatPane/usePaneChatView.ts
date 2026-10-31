@@ -1,14 +1,17 @@
 import { useCallback } from "react";
 import { create } from "zustand";
 import type { ChatEntry } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { readChatView, writeChatView, type ChatView } from "./chat-view";
 import { endsMenuHandoff, liveMenuHandoff, type MenuHandoff } from "./menu-handoff";
 
 /**
  * Each pane's Chat | Terminal choice, shared by the pane itself
- * (`LeafPane`, which shows one or the other) and the phone top bar's overflow
- * menu (which flips it). An entry is filled lazily from this browser's
- * storage the first time a pane is read, chat by default, and every change is
+ * (`LeafPane`, which shows one or the other) and what flips it: the phone top
+ * bar's overflow menu, and on the desk the pane header and its command. The
+ * phone's and the desk's choices are kept apart. An entry is filled lazily
+ * from this browser's storage the first time a pane is read (the phone
+ * defaults to chat, the desk to the caller's default) and every change is
  * written back.
  *
  * A menu handoff lies over that choice: while one is live the
@@ -16,7 +19,10 @@ import { endsMenuHandoff, liveMenuHandoff, type MenuHandoff } from "./menu-hando
  * reload mid-handoff comes back on the chat.
  */
 type PaneChatViewState = {
+  /** The phone's choices. */
   views: Record<string, ChatView>;
+  /** The desk's choices. */
+  deskViews: Record<string, ChatView>;
   /** Panes waiting on a new transcript, mapped to the one they leave behind
    *  (null for an agent the phone just started, the old one after `/clear`).
    *  They show a fresh chat until a different transcript lands. In memory
@@ -33,30 +39,36 @@ type PaneChatViewState = {
 
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
   views: {},
+  deskViews: {},
   starting: {},
   startingPrompts: {},
   handoffs: {},
 }));
 
 /**
- * The view `paneId` shows while on `transcript`: the terminal under a live
- * menu handoff, otherwise the stored choice, or what this browser remembers.
+ * The view `paneId` shows in `layout` while on `transcript`: the terminal
+ * under a live menu handoff, otherwise the stored choice, or what this
+ * browser remembers, or `deskDefault` for a desk pane with neither.
  */
 export function selectPaneChatView(
   state: PaneChatViewState,
   paneId: string,
   transcript: string | null,
+  layout: LayoutMode = "phone",
+  deskDefault: ChatView = "terminal",
 ): ChatView {
   if (liveMenuHandoff(state.handoffs[paneId], transcript)) return "terminal";
+  if (layout === "desk") return state.deskViews[paneId] ?? readChatView(paneId, "desk", deskDefault);
   return state.views[paneId] ?? readChatView(paneId);
 }
 
-/** Store `paneId`'s Chat | Terminal choice, here and in this browser. */
-export function setPaneChatView(paneId: string, view: ChatView): void {
+/** Store `paneId`'s Chat | Terminal choice in `layout`, here and in this browser. */
+export function setPaneChatView(paneId: string, view: ChatView, layout: LayoutMode = "phone"): void {
+  const field = layout === "desk" ? "deskViews" : "views";
   usePaneChatViewStore.setState((s) =>
-    s.views[paneId] === view ? s : { views: { ...s.views, [paneId]: view } },
+    s[field][paneId] === view ? s : { [field]: { ...s[field], [paneId]: view } },
   );
-  writeChatView(paneId, view);
+  writeChatView(paneId, view, layout);
 }
 
 /**
@@ -132,14 +144,21 @@ export function usePaneMenuHandoff(paneId: string, transcript: string | null): M
 }
 
 /**
- * `paneId`'s view while on `transcript`, and a setter for the stored choice
- * (which a live handoff still covers).
+ * `paneId`'s view in `layout` while on `transcript`, and a setter for the
+ * stored choice (which a live handoff still covers).
  */
 export function usePaneChatView(
   paneId: string,
   transcript: string | null,
+  layout: LayoutMode = "phone",
+  deskDefault: ChatView = "terminal",
 ): [ChatView, (view: ChatView) => void] {
-  const view = usePaneChatViewStore((s) => selectPaneChatView(s, paneId, transcript));
-  const setView = useCallback((next: ChatView) => setPaneChatView(paneId, next), [paneId]);
+  const view = usePaneChatViewStore((s) =>
+    selectPaneChatView(s, paneId, transcript, layout, deskDefault),
+  );
+  const setView = useCallback(
+    (next: ChatView) => setPaneChatView(paneId, next, layout),
+    [paneId, layout],
+  );
   return [view, setView];
 }

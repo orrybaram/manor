@@ -139,6 +139,21 @@
   color: var(--text-selected);
 }
 
+/* The chat toggle while the pane shows its chat: lit, so the header says
+   which view this is. */
+.paneStatusBtnChat,
+.paneStatusBtnChat:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+/* A menu item's shortcut, pushed to the item's end. */
+.contextMenuShortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--text-dim);
+}
+
 .paneNavControls {
   display: flex;
   align-items: center;

@@ -183,6 +183,8 @@ export class TranscriptStream {
     const { path, source } = this.target;
     if (!path || !source) return;
     let generation = this.currentGeneration;
+    /** The history read before changed in place: say so once it is read again. */
+    let replaced = false;
     for (;;) {
       const result = await source.read(path, this.offset);
       if (generation !== this.currentGeneration) return;
@@ -190,6 +192,14 @@ export class TranscriptStream {
       if (!result.ok) {
         this.readError = result.error;
         return;
+      }
+      // Changed in place: start over, and once read again tell subscribers,
+      // who have entries that may be gone. Only a primed stream has any.
+      if (result.replaced) {
+        replaced ||= this.primed;
+        this.reset(path);
+        generation = this.currentGeneration;
+        continue;
       }
       // Rewritten from scratch: start over, quietly (`reset` unprimes, so
       // the re-read publishes nothing). The data read was from the wrong
@@ -209,6 +219,8 @@ export class TranscriptStream {
       } else {
         this.consume(result.data, this.primed);
         reached = start + Buffer.byteLength(result.data, "utf8");
+        // A cursor source says where it got to.
+        if (result.next !== undefined) this.offset = reached = result.next;
       }
       // A source returns a window at a time: read on until the end, still as
       // one read (and, the first time, all of it history). A read that got
@@ -218,6 +230,7 @@ export class TranscriptStream {
       // A task's turn is its launching tool's; only the pane's is published.
       if (this.opts.child !== true) this.pushTurnState(this.primed);
       this.primed = true;
+      if (replaced) this.opts.onPush({ kind: "reset", id: "reset", ts: new Date().toISOString() }, true);
       return;
     }
   }

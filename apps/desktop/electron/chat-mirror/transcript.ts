@@ -161,13 +161,29 @@ export type ChatTurn = {
   state: ChatTurnState;
 };
 
-/** What the `chat.entry` channel carries: an entry, a context-size or a turn-state update. */
-export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
+/**
+ * The transcript's history changed in place, not just at its end (opencode
+ * deleted the rows `/undo` reverted): what was pushed before may be gone.
+ * Published once the mirror has read the changed history; a subscriber
+ * fetches the history again and replaces what it shows. Never a `ChatEntry`.
+ */
+export type ChatReset = {
+  kind: "reset";
+  id: "reset";
+  ts: string;
+};
+
+/**
+ * What the `chat.entry` channel carries: an entry, a context-size or a
+ * turn-state update, or word that the history changed.
+ */
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn | ChatReset;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
 
-const MAX_DETAIL = 4000;
+/** The most of a tool's result or a command's output an entry keeps. */
+export const MAX_DETAIL = 4000;
 /** An edit card's caps: hunks, lines per hunk, characters per line. */
 const MAX_HUNKS = 40;
 const MAX_HUNK_LINES = 400;
@@ -403,7 +419,7 @@ function editHunks(info: Json): ChatDiffHunk[] {
 }
 
 /** `path` relative to `cwd` when it is inside it. */
-function relativeTo(path: string, cwd: string | undefined): string {
+export function relativeTo(path: string, cwd: string | undefined): string {
   if (!cwd) return path;
   const base = cwd.endsWith("/") ? cwd : `${cwd}/`;
   return path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path;
@@ -418,7 +434,36 @@ function editEntry(
   info: Json,
   cwd?: string,
 ): ChatEntry | null {
-  const all = editHunks(info);
+  return landedEdit(tool, editHunks(info), str(info.filePath) ?? str(info.notebook_path), cwd);
+}
+
+/**
+ * A tool's landed edit as an edit entry in its place. `filePath` is the file
+ * it wrote, else the tool's summary names it. Null when there is no diff to
+ * show.
+ */
+export function landedEdit(
+  tool: Extract<ChatEntry, { kind: "tool" }>,
+  all: ChatDiffHunk[],
+  filePath: string | undefined,
+  cwd?: string,
+): Extract<ChatEntry, { kind: "edit" }> | null {
+  const path = filePath || (tool.summary !== tool.name ? tool.summary : "");
+  return cappedEdit(
+    { id: tool.id, ts: tool.ts, name: tool.name, path: relativeTo(path, cwd) },
+    all,
+  );
+}
+
+/**
+ * An edit entry of `all`'s hunks: added and removed counted over all of
+ * them, then cut to an edit card's caps. Null when there is nothing to show.
+ * Any adapter's landed edit goes through here, so every card fits one frame.
+ */
+export function cappedEdit(
+  base: { id: string; ts: string; name: string; path: string },
+  all: ChatDiffHunk[],
+): Extract<ChatEntry, { kind: "edit" }> | null {
   if (all.length === 0) return null;
   let added = 0;
   let removed = 0;
@@ -454,19 +499,57 @@ function editEntry(
     }
   }
   if (hunks.length === 0) return null;
-  const written = str(info.filePath) ?? str(info.notebook_path);
-  const path = written || (tool.summary !== tool.name ? tool.summary : "");
-  return {
-    kind: "edit",
-    id: tool.id,
-    ts: tool.ts,
-    name: tool.name,
-    path: relativeTo(path, cwd),
-    hunks,
-    added,
-    removed,
-    truncated,
-  };
+  return { kind: "edit", ...base, hunks, added, removed, truncated };
+}
+
+/**
+ * The hunks of a unified patch: pi's edit tool's `details.patch` (jsdiff's
+ * `createTwoFilesPatch`), or a Codex `patch_apply_end` update's
+ * `unified_diff`. File headers before a hunk are skipped. Each hunk is read
+ * for as many lines as its header counts, so a removed line that itself
+ * starts with "--" is not taken for a file header. A "\ No newline at end
+ * of file" marker is kept, as `structuredPatch` keeps it; the card draws it
+ * as a meta row (`edit-diff.ts`) and counts it neither added nor removed.
+ */
+export function parseUnifiedPatch(patch: string): ChatDiffHunk[] {
+  const lines = patch.split("\n");
+  const hunks: ChatDiffHunk[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[i]);
+    i++;
+    if (!m) continue;
+    const oldLines = m[2] === undefined ? 1 : Number(m[2]);
+    const newLines = m[4] === undefined ? 1 : Number(m[4]);
+    let oldLeft = oldLines;
+    let newLeft = newLines;
+    const body: string[] = [];
+    while (i < lines.length) {
+      const l = lines[i];
+      if (l.startsWith("\\")) {
+        body.push(l);
+      } else if (oldLeft <= 0 && newLeft <= 0) {
+        break;
+      } else if (l.startsWith("+")) {
+        newLeft--;
+        body.push(l);
+      } else if (l.startsWith("-")) {
+        oldLeft--;
+        body.push(l);
+      } else if (l.startsWith(" ")) {
+        oldLeft--;
+        newLeft--;
+        body.push(l);
+      } else {
+        break;
+      }
+      i++;
+    }
+    if (body.length > 0) {
+      hunks.push({ oldStart: Number(m[1]), oldLines, newStart: Number(m[3]), newLines, lines: body });
+    }
+  }
+  return hunks;
 }
 
 /** How a `TranscriptParser` reads. */

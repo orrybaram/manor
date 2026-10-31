@@ -56,33 +56,33 @@ const DEFAULT_THEME: Theme = {
 };
 
 /**
- * Manor's own theme, in the marketing site's colours: soot black, bone white,
- * bile yellow for the accent, blood and wound pink for red and magenta.
+ * Manor's own theme: warm soot black and bone white, with a cyan accent and
+ * cursor, and yellow selection.
  */
 const MANOR_THEME: Theme = {
-  background: "#11110a",
-  foreground: "#fffdf2",
-  cursor: "#ffe800",
+  background: "#181616",
+  foreground: "#dbd3cc",
+  cursor: "#12f9de",
   cursorAccent: "#11110a",
-  selectionBackground: "#ffe800",
+  selectionBackground: "#f7d21d",
   selectionForeground: "#11110a",
   black: "#2a2a1c",
   red: "#f0213a",
-  green: "#a8c23a",
-  yellow: "#ffe800",
+  green: "#57c039",
+  yellow: "#f7d21d",
   blue: "#6b7bff",
   magenta: "#ff40b4",
-  cyan: "#8fd3c8",
+  cyan: "#12f9de",
   white: "#d6d4cc",
   brightBlack: "#5c5a45",
   brightRed: "#ff5c6c",
-  brightGreen: "#c6e05a",
-  brightYellow: "#fff36b",
+  brightGreen: "#96e580",
+  brightYellow: "#f2dd78",
   brightBlue: "#949fff",
   brightMagenta: "#ff7ccb",
-  brightCyan: "#b5ebe2",
+  brightCyan: "#a3e6db",
   brightWhite: "#fffdf2",
-  accent: "#ffe800",
+  accent: "#10f9de",
 };
 
 /** Selection names that aren't a Ghostty theme file. */

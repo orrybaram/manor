@@ -109,10 +109,10 @@ test.describe("Settings › Theme", () => {
     await expect(window.getByTestId("theme-filter-all")).toHaveAttribute("aria-current", "true");
     await shot(window, testInfo, "01-wall-all-default");
 
-    // ── Manor paints the app soot and bone, with a yellow accent ──
+    // ── Manor paints the app soot and bone, with a cyan accent ──
     await pick(window, "__manor__");
-    await expect.poll(() => cssVar(window, "--accent")).toBe("#ffe800");
-    await expect.poll(() => cssVar(window, "--bg")).toBe("#11110a");
+    await expect.poll(() => cssVar(window, "--accent")).toBe("#10f9de");
+    await expect.poll(() => cssVar(window, "--bg")).toBe("#181616");
     await shot(window, testInfo, "02-manor-selected");
     await closeSettings(window);
     await shot(window, testInfo, "03-manor-app");

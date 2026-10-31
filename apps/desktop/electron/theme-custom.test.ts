@@ -33,10 +33,10 @@ const settings = () =>
   JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
 
 describe("Manor theme", () => {
-  it("is a dark theme with the site's bile yellow as its accent", () => {
+  it("is a dark theme with the cyan accent", () => {
     const theme = manor();
-    expect(theme.accent).toBe("#ffe800");
-    expect(theme.foreground).toBe("#fffdf2");
+    expect(theme.accent).toBe("#10f9de");
+    expect(theme.foreground).toBe("#dbd3cc");
     expect(themeScheme(theme.background)).toBe("dark");
   });
 });
@@ -95,8 +95,8 @@ describe("custom themes", () => {
     const name = manager.saveCustomTheme("Ink", manor());
     expect(name).toBe("custom:Ink");
     const file = fs.readFileSync(path.join(themesDir, "Ink"), "utf-8");
-    expect(file).toContain("background = #11110a");
-    expect(file).toContain("accent = #ffe800");
+    expect(file).toContain("background = #181616");
+    expect(file).toContain("accent = #10f9de");
     expect(manager.getThemeByName("custom:Ink")).toEqual(manor());
   });
 
@@ -157,7 +157,7 @@ describe("catalog", () => {
       ["__default__", "Catppuccin Mocha", "Default"],
       ["__manor__", "Manor", "Built-in"],
     ]);
-    expect(builtins.find((t) => t.name === "__manor__")?.colors.accent).toBe("#ffe800");
+    expect(builtins.find((t) => t.name === "__manor__")?.colors.accent).toBe("#10f9de");
   });
 });
 

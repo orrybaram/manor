@@ -234,10 +234,10 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   await expect(merge).toHaveAttribute("title", "Fix the failing checks first");
   await expect(card.getByTestId("pr-merge-reason")).toHaveText("Fix the failing checks first");
   await useTheme(window, "Catppuccin Mocha");
-  card = await openCard(window, "fix-ci");
+  await openCard(window, "fix-ci");
   await strip.shot(window, "failing-check-card");
   await useTheme(window, "Catppuccin Latte");
-  card = await openCard(window, "fix-ci");
+  await openCard(window, "fix-ci");
   await strip.shot(window, "failing-check-card-light");
   await useTheme(window, "Catppuccin Mocha");
   card = await openCard(window, "fix-ci");
@@ -278,10 +278,10 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   await strip.shot(window, "merge-method-menu-light");
   await window.keyboard.press("Escape");
   await useTheme(window, "Catppuccin Mocha");
-  card = await openCard(window, "fix-ci");
+  await openCard(window, "fix-ci");
   await strip.shot(window, "ready-to-merge");
   await useTheme(window, "Catppuccin Latte");
-  card = await openCard(window, "fix-ci");
+  await openCard(window, "fix-ci");
   await strip.shot(window, "ready-to-merge-light");
   await useTheme(window, "Catppuccin Mocha");
   card = await openCard(window, "fix-ci");

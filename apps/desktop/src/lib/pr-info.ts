@@ -141,7 +141,15 @@ export interface PrMergeOptions {
   allowed: PrMergeMethod[];
   /** The repo lets a PR merge itself once its requirements pass. */
   autoMergeAllowed: boolean;
+  /**
+   * The PR's base branch has a merge queue: merging adds it to the queue,
+   * which merges it later, and the method is the queue's to choose.
+   */
+  mergeQueue: boolean;
 }
+
+/** What a merge did: landed it, queued it, or armed auto-merge. */
+export type PrMergeOutcome = "merged" | "queued" | "auto";
 
 /** Which of a PR's problems an agent is asked to deal with. */
 export type PrAgentTask = "checks" | "comments";

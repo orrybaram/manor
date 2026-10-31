@@ -44,6 +44,7 @@ import type {
   PrInfo,
   PrMergeMethod,
   PrMergeOptions,
+  PrMergeOutcome,
 } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
 import { byGhRepo, byHost, byProject, delegated, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
@@ -177,13 +178,15 @@ export function githubCloseIssue(
   return ctx.deps.githubManager.closeIssue(repo, issueNumber);
 }
 
-/** What the PR's repo allows when merging, for the PR card's Merge button. */
+/** How the PR can merge, for the PR card's Merge button. */
 export function githubGetMergeOptions(
   ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
+  number: number,
 ): Promise<PrMergeOptions> {
   assertRepo(repo);
-  return ctx.deps.githubManager.getMergeOptions(repo);
+  assertPositiveInt(number, "number");
+  return ctx.deps.githubManager.getMergeOptions(repo, number);
 }
 
 const MERGE_METHODS: readonly PrMergeMethod[] = ["squash", "merge", "rebase"];
@@ -195,7 +198,7 @@ export function githubMergePr(
   number: number,
   mergeMethod: PrMergeMethod,
   auto?: boolean | null,
-): Promise<void> {
+): Promise<PrMergeOutcome> {
   assertRepo(repo);
   assertPositiveInt(number, "number");
   if (!MERGE_METHODS.includes(mergeMethod)) {

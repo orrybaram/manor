@@ -4,7 +4,11 @@ import {
   failingChecksPrompt,
   LOG_BUDGET_CHARS,
   mergeArgs,
+  mergeOptionsQueryArgs,
+  mergeOutcomeQueryArgs,
   parseMergeOptions,
+  parseMergeOutcome,
+  prContextQueryArgs,
   parsePrContext,
   reviewThreadsPrompt,
   tailFailedLog,
@@ -25,7 +29,7 @@ describe("parseMergeOptions", () => {
           autoMergeAllowed: true,
         }),
       ),
-    ).toEqual({ allowed: ["rebase", "squash"], autoMergeAllowed: true });
+    ).toEqual({ allowed: ["rebase", "squash"], autoMergeAllowed: true, mergeQueue: false });
   });
 
   it("falls back to the first allowed method when the default is disallowed", () => {
@@ -38,7 +42,15 @@ describe("parseMergeOptions", () => {
           rebaseMergeAllowed: true,
         }),
       ),
-    ).toEqual({ allowed: ["merge", "rebase"], autoMergeAllowed: false });
+    ).toEqual({ allowed: ["merge", "rebase"], autoMergeAllowed: false, mergeQueue: false });
+  });
+
+  it("says when the PR's base branch has a merge queue", () => {
+    expect(
+      parseMergeOptions(
+        repo({ squashMergeAllowed: true, pullRequest: { isMergeQueueEnabled: true } }),
+      ).mergeQueue,
+    ).toBe(true);
   });
 
   it("throws when GitHub returns no repository", () => {
@@ -172,5 +184,29 @@ describe("reviewThreadsPrompt", () => {
     expect(prompt).toContain("2 unresolved review threads on PR #7");
     expect(prompt).toContain("## 1. `src/a.ts:40-42`\n@jane: Handle null here\n@me: Which null?\nhttps://c/1");
     expect(prompt).toContain("## 2. General\n@ghost: Overall nit");
+  });
+});
+
+describe("the queries", () => {
+  // A brace short is a GraphQL syntax error that only GitHub would catch.
+  it.each([
+    ["mergeOptions", mergeOptionsQueryArgs(7)],
+    ["mergeOutcome", mergeOutcomeQueryArgs(7)],
+    ["prContext", prContextQueryArgs(7)],
+  ])("%s query balances its braces and parentheses", (_, args) => {
+    const query = args.find((a) => a.startsWith("query="))!;
+    const count = (c: string) => query.split(c).length - 1;
+    expect(count("{")).toBe(count("}"));
+    expect(count("(")).toBe(count(")"));
+  });
+});
+
+describe("parseMergeOutcome", () => {
+  const pr = (p: Record<string, unknown>) => repo({ pullRequest: p });
+  it("tells a merge from a queued PR from armed auto-merge", () => {
+    expect(parseMergeOutcome(pr({ state: "MERGED" }))).toBe("merged");
+    expect(parseMergeOutcome(pr({ state: "OPEN", isInMergeQueue: true }))).toBe("queued");
+    expect(parseMergeOutcome(pr({ state: "OPEN", autoMergeRequest: { enabledAt: "x" } }))).toBe("auto");
+    expect(() => parseMergeOutcome(pr({ state: "OPEN" }))).toThrow(/neither merged nor queued/);
   });
 });

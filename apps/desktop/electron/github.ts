@@ -13,6 +13,7 @@ import type {
   PrInfo,
   PrMergeMethod,
   PrMergeOptions,
+  PrMergeOutcome,
 } from "../src/lib/pr-info";
 import { normalizeHostId } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
@@ -32,7 +33,9 @@ import {
   failingChecksPrompt,
   mergeArgs,
   mergeOptionsQueryArgs,
+  mergeOutcomeQueryArgs,
   parseMergeOptions,
+  parseMergeOutcome,
   parsePrContext,
   prContextQueryArgs,
   reviewThreadsPrompt,
@@ -604,24 +607,28 @@ export class GitHubManager {
   }
 
   /** What the repo allows when merging, its default method first. Throws when `gh` fails. */
-  async getMergeOptions(repo: GhRepo): Promise<PrMergeOptions> {
+  async getMergeOptions(repo: GhRepo, number: number): Promise<PrMergeOptions> {
     const { cwd } = await this.ghTarget(repo);
-    const { stdout } = await runGh(["api", "graphql", ...mergeOptionsQueryArgs()], cwd);
+    const { stdout } = await runGh(["api", "graphql", ...mergeOptionsQueryArgs(number)], cwd);
     return parseMergeOptions(stdout);
   }
 
   /**
    * Merge a PR, or with `auto` arm auto-merge so it merges itself once its
-   * requirements pass. Throws with `gh`'s own reason when GitHub refuses.
+   * requirements pass; a base branch with a merge queue queues it either
+   * way. Answers which of the three happened. Throws with `gh`'s own reason
+   * when GitHub refuses.
    */
   async mergePr(
     repo: GhRepo,
     number: number,
     method: PrMergeMethod,
     auto: boolean,
-  ): Promise<void> {
+  ): Promise<PrMergeOutcome> {
     const { cwd } = await this.ghTarget(repo);
     await runGh(mergeArgs(number, method, auto), cwd, 60_000);
+    const { stdout } = await runGh(["api", "graphql", ...mergeOutcomeQueryArgs(number)], cwd);
+    return parseMergeOutcome(stdout);
   }
 
   /**

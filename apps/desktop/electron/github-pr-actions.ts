@@ -8,7 +8,7 @@
  * poll; every query answers one click.
  */
 
-import type { PrMergeMethod, PrMergeOptions } from "../src/lib/pr-info";
+import type { PrMergeMethod, PrMergeOptions, PrMergeOutcome } from "../src/lib/pr-info";
 import { normalizeRawPr, type RawStatusCheck } from "./github-pr-query";
 
 /** `gh pr merge`'s flag for each method. */
@@ -34,15 +34,18 @@ export const LOG_TAIL_LINES = 60;
 export const LOG_BUDGET_CHARS = 16_000;
 
 /** What the repo answers about merging, as `gh api graphql` asks it. */
-export function mergeOptionsQueryArgs(): string[] {
+export function mergeOptionsQueryArgs(number: number): string[] {
   return [
     "-F",
     "owner={owner}",
     "-F",
     "name={repo}",
+    "-F",
+    `number=${Number(number)}`,
     "-f",
-    "query=query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) " +
-      "{ viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed } }",
+    "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) " +
+      "{ viewerDefaultMergeMethod squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed " +
+      "pullRequest(number: $number) { isMergeQueueEnabled } } }",
   ];
 }
 
@@ -63,7 +66,39 @@ export function parseMergeOptions(stdout: string): PrMergeOptions {
   const allowed = defaultMethod
     ? [defaultMethod, ...ordered.filter((m) => m !== defaultMethod)]
     : [];
-  return { allowed, autoMergeAllowed: repo.autoMergeAllowed === true };
+  return {
+    allowed,
+    autoMergeAllowed: repo.autoMergeAllowed === true,
+    mergeQueue: repo.pullRequest?.isMergeQueueEnabled === true,
+  };
+}
+
+/** Where a PR stands right after `gh pr merge`, as `gh api graphql` asks it. */
+export function mergeOutcomeQueryArgs(number: number): string[] {
+  return [
+    "-F",
+    "owner={owner}",
+    "-F",
+    "name={repo}",
+    "-F",
+    `number=${Number(number)}`,
+    "-f",
+    "query=query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) " +
+      "{ pullRequest(number: $number) { state isInMergeQueue autoMergeRequest { enabledAt } } } }",
+  ];
+}
+
+/**
+ * What `gh pr merge` did: merged it, put it in the base branch's merge
+ * queue, or armed auto-merge. A merge queue takes the PR whatever `--auto`
+ * said, so the answer comes from the PR, not from the flags.
+ */
+export function parseMergeOutcome(stdout: string): PrMergeOutcome {
+  const pr = JSON.parse(stdout)?.data?.repository?.pullRequest;
+  if (pr?.state === "MERGED") return "merged";
+  if (pr?.isInMergeQueue) return "queued";
+  if (pr?.autoMergeRequest) return "auto";
+  throw new Error("GitHub accepted the merge but the PR is neither merged nor queued");
 }
 
 /**
@@ -91,7 +126,7 @@ export function prContextQueryArgs(number: number): string[] {
     "__typename " +
     "... on CheckRun { name conclusion status detailsUrl startedAt checkSuite { workflowRun { workflow { name } } } } " +
     "... on StatusContext { context state targetUrl createdAt } " +
-    "} } } } } } } }";
+    "} } } } } } } } }";
   return [
     "-F",
     "owner={owner}",

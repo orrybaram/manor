@@ -3,6 +3,7 @@ import Minus from "lucide-react/dist/esm/icons/minus";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { resolveTerminalFont } from "../../../hooks/useTerminalFont";
+import { resolveEditorFont } from "../../../hooks/useEditorFont";
 import { listMonospaceFonts } from "../../../lib/local-fonts";
 import { isWebApp } from "../../../lib/platform";
 import { usePreferencesStore } from "../../../store/preferences-store";
@@ -58,6 +59,10 @@ export function FontSection() {
     preferences.terminalFontSize,
     false,
   );
+  const editor = resolveEditorFont(
+    preferences.editorFontFamily,
+    preferences.editorFontSize,
+  );
 
   return (
     <Stack gap="xs">
@@ -84,6 +89,31 @@ export function FontSection() {
         <span style={{ color: theme?.magenta }}>main</span>
         {"\n$ pnpm test\n"}
         <span style={{ color: theme?.brightBlack }}> ✓ 412 passed  →  </span>
+      </FontRow>
+      <FontRow
+        id="editor-font"
+        label="Editor"
+        hint="File and diff views."
+        defaultLabel="Default (system monospace)"
+        family={preferences.editorFontFamily}
+        size={editor.size}
+        installed={installed}
+        onFamily={(family) => set("editorFontFamily", family)}
+        onSize={(size) => set("editorFontSize", size)}
+        sampleStyle={{
+          fontFamily: editor.family,
+          fontSize: editor.size,
+          background: "var(--bg)",
+          color: "var(--fg)",
+        }}
+      >
+        <span style={{ color: "var(--magenta)" }}>export function</span>{" "}
+        <span style={{ color: "var(--blue)" }}>terminalOptions</span>
+        {"() {\n  "}
+        <span style={{ color: "var(--magenta)" }}>return</span>
+        {" { fontSize: "}
+        <span style={{ color: "var(--yellow)" }}>13</span>
+        {" };\n}"}
       </FontRow>
     </Stack>
   );

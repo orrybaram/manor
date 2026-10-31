@@ -6,19 +6,20 @@ import { tags as t } from "@lezer/highlight";
  * The editor's look, all from manor's CSS variables: the chrome from the
  * surface tokens and the syntax from the terminal theme's ANSI colours. The
  * variables change with the terminal theme and light/dark, so the editor
- * follows without being told.
+ * follows without being told. Its font is Settings' (`useEditorFont`).
  */
 const chrome = EditorView.theme({
   "&": {
     height: "100%",
     color: "var(--fg)",
     backgroundColor: "var(--bg)",
-    fontSize: "12px",
+    fontSize: "var(--editor-font-size, 12px)",
   },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
-    fontFamily: "var(--font-mono)",
-    lineHeight: "17px",
+    fontFamily: "var(--editor-font-family, var(--font-mono))",
+    // 17px at the default 12px, in proportion at any other size.
+    lineHeight: "calc(var(--editor-font-size, 12px) * 17 / 12)",
   },
   ".cm-content": { padding: "6px 0", caretColor: "var(--fg)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },

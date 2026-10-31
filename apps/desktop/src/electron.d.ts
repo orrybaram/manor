@@ -40,6 +40,10 @@ export interface AppPreferences {
   terminalFontFamily: string;
   /** Terminal font size in px. */
   terminalFontSize: number;
+  /** File and diff editor font family; empty means the system monospace. */
+  editorFontFamily: string;
+  /** File and diff editor font size in px. */
+  editorFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
 }

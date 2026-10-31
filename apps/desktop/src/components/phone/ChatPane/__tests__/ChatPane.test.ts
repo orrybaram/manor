@@ -18,6 +18,7 @@ import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../.
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
 import { TURN_SETTLE_MS } from "../turn-settle";
+import { MANOR_VERBS, pastVerb, presentVerb } from "../manor-verbs";
 import {
   endMenuHandoff,
   noteChatEntries,
@@ -33,6 +34,8 @@ import { useHostStore, type HostStatusInfo } from "../../../../store/host-store"
 import { emitBridgeResync } from "../../../../bridge/resync";
 
 const PANE = "pane-1";
+/** The live line: a present-tense Manor verb, "…", and the time so far. */
+const LIVE_LINE = new RegExp(`^(${MANOR_VERBS.map((v) => v.present).join("|")})…\\d`);
 const TRANSCRIPT = "/t/a.jsonl";
 
 type EntryListener = (paneId: string, entry: ChatPush) => void;
@@ -177,6 +180,48 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("shows a thought as a quiet line and a turn's end as a divider in Manor's voice", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [
+        { kind: "user", id: "u1", ts: "", text: "go" },
+        { kind: "thought", id: "m1:thought", ts: "", durationMs: 4600 },
+        { kind: "assistant", id: "a1", ts: "", text: "Done." },
+        { kind: "turn-end", id: "e1", ts: "", durationMs: 134_000, backgroundAgents: 2 },
+        { kind: "turn-end", id: "e2", ts: "", durationMs: 48_000, backgroundAgents: 0 },
+      ],
+    });
+    await renderChat();
+
+    expect(all("chat-thought")[0].textContent).toBe("·Thought for 5s");
+    const [first, second] = all("chat-turn-end");
+    expect(first.textContent).toBe(`${pastVerb("e1")} for 2m 14s · 2 background agents still running`);
+    expect(first.querySelector("svg")).not.toBeNull();
+    expect(second.textContent).toBe(`${pastVerb("e2")} for 48s`);
+  });
+
+  it("keeps the running tool's line, not Thinking, when a thought lands after it", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({
+        ok: true,
+        contextTokens: null,
+        entries: [
+          { kind: "tool", id: "t1", ts: "", name: "Bash", summary: "ls", status: "pending" },
+          { kind: "thought", id: "m1:thought", ts: "", durationMs: 1000 },
+        ],
+      });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(0);
+      expect(all("chat-tool-group")[0].dataset.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a declined question as declined, and never as an open card", async () => {
     installChat({
       ok: true,
@@ -213,6 +258,30 @@ describe("ChatPane — entries", () => {
     );
     expect(container.textContent).toContain("Nothing in this conversation yet.");
     expect(container.querySelectorAll("[data-enter]")).toHaveLength(0);
+  });
+
+  it("shows the session's model from history, and follows a session push", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [],
+      session: { model: "claude-opus-5-5", effort: "medium", gitBranch: null },
+    });
+    await renderChat();
+    expect(all("chat-model-chip")[0]?.textContent).toBe("Opus 5.5");
+    await act(async () =>
+      listener?.(PANE, {
+        kind: "session",
+        id: "session",
+        ts: "",
+        model: "claude-sonnet-5-5",
+        effort: "high",
+        gitBranch: null,
+      }),
+    );
+    expect(all("chat-model-chip")[0]?.textContent).toBe("Sonnet 5.5");
+    expect(all("chat-effort-chip")[0]?.textContent).toBe("high");
+    expect(container.textContent).toContain("Nothing in this conversation yet.");
   });
 
   it("replaces what it shows with a fresh history on a reset push", async () => {
@@ -319,7 +388,7 @@ describe("ChatPane — entries", () => {
         expect(diff.textContent).toContain("Diff truncated");
   });
 
-  it("shows Thinking while Claude works with nothing to show", async () => {
+  it("shows the live line while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {
       installChat({ ok: true, contextTokens: null, entries: [] });
@@ -327,7 +396,9 @@ describe("ChatPane — entries", () => {
       await renderChat();
       expect(all("chat-thinking")).toHaveLength(0);
       await act(async () => vi.advanceTimersByTime(800));
-      expect(all("chat-thinking")[0].textContent).toBe("Thinking0s");
+      expect(all("chat-thinking")[0].textContent).toMatch(LIVE_LINE);
+      expect(all("chat-thinking")[0].textContent).toMatch(/…0s$/);
+      expect(all("chat-thinking")[0].getAttribute("role")).toBe("status");
 
       const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Bash", summary: "ls", status: "pending" };
       await act(async () => listener?.(PANE, pending));
@@ -336,11 +407,31 @@ describe("ChatPane — entries", () => {
 
       await act(async () => listener?.(PANE, { ...pending, status: "ok" }));
       await act(async () => vi.advanceTimersByTime(2200));
-      expect(all("chat-thinking")[0].textContent).toBe("Thinking2s");
+      expect(all("chat-thinking")[0].textContent).toMatch(/…2s$/);
 
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "idle", reason: "", kind: "claude" } } });
       await act(async () => {});
       expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rotates the live line's verb every 2.6s from one the clock picks, and counts minutes past one", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(2_600 * 5);
+      installChat({ ok: true, contextTokens: null, entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      const line = () => all("chat-thinking")[0];
+      expect(line().textContent).toBe(`${presentVerb(5)}…0s`);
+      expect(line().querySelector("svg[data-breathing]")).not.toBeNull();
+      await act(async () => vi.advanceTimersByTime(2_000));
+      expect(line().textContent).toBe(`${presentVerb(6)}…2s`);
+      await act(async () => vi.advanceTimersByTime(2_600 * 23 - 2_800 + 4_000));
+      expect(line().textContent).toBe(`${presentVerb(5 + 24)}…1m 03s`);
     } finally {
       vi.useRealTimers();
     }
@@ -406,6 +497,24 @@ describe("ChatPane — entries", () => {
       await act(async () => vi.advanceTimersByTime(5_000));
       expect(all("chat-stop")).toHaveLength(1);
       expect(all("chat-thinking")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows no live line under a turn's closing line while hooks still say busy", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({
+        ok: true,
+        contextTokens: null,
+        turnState: "done",
+        entries: [{ kind: "turn-end", id: "e1", ts: "", durationMs: 5000, backgroundAgents: 2 }],
+      });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }

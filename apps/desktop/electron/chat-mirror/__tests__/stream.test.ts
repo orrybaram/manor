@@ -368,9 +368,11 @@ describe("TranscriptStream — a file changing under it", () => {
     },
   };
 
-  /** Entry pushes only, not usage or turn. */
+  /** Entry pushes only, not usage, turn or session. */
   function entryPushes(): { entry: ChatPush; publish: boolean }[] {
-    return pushes.filter((p) => p.entry.kind !== "turn" && p.entry.kind !== "usage");
+    return pushes.filter(
+      (p) => p.entry.kind !== "turn" && p.entry.kind !== "usage" && p.entry.kind !== "session",
+    );
   }
 
   beforeEach(() => {

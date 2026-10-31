@@ -52,6 +52,7 @@ import { chatTaskKey } from "./task-key";
 import {
   type ChatEntry,
   type ChatPush,
+  type ChatSessionInfo,
   type ChatSkill,
   type ChatTaskEntry,
   type ChatTurnState,
@@ -83,6 +84,11 @@ export type ChatHistory =
        * Absent from a task's history, whose transcript is all sidechain.
        */
       turnState?: ChatTurnState | null;
+      /**
+       * The session's model, effort and git branch as its transcript last
+       * told them. Absent from a task's history, and from an older host's.
+       */
+      session?: ChatSessionInfo;
     }
   | { ok: false; reason: ChatUnavailableReason };
 
@@ -133,8 +139,8 @@ export interface ChatMirrorDeps {
   /** Type into the pane's PTY. */
   write(paneId: string, data: string): void;
   /**
-   * Push a new or updated entry, or a context-size or turn-state update, to the pane's
-   * `chat.entry` subscribers.
+   * Push a new or updated entry, or a context-size, turn-state or
+   * session-info update, to the pane's `chat.entry` subscribers.
    */
   publish(paneId: string, entry: ChatPush): void;
   /**
@@ -252,6 +258,7 @@ export class ChatMirror {
       entries: m.stream.parser.entries().map((e) => this.decorate(m, e)),
       contextTokens: m.stream.parser.contextTokens(),
       turnState: m.stream.parser.turnState(),
+      session: m.stream.parser.sessionInfo(),
     };
   }
 
@@ -510,7 +517,12 @@ export class ChatMirror {
 
   /** What the pane's stream found: publish it, and settle what it answers. */
   private onPanePush(paneId: string, m: PaneMirror, push: ChatPush, publish: boolean): void {
-    if (push.kind === "usage" || push.kind === "turn" || push.kind === "reset") {
+    if (
+      push.kind === "usage" ||
+      push.kind === "turn" ||
+      push.kind === "session" ||
+      push.kind === "reset"
+    ) {
       if (publish) this.deps.publish(paneId, push);
       return;
     }

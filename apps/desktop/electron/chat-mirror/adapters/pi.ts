@@ -23,6 +23,7 @@ import {
   MAX_DETAIL,
   type ChatDiffHunk,
   type ChatEntry,
+  type ChatSessionInfo,
   type ChatSkill,
   type ChatTurnState,
 } from "../transcript";
@@ -124,6 +125,10 @@ class PiTranscriptParser implements TranscriptLineParser {
   private readonly seenIds = new Set<string>();
   private lastContextTokens: number | null = null;
   private turn: ChatTurnState | null = null;
+  /** The newest assistant message's or `model_change`'s model. */
+  private model: string | null = null;
+  /** The newest `thinking_level_change`'s level. */
+  private effort: string | null = null;
 
   push(line: string, offset?: number): ChatEntry[] {
     try {
@@ -169,6 +174,11 @@ class PiTranscriptParser implements TranscriptLineParser {
 
   turnState(): ChatTurnState | null {
     return this.turn;
+  }
+
+  /** pi's session file names no git branch. */
+  sessionInfo(): ChatSessionInfo {
+    return { model: this.model, effort: this.effort, gitBranch: null };
   }
 
   // pi's skills are not listed in its session file.
@@ -224,6 +234,14 @@ class PiTranscriptParser implements TranscriptLineParser {
       this.seenIds.add(this.lastEntryId);
     }
 
+    if (type === "model_change") {
+      this.model = str(parsed.modelId) || this.model;
+      return out;
+    }
+    if (type === "thinking_level_change") {
+      this.effort = str(parsed.thinkingLevel) || this.effort;
+      return out;
+    }
     if (type === "compaction") {
       this.add({ kind: "notice", id, ts, text: "Conversation compacted", status: "ok" }, out);
       return out;
@@ -266,6 +284,7 @@ class PiTranscriptParser implements TranscriptLineParser {
   }
 
   private assistant(id: string, ts: string, message: Json, out: ChatEntry[]): void {
+    this.model = str(message.model) || this.model;
     const usage = message.usage;
     if (isObject(usage)) {
       // An aborted or failed message can carry zeroed usage: no context to tell.

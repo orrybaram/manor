@@ -14,7 +14,8 @@
  *   edit/write/patch with a diff in `state.metadata.diff` is an edit entry; a
  *   `task` tool is a task, whose child session is its transcript; a
  *   `compaction` part a notice. The newest `step-finish` part's tokens are
- *   the context size. The turn: the newest message a user's is working, an
+ *   the context size, and the newest assistant message's `modelID` the
+ *   model. The turn: the newest message a user's is working, an
  *   assistant's still streaming or stopped for tool calls is working, one
  *   aborted is interrupted, else done.
  * - v2 (`session_message`): `user` and `assistant` (its `content` blocks:
@@ -27,7 +28,7 @@
 import { encodeChatMessage } from "../picker-keys";
 import { CHAT_SUBMIT } from "../chat-keys";
 import { opencodeLocator, parseOpencodeLocator } from "../../sessions/opencode-locator";
-import type { ChatDiffHunk, ChatEntry, ChatTurnState } from "../transcript";
+import type { ChatDiffHunk, ChatEntry, ChatSessionInfo, ChatTurnState } from "../transcript";
 import type { TranscriptAdapter, TranscriptLineParser } from "./types";
 
 type Json = Record<string, unknown>;
@@ -290,6 +291,8 @@ class OpencodeParser implements TranscriptLineParser {
   private context: { key: string; tokens: number } | null = null;
   /** The turn by the key of what said it, the newest key winning. */
   private turn: { key: string; state: ChatTurnState } | null = null;
+  /** The model by the key of the v1 assistant message that named it, the newest key winning. */
+  private model: { key: string; id: string } | null = null;
 
   push(line: string): ChatEntry[] {
     let row: unknown;
@@ -338,6 +341,11 @@ class OpencodeParser implements TranscriptLineParser {
 
   turnState(): ChatTurnState | null {
     return this.turn?.state ?? null;
+  }
+
+  /** Only the model: opencode's rows name no effort or git branch. */
+  sessionInfo(): ChatSessionInfo {
+    return { model: this.model?.id ?? null, effort: null, gitBranch: null };
   }
 
   skills(): [] {
@@ -392,6 +400,8 @@ class OpencodeParser implements TranscriptLineParser {
     if (role === "user") this.sayTurn(key, "working");
     else if (role === "assistant") {
       this.sayContext(key, data.tokens);
+      const model = str(data.modelID);
+      if (model && (!this.model || key >= this.model.key)) this.model = { key, id: model };
       const state: ChatTurnState = msg.aborted
         ? "interrupted"
         : msg.open || msg.finish === "tool-calls"

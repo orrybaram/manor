@@ -49,7 +49,7 @@ export function ChatStarting(props: ChatStartingProps) {
           )}
         </div>
       </div>
-      <ChatComposer paneId={paneId} agentKind={agentKind ?? "claude"} busy={false} />
+      <ChatComposer paneId={paneId} agentKind={agentKind ?? "claude"} busy={false} layout={layout} />
     </div>
   );
 }

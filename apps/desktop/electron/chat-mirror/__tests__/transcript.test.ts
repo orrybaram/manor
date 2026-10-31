@@ -607,6 +607,42 @@ describe("TranscriptParser tasks", () => {
     expect(p.entries().filter((e) => e.kind === "notice")).toEqual([]);
   });
 
+  it("keeps how long a notified task ran: its reported duration, else launch to notification", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu8", "Agent", { description: "d", run_in_background: true }));
+    const [reported] = p.push(
+      userBlocks(
+        "n5",
+        "<task-notification><tool-use-id>tu8</tool-use-id><status>completed</status><summary>s</summary><usage><duration_ms>123456</duration_ms></usage></task-notification>",
+      ),
+    );
+    expect(reported).toMatchObject({ status: "ok", durationMs: 123456 });
+
+    p.push(
+      line({
+        type: "assistant",
+        uuid: "a-tu9",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: { role: "assistant", content: [{ type: "tool_use", id: "tu9", name: "Agent", input: { run_in_background: true } }] },
+      }),
+    );
+    const settle = (uuid: string, timestamp: string) =>
+      p.push(
+        line({
+          type: "user",
+          uuid,
+          timestamp,
+          message: {
+            role: "user",
+            content: "<task-notification><tool-use-id>tu9</tool-use-id><status>completed</status><summary>s</summary></task-notification>",
+          },
+        }),
+      );
+    expect(settle("n6", "2026-01-01T00:02:03.000Z")[0]).toMatchObject({ durationMs: 123_000 });
+    // The same notification again, later, doesn't move it.
+    expect(settle("n7", "2026-01-01T00:05:00.000Z")[0]).toMatchObject({ durationMs: 123_000 });
+  });
+
   it("resolves a foreground agent from its result", () => {
     const p = new TranscriptParser();
     p.push(launch("tu2", "Agent", { description: "Look" }));
@@ -1185,5 +1221,171 @@ describe("TranscriptParser — edits", () => {
     const [n] = p.push(use("t2", "NotebookEdit", { notebook_path: "/a/c.ipynb" }));
     expect(m).toMatchObject({ summary: "/a/b.ts" });
     expect(n).toMatchObject({ summary: "/a/c.ipynb" });
+  });
+});
+
+describe("TranscriptParser — session info", () => {
+  function reply(uuid: string, msg: Record<string, unknown>, extra: Record<string, unknown> = {}): string {
+    return line({
+      type: "assistant",
+      uuid,
+      message: { role: "assistant", content: [{ type: "text", text: "ok" }], ...msg },
+      ...extra,
+    });
+  }
+
+  it("is all null before any line says", () => {
+    expect(new TranscriptParser().sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
+  });
+
+  it("keeps the newest model, effort and branch", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "hi", { gitBranch: "main" }));
+    expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: "main" });
+    p.push(reply("a1", { model: "claude-sonnet-5-5" }, { effort: "low", gitBranch: "main" }));
+    p.push(userBlocks("u2", "go on", { gitBranch: "feat/x" }));
+    p.push(reply("a2", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "feat/x" }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "feat/x" });
+  });
+
+  it("reads perTurnEffort when a line has no effort", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { perTurnEffort: "medium" }));
+    expect(p.sessionInfo().effort).toBe("medium");
+  });
+
+  it("keeps what it knew when a line leaves a field out", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "main" }));
+    p.push(reply("a2", {}, {}));
+    p.push(line({ type: "system", subtype: "turn_duration", gitBranch: "" }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("ignores a synthetic line's model and effort", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high" }));
+    p.push(
+      reply(
+        "a2",
+        { model: "<synthetic>", content: [{ type: "text", text: "API Error" }] },
+        { perTurnEffort: "low", isApiErrorMessage: true, gitBranch: "main" },
+      ),
+    );
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("ignores sidechain lines", () => {
+    const p = new TranscriptParser();
+    p.push(reply("a1", { model: "claude-opus-5-5" }, { effort: "high", gitBranch: "main" }));
+    p.push(
+      reply("s1", { model: "claude-haiku-5-5" }, { effort: "low", gitBranch: "other", isSidechain: true }),
+    );
+    p.push(userBlocks("s2", "sub", { gitBranch: "other", isSidechain: true }));
+    expect(p.sessionInfo()).toEqual({ model: "claude-opus-5-5", effort: "high", gitBranch: "main" });
+  });
+
+  it("says nothing of a task's own transcript, which is all sidechain", () => {
+    const p = new TranscriptParser({ sidechain: true });
+    p.push(reply("s1", { model: "claude-haiku-5-5" }, { effort: "low", gitBranch: "main", isSidechain: true }));
+    expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
+  });
+});
+
+describe("TranscriptParser — thought and turn-end", () => {
+  function thinkingLine(uuid: string, messageId: string, ms: unknown, extra = {}): string {
+    return line({
+      type: "assistant",
+      uuid,
+      thinkingDurationMs: ms,
+      message: { id: messageId, role: "assistant", content: [{ type: "thinking", thinking: "" }] },
+      ...extra,
+    });
+  }
+  function blockLine(uuid: string, messageId: string, block: unknown): string {
+    return line({ type: "assistant", uuid, message: { id: messageId, role: "assistant", content: [block] } });
+  }
+
+  it("emits one thought per message, summing its thinking blocks, before its first text", () => {
+    const p = new TranscriptParser();
+    expect(p.push(thinkingLine("a1", "msg_1", 2683))).toEqual([
+      { kind: "thought", id: "msg_1:thought", ts: T, durationMs: 2683 },
+    ]);
+    expect(p.push(thinkingLine("a2", "msg_1", 2))).toEqual([
+      { kind: "thought", id: "msg_1:thought", ts: T, durationMs: 2685 },
+    ]);
+    p.push(blockLine("a3", "msg_1", { type: "text", text: "Done." }));
+    expect(p.entries().map((e) => e.kind)).toEqual(["thought", "assistant"]);
+  });
+
+  it("counts a line once, however often it is pushed", () => {
+    const p = new TranscriptParser();
+    p.push(thinkingLine("a1", "msg_1", 1000));
+    expect(p.push(thinkingLine("a1", "msg_1", 1000))).toEqual([]);
+    expect(p.entries()).toEqual([{ kind: "thought", id: "msg_1:thought", ts: T, durationMs: 1000 }]);
+  });
+
+  it("puts a thought that arrives late before its message's first entry", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(blockLine("a1", "msg_1", { type: "tool_use", id: "t1", name: "Read", input: {} }));
+    p.push(thinkingLine("a2", "msg_1", 900));
+    expect(p.entries().map((e) => e.id)).toEqual(["u1", "msg_1:thought", "t1"]);
+  });
+
+  it("skips a missing, zero or non-numeric duration", () => {
+    const p = new TranscriptParser();
+    p.push(thinkingLine("a1", "msg_1", 0));
+    p.push(thinkingLine("a2", "msg_2", "5"));
+    p.push(blockLine("a3", "msg_3", { type: "text", text: "hi" }));
+    expect(p.entries().map((e) => e.kind)).toEqual(["assistant"]);
+  });
+
+  it("names a thought by the line's uuid when its message has no id", () => {
+    const p = new TranscriptParser();
+    p.push(line({ type: "assistant", uuid: "a1", thinkingDurationMs: 5000, message: { role: "assistant", content: [] } }));
+    expect(p.entries()).toEqual([{ kind: "thought", id: "a1:thought", ts: T, durationMs: 5000 }]);
+  });
+
+  it("reads a turn's duration and the background agents it left running", () => {
+    const p = new TranscriptParser();
+    expect(
+      p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 134000, pendingBackgroundAgentCount: 2 })),
+    ).toEqual([{ kind: "turn-end", id: "s1", ts: T, durationMs: 134000, backgroundAgents: 2 }]);
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 4000 }))).toEqual([
+      { kind: "turn-end", id: "s2", ts: T, durationMs: 4000, backgroundAgents: 0 },
+    ]);
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 4000 }))).toEqual([]);
+  });
+
+  it("gives an interrupted turn no closing line", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("i1", [{ type: "text", text: "[Request interrupted by user]" }]));
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 5000 }))).toEqual([]);
+  });
+
+  it("leaves the turn state alone at a turn-end", () => {
+    const p = new TranscriptParser();
+    p.push(assistant("a1", [{ type: "text", text: "done" }], {}));
+    const before = p.turnState();
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000 }));
+    expect(p.turnState()).toBe(before);
+  });
+
+  it("ignores a sidechain's turn-end, and a child transcript's", () => {
+    const p = new TranscriptParser();
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000, isSidechain: true }));
+    expect(p.entries()).toEqual([]);
+    const child = new TranscriptParser({ sidechain: true });
+    child.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000, isSidechain: true }));
+    expect(child.entries()).toEqual([]);
+  });
+
+  it("keeps a shell command's output attached across a turn-end", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "<bash-input>ls</bash-input>"));
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 10 }));
+    p.push(userBlocks("u2", "<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"));
+    expect(p.entry("u1")).toMatchObject({ kind: "command", output: "a.txt" });
   });
 });

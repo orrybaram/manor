@@ -12,6 +12,8 @@ import type { ChatPush } from "../transcript";
 
 const T = "2026-01-01T00:00:00.000Z";
 const PANE = "pane-1";
+/** What history says of a transcript that names no model, effort or branch. */
+const NO_SESSION = { model: null, effort: null, gitBranch: null };
 
 function line(obj: Record<string, unknown>): string {
   return JSON.stringify({ timestamp: T, ...obj }) + "\n";
@@ -184,12 +186,13 @@ describe("ChatMirror", () => {
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
         turnState: "working",
+        session: NO_SESSION,
       });
     });
 
     it("treats a transcript that is not written yet as empty", async () => {
       agent = { hostId: "local", agentKind: "claude", transcriptPath: path.join(dir, "missing.jsonl") };
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null, session: NO_SESSION });
     });
 
     it("reads the transcript from the start without publishing it", async () => {
@@ -200,6 +203,7 @@ describe("ChatMirror", () => {
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
         turnState: "working",
+        session: NO_SESSION,
       });
       expect(published).toEqual([]);
     });
@@ -358,6 +362,38 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toMatchObject({ turnState: "done" });
     });
 
+    it("carries the session info in history and publishes a session push when it changes", async () => {
+      const said = (uuid: string, gitBranch: string) =>
+        line({
+          type: "assistant",
+          uuid,
+          effort: "high",
+          gitBranch,
+          message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "ok" }] },
+        });
+      const p = file("t.jsonl", said("a1", "main"));
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
+      mirror.setWatched(PANE, true);
+      expect(await mirror.getHistory(PANE)).toMatchObject({
+        session: { model: "claude-opus-5-5", effort: "high", gitBranch: "main" },
+      });
+      expect(published).toEqual([]);
+
+      // The same again publishes no session push.
+      fs.appendFileSync(p, said("a2", "main"));
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+      fs.appendFileSync(p, said("a3", "feat/x"));
+      await vi.waitFor(() => expect(published).toHaveLength(3));
+      expect(published.map((x) => x.entry.kind)).toEqual(["assistant", "assistant", "session"]);
+      expect(published[2].entry).toMatchObject({
+        kind: "session",
+        id: "session",
+        model: "claude-opus-5-5",
+        effort: "high",
+        gitBranch: "feat/x",
+      });
+    });
+
     it("stops publishing once nobody watches, and catches up on the next watch", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
       agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
@@ -383,7 +419,7 @@ describe("ChatMirror", () => {
       const bytes = Buffer.from(user("u1", "héllo"), "utf8");
       const cut = bytes.indexOf(Buffer.from("é", "utf8")) + 1;
       fs.appendFileSync(p, bytes.subarray(0, cut));
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null, session: NO_SESSION });
 
       fs.appendFileSync(p, bytes.subarray(cut));
       expect(await mirror.getHistory(PANE)).toEqual({
@@ -391,6 +427,7 @@ describe("ChatMirror", () => {
         entries: [{ kind: "user", id: "u1", ts: T, text: "héllo" }],
         contextTokens: null,
         turnState: "working",
+        session: NO_SESSION,
       });
       // The line, then the turn it starts.
       expect(published.map((x) => x.entry.id)).toEqual(["u1", "turn"]);
@@ -430,6 +467,7 @@ describe("ChatMirror", () => {
         entries: [{ kind: "user", id: "u9", ts: T, text: "new session" }],
         contextTokens: null,
         turnState: "working",
+        session: NO_SESSION,
       });
       // The new file is tailed; the old one is not.
       fs.appendFileSync(a, user("u2", "stale"));
@@ -465,6 +503,7 @@ describe("ChatMirror", () => {
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
         turnState: "working",
+        session: NO_SESSION,
       });
     });
 

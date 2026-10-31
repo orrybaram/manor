@@ -41,6 +41,7 @@ import {
   type LaneMark,
 } from "./change-marks";
 import { unfoldAt, unifiedDiff } from "./diff-view";
+import { createFindPanel } from "./search-panel";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
 import styles from "./CodeEditor.module.css";
 
@@ -268,7 +269,7 @@ export function CodeEditor({
           foldGutter(),
           bracketMatching(),
           highlightSelectionMatches(),
-          search({ top: true }),
+          search({ top: true, createPanel: createFindPanel }),
           // ⌥↑/⌥↓ move between the changes; with none, or unsaved edits, they move the line.
           Prec.high(
             keymap.of([

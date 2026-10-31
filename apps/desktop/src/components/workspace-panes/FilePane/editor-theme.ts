@@ -51,36 +51,30 @@ const chrome = EditorView.theme({
     color: "var(--text-primary)",
   },
   ".cm-searchMatch": {
-    backgroundColor: "color-mix(in srgb, var(--yellow) 30%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--yellow) 22%, transparent)",
+    outline: "1px solid color-mix(in srgb, var(--yellow) 45%, transparent)",
+    borderRadius: "2px",
   },
   ".cm-searchMatch.cm-searchMatch-selected": {
-    backgroundColor: "color-mix(in srgb, var(--accent) 40%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--accent) 45%, transparent)",
+    outline: "1px solid var(--accent)",
   },
   ".cm-selectionMatch": { backgroundColor: "var(--hover)" },
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--surface)",
     outline: "none",
   },
-  ".cm-panels": {
-    backgroundColor: "var(--dim)",
-    color: "var(--fg)",
-  },
-  ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
-  ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--border)" },
-  ".cm-panel.cm-search": { fontFamily: "inherit", fontSize: "12px" },
-  ".cm-panel.cm-search input, .cm-panel.cm-search button": { fontSize: "12px" },
-  ".cm-textfield": {
-    backgroundColor: "var(--bg)",
-    color: "var(--fg)",
-    border: "1px solid var(--border)",
-    borderRadius: "4px",
-  },
-  ".cm-button": {
-    backgroundImage: "none",
-    backgroundColor: "var(--surface)",
-    color: "var(--fg)",
-    border: "1px solid var(--border)",
-    borderRadius: "4px",
+  // The find widget (`search-panel.tsx`) floats over the text's top right
+  // instead of pushing it down; its own module styles the rest.
+  ".cm-panels.cm-panels-top": {
+    position: "absolute",
+    top: "6px",
+    left: "auto",
+    right: "14px",
+    maxWidth: "calc(100% - 28px)",
+    zIndex: 10,
+    backgroundColor: "transparent",
+    border: "none",
   },
   ".cm-tooltip": {
     backgroundColor: "var(--surface)",

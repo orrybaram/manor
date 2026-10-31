@@ -28,7 +28,11 @@ export function ImageAttachments(props: ImageAttachmentsProps) {
           data-uploading={a.path === null || undefined}
           data-testid="image-attachment"
         >
-          <img src={a.url} alt={a.file.name || `Image ${i + 1}`} className={styles.image} />
+          {a.thumbnail ? (
+            <img src={a.thumbnail} alt={a.file.name || `Image ${i + 1}`} className={styles.image} />
+          ) : (
+            <span className={styles.image} role="img" aria-label={a.file.name || `Image ${i + 1}`} />
+          )}
           {a.path === null && (
             <span className={styles.spinner} aria-label="Uploading" role="status" />
           )}

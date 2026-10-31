@@ -16,8 +16,8 @@ const PICKABLE_IMAGE_TYPES = "image/png,image/jpeg,image/gif,image/webp";
 export type ImageAttachment = {
   id: string;
   file: File;
-  /** An object URL of the file, for the thumbnail. */
-  url: string;
+  /** The thumbnail, a small `data:` PNG drawn from the file; null until drawn or if it can't be. */
+  thumbnail: string | null;
   /** Its path on the host once uploaded; null while uploading. */
   path: string | null;
   /** Which upload `path` answers; a host change starts a new one. */
@@ -41,6 +41,41 @@ type UseImageAttachmentsOptions = {
 };
 
 let nextId = 0;
+
+/** The thumbnail's side, at 2x for a 40px square. */
+const THUMBNAIL_PX = 80;
+
+/**
+ * The image cropped to a square and scaled down, as a `data:` URL: the
+ * page's content security policy allows `data:` images, not `blob:`, and a
+ * small copy keeps a 16 MiB photo out of memory.
+ */
+async function drawThumbnail(file: File): Promise<string | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const side = Math.min(bitmap.width, bitmap.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = THUMBNAIL_PX;
+    canvas
+      .getContext("2d")!
+      .drawImage(
+        bitmap,
+        (bitmap.width - side) / 2,
+        (bitmap.height - side) / 2,
+        side,
+        side,
+        0,
+        0,
+        THUMBNAIL_PX,
+        THUMBNAIL_PX,
+      );
+    bitmap.close();
+    return canvas.toDataURL("image/png");
+  } catch {
+    // A type the browser can't decode still uploads; it shows as a blank tile.
+    return null;
+  }
+}
 
 function imageFiles(files: Iterable<File>): File[] {
   return Array.from(files).filter((f) => f.type.startsWith("image/"));
@@ -95,7 +130,6 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
           // failure to show.
           const failed = current();
           if (!failed) return;
-          URL.revokeObjectURL(failed.url);
           change((list) => list.filter((a) => a.id !== id));
           setError(err instanceof Error ? err.message : "Couldn't attach image");
         },
@@ -111,21 +145,23 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
     const added = files.map((file) => ({
       id: `image-${++nextId}`,
       file,
-      url: URL.createObjectURL(file),
+      thumbnail: null,
       path: null,
       gen: 0,
     }));
     change((list) => [...list, ...added]);
     added.forEach(start);
+    for (const a of added) {
+      void drawThumbnail(a.file).then((thumbnail) => {
+        if (thumbnail) change((list) => list.map((x) => (x.id === a.id ? { ...x, thumbnail } : x)));
+      });
+    }
   };
 
   /** Drops the images named, or every image; one still uploading is stopped. */
   const drop = (ids?: string[]) => {
     const gone = listRef.current.filter((a) => !ids || ids.includes(a.id));
-    for (const a of gone) {
-      stop(a.id);
-      URL.revokeObjectURL(a.url);
-    }
+    for (const a of gone) stop(a.id);
     change((list) => list.filter((a) => !gone.includes(a)));
   };
 
@@ -156,10 +192,7 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
   }, [target]);
 
   useMountEffect(() => () => {
-    for (const a of listRef.current) {
-      stop(a.id);
-      URL.revokeObjectURL(a.url);
-    }
+    for (const a of listRef.current) stop(a.id);
   });
 
   // A pasted image is attached rather than pasted. Pasted text (which a

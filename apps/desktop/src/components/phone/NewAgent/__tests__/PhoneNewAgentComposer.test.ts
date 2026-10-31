@@ -215,11 +215,6 @@ describe("PhoneNewAgentComposer — greeting", () => {
 });
 
 describe("PhoneNewAgentComposer — images", () => {
-  beforeEach(() => {
-    URL.createObjectURL = vi.fn(() => "blob:image");
-    URL.revokeObjectURL = vi.fn();
-  });
-
   afterEach(() => {
     uploadPastedImage.mockReset();
     sendNewAgent.mockReset();

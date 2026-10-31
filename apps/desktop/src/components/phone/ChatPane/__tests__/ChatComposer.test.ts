@@ -30,8 +30,6 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  URL.createObjectURL = vi.fn((file: Blob) => `blob:${(file as File).name}`);
-  URL.revokeObjectURL = vi.fn();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -104,7 +102,6 @@ describe("ChatComposer images", () => {
     await act(async () => {});
     expect(input().value).toBe("hello");
     expect(thumbs()[0].dataset.uploading).toBeUndefined();
-    expect(thumbs()[0].querySelector("img")!.getAttribute("src")).toBe("blob:a.png");
     expect(sendButton().disabled).toBe(false);
   });
 
@@ -117,7 +114,6 @@ describe("ChatComposer images", () => {
     await act(async () => sendButton().click());
     expect(send).toHaveBeenCalledWith("p1", "look at these /tmp/a.png /tmp/b.png");
     expect(thumbs()).toHaveLength(0);
-    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
   });
 
   it("sends images alone", async () => {

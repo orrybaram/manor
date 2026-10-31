@@ -169,10 +169,14 @@ function row(window: Page, branch: string): Locator {
 
 /** Hover the workspace's PR badge until its card is open, and return the card. */
 async function openCard(window: Page, branch: string): Promise<Locator> {
-  await window.mouse.move(900, 700);
-  await row(window, branch).locator("[data-readiness]").hover();
   const card = window.locator('[class*="prPopover"][data-state="open"]').first();
-  await expect(card).toBeVisible({ timeout: 5_000 });
+  // A hover can land while the sidebar is still re-rendering under load and
+  // never reach the badge's enter handler: move off and hover again.
+  await expect(async () => {
+    await window.mouse.move(900, 700);
+    await row(window, branch).locator("[data-readiness]").hover();
+    await expect(card).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
   await expect(card.getByTestId("pr-actions")).toBeVisible({ timeout: 10_000 });
   return card;
 }

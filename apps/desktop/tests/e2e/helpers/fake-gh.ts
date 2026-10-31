@@ -42,7 +42,32 @@ export interface FakeGhFixtures {
   prs: Record<string, FakePr>;
   /** `pullRequest` conversation nodes by PR number; missing means quiet. */
   conversations?: Record<number, unknown>;
+  /**
+   * The repo's merge settings, as the PR card asks for them. Absent: squash,
+   * merge and rebase all allowed, squash the default, no auto-merge.
+   */
+  repo?: FakeRepoSettings;
+  /** PR numbers whose base branch has a merge queue. */
+  mergeQueue?: number[];
+  /** `gh run view --job <id> --log-failed` output by job id. */
+  jobLogs?: Record<string, string>;
 }
+
+export interface FakeRepoSettings {
+  viewerDefaultMergeMethod: "SQUASH" | "MERGE" | "REBASE";
+  squashMergeAllowed: boolean;
+  mergeCommitAllowed: boolean;
+  rebaseMergeAllowed: boolean;
+  autoMergeAllowed: boolean;
+}
+
+const DEFAULT_REPO: FakeRepoSettings = {
+  viewerDefaultMergeMethod: "SQUASH",
+  squashMergeAllowed: true,
+  mergeCommitAllowed: true,
+  rebaseMergeAllowed: true,
+  autoMergeAllowed: false,
+};
 
 /** Back to the GraphQL node shape that `normalizeRawPr` flattens. */
 function toGraphqlPr({ statusCheckRollup, ...pr }: FakePr): unknown {
@@ -73,9 +98,30 @@ const SCRIPT = String.raw`
 const fs = require("fs");
 const fix = JSON.parse(fs.readFileSync(FIXTURES, "utf-8"));
 const args = process.argv.slice(2);
+// Every call, one per line, for specs to assert what Manor asked.
+fs.appendFileSync(FIXTURES + ".calls", args.join(" ") + "\n");
+
+function prByNumber(n) {
+  return Object.values(fix.prs).find((pr) => pr.number === n);
+}
 
 function answer() {
   const sub = args.slice(0, 2).join(" ");
+  // A merge lands the PR, queues it, or arms auto-merge, and the next poll
+  // sees it: the fixtures file is the fake GitHub's state.
+  if (sub === "pr merge") {
+    const pr = prByNumber(Number(args[2]));
+    if (!pr) return null;
+    if (fix.mergeQueue.includes(pr.number)) pr.isInMergeQueue = true;
+    else if (args.includes("--auto")) pr.autoMergeRequest = { enabledAt: "2026-10-30T12:00:00Z" };
+    else pr.state = "MERGED";
+    fs.writeFileSync(FIXTURES, JSON.stringify(fix));
+    return "";
+  }
+  if (sub === "run view") {
+    const job = args[args.indexOf("--job") + 1];
+    return fix.jobLogs[job] ?? null;
+  }
   if (sub === "auth status") {
     return "Logged in to github.com account tester (keyring)";
   }
@@ -107,6 +153,21 @@ function answer() {
     }
     return JSON.stringify({ data });
   }
+  const query = fields.query || "";
+  const number = Number(fields.number);
+  if (query.includes("viewerDefaultMergeMethod")) {
+    const repository = { ...fix.repo, pullRequest: { isMergeQueueEnabled: fix.mergeQueue.includes(number) } };
+    return JSON.stringify({ data: { repository } });
+  }
+  const pr = prByNumber(number);
+  if (!pr) return null;
+  if (query.includes("reviewThreads")) {
+    const threads = (fix.conversations[number] || fix.quiet).reviewThreads;
+    return JSON.stringify({ data: { repository: { pullRequest: { ...pr, reviewThreads: threads } } } });
+  }
+  if (query.includes("autoMergeRequest")) {
+    return JSON.stringify({ data: { repository: { pullRequest: pr } } });
+  }
   return null;
 }
 
@@ -127,6 +188,9 @@ export function fakeGhFixturesJson(fixtures: FakeGhFixtures): string {
     ),
     conversations: fixtures.conversations ?? {},
     quiet: QUIET_CONVERSATION,
+    repo: fixtures.repo ?? DEFAULT_REPO,
+    mergeQueue: fixtures.mergeQueue ?? [],
+    jobLogs: fixtures.jobLogs ?? {},
   });
 }
 
@@ -146,7 +210,7 @@ export function fakeGhScript(shebang: string, fixturesPath: string): string {
 export function installFakeGh(tempHome: string, fixtures: FakeGhFixtures): string {
   const binDir = path.join(tempHome, "bin");
   fs.mkdirSync(binDir, { recursive: true });
-  const fixturesPath = path.join(tempHome, "gh-fixtures.json");
+  const fixturesPath = fixturesPathIn(tempHome);
   fs.writeFileSync(fixturesPath, fakeGhFixturesJson(fixtures));
   // The test runner's own node, so the fake works whatever PATH the app has.
   fs.writeFileSync(
@@ -155,4 +219,34 @@ export function installFakeGh(tempHome: string, fixtures: FakeGhFixtures): strin
     { mode: 0o755 },
   );
   return binDir;
+}
+
+/** Where `installFakeGh` keeps the fixtures; the fake rewrites it on a merge. */
+function fixturesPathIn(tempHome: string): string {
+  return path.join(tempHome, "gh-fixtures.json");
+}
+
+/**
+ * Change one PR in place, as GitHub would between polls (a check going
+ * green, a queue landing a PR). `edit` gets the GraphQL-shaped node.
+ */
+export function editFakePr(
+  tempHome: string,
+  number: number,
+  edit: (pr: Record<string, unknown>) => void,
+): void {
+  const file = fixturesPathIn(tempHome);
+  const fix = JSON.parse(fs.readFileSync(file, "utf-8"));
+  const pr = Object.values(fix.prs as Record<string, Record<string, unknown>>).find(
+    (p) => p.number === number,
+  );
+  if (!pr) throw new Error(`fake gh: no PR #${number}`);
+  edit(pr);
+  fs.writeFileSync(file, JSON.stringify(fix));
+}
+
+/** Every `gh` invocation so far, one argument string per call. */
+export function fakeGhCalls(tempHome: string): string[] {
+  const file = `${fixturesPathIn(tempHome)}.calls`;
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").split("\n").filter(Boolean) : [];
 }

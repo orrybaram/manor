@@ -21,7 +21,7 @@ import { ChatThinking } from "./ChatThinking";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
-import { noteChatEntries } from "./usePaneChatView";
+import { clearQueuedPrompts, noteChatEntries, useQueuedPrompts } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
@@ -191,6 +191,7 @@ export function ChatPane(props: ChatPaneProps) {
         setContextTokens(entry.contextTokens);
       } else if (entry.kind === "turn") {
         turnSettle.setTurn(entry.state);
+        if (entry.state !== "working") clearQueuedPrompts(paneId);
       } else if (entry.kind === "reset") {
         replace = true;
         if (fetching) again = true;
@@ -250,6 +251,7 @@ export function ChatPane(props: ChatPaneProps) {
 
   const answerableId = answerablePickerId(entries);
   const busy = isBusyStatus(status) && !turnSettled;
+  const queued = useQueuedPrompts(paneId);
   const items = groupEntries(entries, status);
 
   /** The window's first item; null while at the bottom (the newest items). */
@@ -370,6 +372,14 @@ export function ChatPane(props: ChatPaneProps) {
                 );
               })}
               {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
+              {queued.map((text, i) => (
+                <div key={i} className={styles.userRow} data-testid="chat-queued">
+                  <div className={`${styles.userBubble} ${styles.userQueued}`}>
+                    <span className={styles.queuedLabel}>Queued</span>
+                    {text}
+                  </div>
+                </div>
+              ))}
             </div>
           </PullToRefresh>
           {needsYou && (

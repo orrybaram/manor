@@ -21,7 +21,7 @@ type UseImageAttachOptions = {
 };
 
 /**
- * A phone composer's images: pasted or picked in the browser,
+ * A chat composer's images: pasted, or picked in the browser;
  * each is uploaded and its path typed at the caret it was added at.
  */
 export function useImageAttach(opts: UseImageAttachOptions) {
@@ -56,10 +56,9 @@ export function useImageAttach(opts: UseImageAttachOptions) {
       .finally(() => setUploads((n) => n - 1));
   };
 
-  // In the browser a pasted image is uploaded rather than pasted. Pasted
+  // A pasted image is uploaded to the pane's host rather than pasted. Pasted
   // text is left to the textarea.
   const pasteImage = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!isWebApp()) return;
     const data = e.clipboardData;
     if (Array.from(data.types).includes("text/plain")) return;
     const file = Array.from(data.items)

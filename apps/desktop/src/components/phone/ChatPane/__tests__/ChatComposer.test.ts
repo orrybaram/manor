@@ -22,6 +22,7 @@ vi.mock("../useSlashCommands", () => ({
 vi.mock("../ChatStatusLine", () => ({ ChatStatusLine: () => null }));
 vi.mock("../usePaneChatView", () => ({
   markChatStarting: () => {},
+  noteSentPrompt: () => {},
   startMenuHandoff: () => {},
 }));
 
@@ -122,11 +123,11 @@ describe("ChatComposer image paste", () => {
     expect(uploadPastedImage).not.toHaveBeenCalled();
   });
 
-  it("leaves a paste alone outside the web app", () => {
+  it("uploads a pasted image in the desktop app too", () => {
     isWebApp.mockReturnValue(false);
     const event = paste(["Files"], png());
-    expect(event.defaultPrevented).toBe(false);
-    expect(uploadPastedImage).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+    expect(uploadPastedImage).toHaveBeenCalled();
   });
 
   it("shows an upload error in the error slot", async () => {
@@ -194,5 +195,46 @@ describe("ChatComposer labels", () => {
     expect(
       container.querySelector("[data-testid=chat-stop]")?.getAttribute("aria-label"),
     ).toBe("Stop Codex");
+  });
+});
+
+describe("ChatComposer Enter", () => {
+  const send = vi.fn();
+  let coarse = false;
+
+  beforeEach(() => {
+    coarse = false;
+    send.mockResolvedValue(undefined);
+    (window as unknown as { electronAPI: unknown }).electronAPI = { chat: { send } };
+    window.matchMedia = ((query: string) => ({ matches: coarse && query === "(pointer: coarse)" })) as never;
+  });
+
+  function press(init: KeyboardEventInit): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init });
+    act(() => {
+      input().dispatchEvent(event);
+    });
+    return event;
+  }
+
+  it("sends on Enter", () => {
+    typeAt("hello", 5);
+    expect(press({}).defaultPrevented).toBe(true);
+    expect(send).toHaveBeenCalledWith("p1", "hello");
+  });
+
+  it("leaves Shift+Enter as a new line", () => {
+    typeAt("hello", 5);
+    expect(press({ shiftKey: true }).defaultPrevented).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("leaves Enter as a new line on a touch screen, where ⌘+Enter still sends", () => {
+    coarse = true;
+    typeAt("hello", 5);
+    expect(press({}).defaultPrevented).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    press({ metaKey: true });
+    expect(send).toHaveBeenCalledWith("p1", "hello");
   });
 });

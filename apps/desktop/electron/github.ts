@@ -248,6 +248,23 @@ export class GitHubManager {
   }
 
   /**
+   * A branch's newest PR, asked of GitHub now, for an action about to act on
+   * it. Unlike the poller's lookups this throws when `gh` fails, with `gh`'s
+   * own message, so "no PR" means GitHub said so. No conversation.
+   */
+  async findPrForBranch(repo: GhRepo, branch: string): Promise<PrInfo | null> {
+    const { prs, reached, error } = await this.fetchPrsFromGitHub(repo, [branch]);
+    if (!reached) {
+      const stderr = (error as { stderr?: unknown } | undefined)?.stderr;
+      throw new Error(
+        typeof stderr === "string" && stderr.trim() ? stderr.trim() : `gh could not reach GitHub: ${String(error)}`,
+      );
+    }
+    const pr = prs.get(branch) ?? null;
+    return pr ? this.toPrInfo(pr, {}) : null;
+  }
+
+  /**
    * Every branch's PR in one `gh api graphql` call for the repo, however many
    * branches (#303). A branch whose PR has merged or closed is answered from
    * `lastSeenPrs` and never asked about again. Concurrent calls for the same
@@ -307,7 +324,7 @@ export class GitHubManager {
   private async fetchPrsFromGitHub(
     repo: GhRepo,
     branches: string[],
-  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean }> {
+  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean; error?: unknown }> {
     const result = new Map<string, RawPr | null>(branches.map((b) => [b, null]));
     try {
       const { cwd, repoArgs } = await this.ghTarget(repo);
@@ -328,9 +345,9 @@ export class GitHubManager {
         const node = repository?.[`b${i}`]?.nodes?.[0];
         if (node) result.set(branch, normalizeRawPr(node));
       });
-    } catch {
+    } catch (err) {
       // Rate limit, network, no repo: no PRs this time round.
-      return { prs: result, reached: false };
+      return { prs: result, reached: false, error: err };
     }
     return { prs: result, reached: true };
   }

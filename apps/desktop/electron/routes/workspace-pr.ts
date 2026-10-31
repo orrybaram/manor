@@ -26,6 +26,7 @@ import type {
   PrMergeOutcome,
 } from "../../src/lib/pr-info";
 import { pickPromptTarget } from "../../src/lib/prompt-target";
+import { normalizeHostId, workspaceKey } from "../../src/lib/workspace-key";
 import { chatSend } from "../bridge/handlers/chat";
 import { localCtx } from "../bridge/method";
 import { startAgentInWorkspace } from "./agents";
@@ -81,7 +82,7 @@ async function workspacePr(
   const repo = ghRepoOf(project);
   let pr: PrInfo | null;
   try {
-    pr = await deps.githubManager.getPrForBranch(repo, workspace.branch);
+    pr = await deps.githubManager.findPrForBranch(repo, workspace.branch);
   } catch (err) {
     json(502, { error: errorMessage(err) });
     return null;
@@ -243,13 +244,17 @@ function briefPr(task: PrAgentTask): (ctx: Ctx, project: ProjectInfo) => Promise
       return;
     }
 
+    // This workspace on this host, as the renderer's `briefWorkspaceAgent`
+    // keys it: the same path can be on two hosts.
+    const hostId = normalizeHostId(project.hostId);
+    const key = workspaceKey(hostId, workspace.path);
     const inWorkspace = deps.agentManager
       .getActiveAgents()
-      .filter((a) => a.workspacePath === workspace.path);
-    // Live: its pane is still in a workspace's layout, not one closed since.
+      .filter((a) => a.workspacePath === workspace.path && normalizeHostId(a.hostId) === hostId);
+    // Live: its pane is still in this workspace's layout, not closed or moved since.
     const target = pickPromptTarget(
       inWorkspace,
-      (paneId) => deps.layoutStore.workspaceOf(paneId) !== null,
+      (paneId) => deps.layoutStore.workspaceOf(paneId) === key,
     );
     if (target) {
       try {

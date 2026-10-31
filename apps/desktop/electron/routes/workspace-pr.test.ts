@@ -50,6 +50,7 @@ interface Agent {
   lastAgentStatus: string | null;
   paneId: string | null;
   workspacePath: string | null;
+  hostId: string;
   agentKind: "claude";
   updatedAt: string;
 }
@@ -62,6 +63,7 @@ function agent(over: Partial<Agent>): Agent {
     lastAgentStatus: "idle",
     paneId: "pane-1",
     workspacePath: FEATURE,
+    hostId: "local",
     agentKind: "claude",
     updatedAt: "2026-10-30T10:00:00Z",
     ...over,
@@ -73,7 +75,7 @@ let pr: typeof openPr | null;
 let agents: Agent[];
 let livePanes: Set<string>;
 const github = {
-  getPrForBranch: vi.fn(async () => pr),
+  findPrForBranch: vi.fn(async () => pr),
   getMergeOptions: vi.fn(async () => mergeOptions),
   mergePr: vi.fn(async (): Promise<string> => "merged"),
   getPrAgentPrompt: vi.fn(async () => "Fix the failing checks."),
@@ -122,7 +124,7 @@ beforeEach(() => {
 describe("POST …/pr/merge", () => {
   it("merges with the repo's default method when none is named", async () => {
     const answer = await call("merge", { workspacePath: FEATURE });
-    expect(github.getPrForBranch).toHaveBeenCalledWith({ path: MAIN, hostId: "local" }, "feature");
+    expect(github.findPrForBranch).toHaveBeenCalledWith({ path: MAIN, hostId: "local" }, "feature");
     expect(github.getMergeOptions).toHaveBeenCalledWith({ path: MAIN, hostId: "local" }, 12);
     expect(github.mergePr).toHaveBeenCalledWith(
       { path: MAIN, hostId: "local" },
@@ -147,7 +149,7 @@ describe("POST …/pr/merge", () => {
   it("refuses a method that isn't one", async () => {
     const answer = await call("merge", { workspacePath: FEATURE, method: "octopus" });
     expect(answer.status).toBe(400);
-    expect(github.getPrForBranch).not.toHaveBeenCalled();
+    expect(github.findPrForBranch).not.toHaveBeenCalled();
   });
 
   it("refuses auto-merge on a repo that has it off, unless the base has a merge queue", async () => {
@@ -187,6 +189,14 @@ describe("POST …/pr/merge", () => {
     expect(github.mergePr).not.toHaveBeenCalled();
   });
 
+  it("passes gh's own failure on instead of saying there is no PR", async () => {
+    github.findPrForBranch.mockRejectedValueOnce(new Error("gh: not logged in"));
+    expect(await call("merge", { workspacePath: FEATURE })).toEqual({
+      status: 502,
+      body: { error: "gh: not logged in" },
+    });
+  });
+
   it("says so when the branch has no open PR", async () => {
     pr = null;
     expect((await call("merge", { workspacePath: FEATURE })).status).toBe(404);
@@ -218,6 +228,8 @@ describe("POST …/pr/fix-checks and …/pr/address-comments", () => {
       agent({ id: "new", name: "reviewer", paneId: "pane-2", lastAgentStatus: "responded" }),
       agent({ id: "busy", paneId: "pane-3", lastAgentStatus: "thinking", updatedAt: "2026-10-30T11:00:00Z" }),
       agent({ id: "elsewhere", workspacePath: MAIN, updatedAt: "2026-10-30T12:00:00Z" }),
+      // Same path, another host's terminal: not this workspace's agent.
+      agent({ id: "other-host", hostId: "ssh-box", updatedAt: "2026-10-30T12:30:00Z" }),
     ];
     const answer = await call("address-comments", { workspacePath: FEATURE });
     expect(github.getPrAgentPrompt).toHaveBeenCalledWith(expect.anything(), 12, "comments");

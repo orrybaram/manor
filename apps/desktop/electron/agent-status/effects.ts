@@ -143,25 +143,38 @@ function findAgentById(agentManager: IAgentManager, agentId: string): AgentInfo 
   return agentManager.getActiveAgents().find((a) => a.id === agentId) ?? null;
 }
 
+/**
+ * Retire the Agent that owns `paneId`, when another session takes the pane.
+ * Nulling paneId alone leaves the old record `active`, which lingers as a
+ * duplicate in the sidebar. Mark it completed, clear its unseen flags, and
+ * broadcast the retirement so the renderer drops the stale row live. Returns
+ * the Agent as it was, or null when the pane had none.
+ */
+export function retirePaneAgent(
+  paneId: string,
+  deps: Pick<
+    EffectApplierDeps,
+    "agentManager" | "unseenRespondedAgents" | "unseenInputAgents" | "broadcastAgent"
+  >,
+): AgentInfo | null {
+  const prevPaneAgent = deps.agentManager.getAgentByPaneId(paneId);
+  if (!prevPaneAgent) return null;
+  const retired = deps.agentManager.updateAgent(prevPaneAgent.id, {
+    paneId: null,
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  });
+  deps.unseenRespondedAgents.delete(prevPaneAgent.id);
+  deps.unseenInputAgents.delete(prevPaneAgent.id);
+  if (retired) deps.broadcastAgent(retired);
+  return prevPaneAgent;
+}
+
 function applyCreateAgent(
   effect: Extract<Effect, { kind: "CreateAgent" }>,
   deps: EffectApplierDeps,
 ): void {
-  // Retire any prior Agent that owned this pane. Nulling paneId alone
-  // leaves the old record `active`, which lingers as a duplicate in the
-  // sidebar. Mark it completed, clear its unseen flags, and broadcast the
-  // retirement so the renderer drops the stale row live.
-  const prevPaneAgent = deps.agentManager.getAgentByPaneId(effect.paneId);
-  if (prevPaneAgent) {
-    const retired = deps.agentManager.updateAgent(prevPaneAgent.id, {
-      paneId: null,
-      status: "completed",
-      completedAt: new Date().toISOString(),
-    });
-    deps.unseenRespondedAgents.delete(prevPaneAgent.id);
-    deps.unseenInputAgents.delete(prevPaneAgent.id);
-    if (retired) deps.broadcastAgent(retired);
-  }
+  const prevPaneAgent = retirePaneAgent(effect.paneId, deps);
 
   // The pane's context is registered by the renderer once the pane mounts.
   // After a restart, a live session's hooks can beat that (the pane may sit

@@ -585,6 +585,43 @@ describe("driver — lifecycle (ported)", () => {
       `broadcast:${active[0].id}:active/thinking`,
     ]);
   });
+  it("a resumed session in a new pane moves its Agent there, so the pane gets its chat", () => {
+    t.agentManager.seed({
+      agentSessionId: "s1",
+      paneId: null,
+      status: "completed",
+      completedAt: "2026-10-05T10:00:00Z",
+      transcriptPath: "/t/s1.jsonl",
+    });
+    t.driver.hook(sessionStart({ sessionId: "s1", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("s1")).toMatchObject({
+      paneId: "pane-2",
+      status: "active",
+      completedAt: null,
+      transcriptPath: "/t/s1.jsonl",
+    });
+    expect(t.broadcastAgent).toHaveBeenLastCalledWith(expect.objectContaining({ paneId: "pane-2" }));
+  });
+
+  it("a session resumed over another pane's Agent retires that one", () => {
+    t.agentManager.seed({ agentSessionId: "s1", paneId: null, status: "completed" });
+    t.driver.hook(userPromptSubmit({ sessionId: "other", paneId: "pane-2" }));
+    t.driver.hook(sessionStart({ sessionId: "s1", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("other")).toMatchObject({ paneId: null, status: "completed" });
+    const onPane = t.agentManager.getActiveAgents().filter((a) => a.paneId === "pane-2");
+    expect(onPane.map((a) => a.agentSessionId)).toEqual(["s1"]);
+  });
+
+  it("a child session's hook leaves its saved Agent where it is", () => {
+    t.agentManager.seed({ agentSessionId: "child", paneId: null, status: "completed" });
+    t.driver.hook(userPromptSubmit({ sessionId: "root", paneId: "pane-2" }));
+    t.driver.hook(preToolUse({ sessionId: "child", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("child")!.paneId).toBeNull();
+  });
+
   it("a session handoff with no pane context inherits the retired Agent's project", () => {
     t.agentManager.seed({
       agentSessionId: "old",

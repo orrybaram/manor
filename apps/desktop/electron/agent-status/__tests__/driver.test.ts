@@ -925,6 +925,56 @@ describe("driver — restores pane status from saved agents (main restart)", () 
     expect(t.driver.getPaneState("pane-2")!.rootSessionId).toBe("s-new");
     expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
   });
+
+  it("a prompt from another session before the restored root speaks is the pane's new root (a missed /clear)", () => {
+    const t = build();
+    t.agentManager.seed({
+      agentSessionId: "s-old",
+      paneId: "pane-1",
+      lastAgentStatus: "responded",
+      transcriptPath: "/t/s-old.jsonl",
+    });
+    // Resync restores the saved root before any hook arrives.
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s-old");
+
+    t.driver.hook({ ...userPromptSubmit({ sessionId: "s-new" }), transcriptPath: "/t/s-new.jsonl" });
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s-new");
+    expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
+    expect(t.agentManager.getAgentBySessionId("s-new")).toMatchObject({
+      paneId: "pane-1",
+      status: "active",
+      lastAgentStatus: "thinking",
+      transcriptPath: "/t/s-new.jsonl",
+    });
+    expect(last(t.published)).toMatchObject({ status: "thinking" });
+  });
+
+  it("once the restored root has spoken, another session's prompt between turns stays a child's", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "responded" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    t.driver.hook(stop({ sessionId: "s1" }));
+
+    t.driver.hook(userPromptSubmit({ sessionId: "s2" }));
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s1");
+    expect(t.agentManager.getAgentBySessionId("s2")).toBeNull();
+  });
+
+  it("a hook from the restored root's subagent counts as the root speaking", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "working" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.driver.hook({ ...preToolUse({ sessionId: "s1" }), agentId: "sub-1" });
+
+    t.driver.hook(userPromptSubmit({ sessionId: "s2" }));
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s1");
+    expect(t.agentManager.getAgentBySessionId("s2")).toBeNull();
+  });
 });
 
 // ── Expected pane loss ──

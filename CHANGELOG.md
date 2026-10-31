@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.26.0] - 2026-10-31
+
+### Features
+
+- **Agent chat on the desktop**
+  - Agent panes on the desktop can now show the same chat as the phone app. Switch to it from the pane's header, its menu, ⌘⇧M, or Toggle Chat View in the ⌘K palette.
+  - Codex, pi and opencode agents now get a chat as well as Claude. Their composers have no `/` menu, and you can't answer their question cards from the chat.
+  - opencode panes now get an agent status, through a plugin Manor installs in opencode's plugins directory.
+  - Settings › General › Agent Chat has a new **Show agent panes as chat** option, off by default. It opens desktop agent panes on their chat.
+  - Each pane remembers Chat or Terminal separately on the phone and the desktop, so one doesn't overwrite the other.
+  - ⌘N from a pane showing its chat opens the new agent on a chat too. From a terminal, the new agent opens as a terminal.
+- **Chat composer**
+  - Enter sends and Shift+Enter adds a new line. On touch screens, Enter adds a new line and ⌘/Ctrl+Enter sends.
+  - Pasted content folds into a "Pasted N lines" row that you can expand to see the paste.
+  - Images you paste, attach or drop show as thumbnails with a remove button. They upload to the agent's host and are sent as paths after your text. A message can contain only images.
+  - Send waits while an image is still uploading, and removing an image stops its upload.
+  - A prompt sent while the agent is working shows as **Queued** until it appears in the conversation or the turn ends.
+  - Stop and Send are now one button: Stop while the box is empty, Send otherwise. Esc stops a turn.
+  - An edit card's "Open in …" opens the file at its first changed line. When Manor is your editor, the file opens beside the chat.
+- **Chat status and turns**
+  - The chat's status line shows the branch, model and effort. It flags the branch if the agent's transcript says the agent isn't on it.
+  - While background agents run, the status line shows how many, for example "2 agents". Click it to list them, and click a row to jump to that agent's task card.
+  - While the agent works, the chat shows a changing verb and a timer, such as "Tending… 12s", instead of "Thinking".
+  - A reply the model thought about first shows "Thought for Ns" above it. Each finished turn ends with a divider showing how long it took and how many background agents are still running.
+- **Pull requests**
+  - The PR card's footer, on the desktop's hover card and the phone's PR sheet, can now merge the PR. The menu lists only the merge methods the repo allows.
+  - When checks or review are still pending, the button reads "Merge when ready". On a base branch with a merge queue, it reads "Add to merge queue". If the PR can't be merged, the button says why beneath it.
+  - The footer can also send the PR's failing checks or review comments to the workspace's agent. An agent that's busy is never interrupted: a new agent starts instead.
+  - New CLI commands do the same from the shell: `manor merge-pr`, `manor fix-pr-checks` and `manor address-pr-comments`.
+- **Themes**
+  - Settings › Theme is now a wall of tiles, each painted in its theme, with a filter rail beside it. You can make, edit, rename and delete your own themes. The editor recolours the app as you change colours.
+  - Themes can set their own accent colour. Custom themes are stored in `~/.manor/themes`, and the project theme picker lists Manor and your own themes.
+  - Manor now ships with its own built-in theme: warm soot and bone, with a cyan accent and cursor and yellow selection.
+  - Your last five themes are remembered. A theme only counts as recent once you close Settings on it, not when you click its tile while browsing.
+  - Arrow keys select the theme they land on. The wall sorts by name or by background colour from the same sliders menu as Tasks.
+  - The Settings window is larger.
+  - While a project's Settings page is open, it shows that project's theme.
+- The new-workspace dialog's prompt accepts pasted, attached or dropped images. They show as thumbnails, and the agent starts with their paths after your text.
+- Settings → App → Font lets you choose a font family and size for terminals, and separately for the file and diff editor, with a live sample. This is desktop only.
+- Pressing ⌘F in the file pane now opens a floating find widget that matches the terminal's search bar. It has Match Case, Whole Word and Regex toggles, a match count, and a replace row.
+
+### Fixes
+
+- **Agent chat**
+  - Resuming an agent in a new pane gives that pane its chat, before you send the first prompt.
+  - If you ran `/clear` or resumed a session while Manor wasn't running, the chat no longer stays on the old conversation after a restart.
+  - Right-click menus in the sidebar now appear on top of an open chat instead of behind it.
+- **Themes**
+  - Settings › Theme no longer squashes hundreds of themes into thin lines. Tiles keep their full height and the wall scrolls.
+  - A new theme is now named after the theme you picked, not the project's theme underneath it.
+- An agent's launch command now waits for the shell's first prompt, so an oh-my-zsh update question in `.zshrc` no longer swallows its first letter.
+- An agent that has gone idle keeps its icon in the sidebar instead of leaving a blank space where it was.
+- Lists, drawers and sheets that use arrow keys no longer draw a keyboard focus box around themselves.
+
 ## [0.25.0] - 2026-10-30
 
 ### Features

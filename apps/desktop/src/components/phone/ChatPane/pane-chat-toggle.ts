@@ -3,10 +3,11 @@ import { selectPaneChatAgent } from "../../../lib/pane-agent";
 import { useAgentStore } from "../../../store/agent-store";
 import { selectPaneContentType, useAppStore } from "../../../store/app-store";
 import { usePreferencesStore } from "../../../store/preferences-store";
-import { chatTranscriptPath, type ChatView } from "./chat-view";
+import { chatTranscriptPath, commandStartsOnChat, type ChatView } from "./chat-view";
 import { liveMenuHandoff } from "./menu-handoff";
 import {
   endMenuHandoff,
+  markChatStarting,
   selectPaneChatView,
   setPaneChatView,
   usePaneChatViewStore,
@@ -42,6 +43,23 @@ export function paneChatTranscript(paneId: string): string | null {
 /** Whether `paneId` has a chat to flip to: a transcript, or a chat starting up. */
 export function paneHasChat(paneId: string): boolean {
   return paneChatTranscript(paneId) !== null || paneId in usePaneChatViewStore.getState().starting;
+}
+
+/** Whether `paneId` shows its chat in `layout` right now. */
+export function paneShowsChat(paneId: string, layout: LayoutMode = currentLayoutMode()): boolean {
+  if (!paneHasChat(paneId)) return false;
+  const state = usePaneChatViewStore.getState();
+  return selectPaneChatView(state, paneId, paneChatTranscript(paneId), layout, deskChatDefault()) === "chat";
+}
+
+/**
+ * Open a desk agent pane launched by `command` on its chat, the way the pane
+ * it was started from showed: at once for a kind that starts on one, and
+ * otherwise as soon as its transcript is known.
+ */
+export function openNewAgentOnChat(paneId: string, command: string): void {
+  setPaneChatView(paneId, "chat", "desk");
+  if (commandStartsOnChat(command)) markChatStarting(paneId);
 }
 
 /**

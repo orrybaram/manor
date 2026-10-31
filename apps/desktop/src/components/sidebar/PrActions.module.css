@@ -1,0 +1,355 @@
+/* ── The PR card's footer: agent actions on the left, Merge on the right ── */
+
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.agents {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.agentButton {
+  gap: 5px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ── The split button: both halves are one object, so they move together ── */
+
+.split {
+  --merge-tone: var(--green);
+  --merge-ink: var(--bg);
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 5px;
+  transition:
+    transform 0.12s,
+    box-shadow 0.3s;
+}
+
+.split:has(.main:active:not(:disabled)) {
+  transform: scale(0.96);
+}
+
+.main,
+.caret {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--merge-tone);
+  background: var(--merge-tone);
+  color: var(--merge-ink);
+  font: 600 11px/1 var(--font-ui, inherit);
+  padding: 5px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    background 0.3s,
+    border-color 0.3s,
+    color 0.3s;
+}
+
+.main {
+  border-radius: 5px;
+}
+
+.split:has(.caret) .main {
+  border-radius: 5px 0 0 5px;
+}
+
+.caret {
+  border-radius: 0 5px 5px 0;
+  border-left-color: color-mix(in srgb, #000 22%, var(--merge-tone));
+  padding: 5px 6px;
+}
+
+.main:disabled,
+.caret:disabled {
+  cursor: default;
+}
+
+.main:focus-visible,
+.caret:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ready {
+  --merge-tone: var(--green);
+}
+
+.queued {
+  --merge-tone: color-mix(in srgb, var(--accent) 22%, var(--dim));
+  --merge-ink: var(--text-selected);
+}
+
+.queued .main,
+.queued .caret {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+}
+
+.unavailable {
+  --merge-tone: var(--hover);
+  --merge-ink: var(--text-dim);
+}
+
+.unavailable .main,
+.unavailable .caret {
+  border-color: var(--border);
+}
+
+.merged {
+  --merge-tone: var(--magenta, #c2187f);
+  --merge-ink: #fff;
+}
+
+/* At rest, a mergeable button glints and breathes: "this one ships now". */
+.inviting {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.inviting .main::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  width: 38%;
+  left: -60%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+  z-index: 1;
+  animation: glint 4.5s cubic-bezier(0.4, 0, 0.2, 1) 0.6s infinite;
+}
+
+@keyframes glint {
+  0% {
+    left: -60%;
+  }
+  30%,
+  100% {
+    left: 130%;
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 12px 1px color-mix(in srgb, var(--green) 55%, transparent);
+  }
+}
+
+/* While `gh pr merge` runs, the button fills like a progress bar. */
+.main::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, #fff 26%, transparent);
+  transform: scaleX(0);
+  transform-origin: left;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.filling .main::before {
+  animation: fill 1.6s cubic-bezier(0.3, 0.1, 0.3, 1) forwards;
+}
+
+@keyframes fill {
+  to {
+    transform: scaleX(0.92);
+  }
+}
+
+/* Landed: the branches snap together and the whole button pops. */
+.glyph {
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.zipA,
+.zipB {
+  transition: transform 0.45s cubic-bezier(0.5, -0.6, 0.4, 1.6);
+}
+
+.merged .zipA {
+  transform: translate(6px, 6px);
+}
+
+.merged .zipB {
+  transform: translate(0, -6px);
+}
+
+.merged {
+  animation: pop 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+
+@keyframes pop {
+  40% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.burst i {
+  position: absolute;
+  top: 40%;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+/* ── Method menu ── */
+
+.menu {
+  z-index: 110;
+  min-width: 220px;
+  padding: 4px;
+  display: grid;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.menuItem {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-selected);
+  font: 11px var(--font-ui, inherit);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.menuItem small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.menuCheck {
+  width: 11px;
+  flex-shrink: 0;
+  padding-top: 1px;
+  color: var(--accent);
+}
+
+.menuDefault {
+  color: var(--text-dim);
+}
+
+/* ── Phone sheet: thumb-sized targets ── */
+
+.phone .main,
+.phone .caret {
+  font-size: 13px;
+  padding: 10px 14px;
+}
+
+.phone .caret {
+  padding: 10px 10px;
+}
+
+.phone .tick {
+  font-size: 12px;
+}
+
+.phone .row {
+  flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .split,
+  .inviting,
+  .inviting .main::after,
+  .filling .main::before,
+  .merged,
+  .zipA,
+  .zipB,
+  .spin {
+    animation: none;
+    transition: none;
+  }
+
+  .inviting .main::after {
+    display: none;
+  }
+}
+
+/* Why Merge is unavailable, in words: a phone can't hover for the tooltip. */
+.reason {
+  align-self: flex-end;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.phone .reason {
+  font-size: 12px;
+}

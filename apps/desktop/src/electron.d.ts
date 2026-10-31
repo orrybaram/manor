@@ -46,6 +46,10 @@ export interface AppPreferences {
   editorFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
+  /** The PR card's "Delete workspace after merge" tick box, as last left. */
+  deleteWorkspaceAfterMerge: boolean;
+  /** Workspaces to remove once their queued PR merges: PR URL by workspace key. */
+  mergeCleanups: Record<string, string>;
 }
 
 export type AgentLifecycleStatus =

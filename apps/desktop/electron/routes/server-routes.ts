@@ -19,6 +19,7 @@ import { folderRoutes } from "./folders";
 import { integrationRoutes } from "./integrations";
 import { issueRoutes } from "./issues";
 import { projectRoutes } from "./projects";
+import { workspacePrRoutes } from "./workspace-pr";
 import { dispatch } from "./router";
 import type { Json, ReadBody, ServerRoute, ServerRouteDeps } from "./types";
 
@@ -28,6 +29,7 @@ export const serverRoutes: readonly ServerRoute[] = [
   ...contextRoutes,
   ...folderRoutes,
   ...projectRoutes,
+  ...workspacePrRoutes,
   ...issueRoutes,
   ...integrationRoutes,
   ...automationRoutes,

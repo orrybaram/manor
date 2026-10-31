@@ -17,6 +17,19 @@ const PROJECT_ID_PROP = {
   description: "Project ID. Defaults to the project this agent is running in.",
 } as const;
 
+/** The workspace whose branch's PR the PR tools act on. */
+const PR_WORKSPACE_PROP = {
+  type: "string",
+  description:
+    "Filesystem path of the workspace whose branch has the PR. Defaults to the workspace this agent is running in.",
+} as const;
+
+/** `fix_pr_checks`' and `address_pr_comments`' `print`. */
+const PR_PRINT_PROP = {
+  type: "boolean",
+  description: "Only return the brief; send it to no agent.",
+} as const;
+
 /**
  * The optional `host` of every workspace-creating tool (`create_workspace`
  * here, `batch_create_workspaces` in tools-agents.ts); the routes resolve it
@@ -702,6 +715,62 @@ const tools: ToolDef[] = [
     },
   },
 
+  // ── The workspace's PR ──
+
+  {
+    name: "merge_pr",
+    description:
+      "Destructive: merges the GitHub PR of a workspace's branch, or with 'auto' arms auto-merge so it merges itself once its requirements pass. 'method' defaults to the repo's default merge method; one the repo doesn't allow is refused. On a base branch with a merge queue, the PR joins the queue instead. With 'deleteWorkspace', a PR merged now also removes the workspace and its local branch (never the project's main workspace); a queued or auto-merging PR keeps its workspace. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        method: {
+          type: "string",
+          enum: ["squash", "merge", "rebase"],
+          description: "How to merge. Defaults to the repo's default method.",
+        },
+        auto: {
+          type: "boolean",
+          description:
+            "Arm auto-merge instead of merging now. Refused when the repo has auto-merge off, unless the base branch has a merge queue.",
+        },
+        deleteWorkspace: {
+          type: "boolean",
+          description:
+            "Once the PR has merged, remove the workspace's worktree and its local branch. Ignored when the PR is queued or set to auto-merge.",
+        },
+      },
+    },
+  },
+  {
+    name: "fix_pr_checks",
+    description:
+      "Brief an agent on the failing checks of a workspace's PR (names, links and log tails): typed into the workspace's agent that is waiting for a prompt, or a new agent when every one there is busy. A busy agent is never interrupted. With 'print', only returns the brief. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        print: PR_PRINT_PROP,
+      },
+    },
+  },
+  {
+    name: "address_pr_comments",
+    description:
+      "Brief an agent on the unresolved review threads of a workspace's PR: typed into the workspace's agent that is waiting for a prompt, or a new agent when every one there is busy. A busy agent is never interrupted. With 'print', only returns the brief. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        print: PR_PRINT_PROP,
+      },
+    },
+  },
+
   // ── Issue links ──
 
   {
@@ -864,6 +933,64 @@ const tools: ToolDef[] = [
     },
   },
 ];
+
+// ── The workspace's PR ──
+
+/** What `POST /projects/:id/workspaces/pr/merge` answers. */
+interface MergePrAnswer {
+  number: number;
+  method: string;
+  outcome: "merged" | "queued" | "auto";
+  removedWorkspace: string | null;
+  removeError?: string;
+}
+
+/** `merge_pr`'s first line, for what the merge did. */
+function mergeOutcomeLine({ number, method, outcome }: MergePrAnswer): string {
+  if (outcome === "queued") return `Added PR #${number} to the merge queue.`;
+  if (outcome === "auto") return `Auto-merge armed on PR #${number} (${method}).`;
+  return `Merged PR #${number} (${method}).`;
+}
+
+/** What the PR brief routes answer. */
+type BriefPrAnswer =
+  | { delivery: "printed"; prompt: string }
+  | { delivery: "sent"; agentId: string; agentName: string | null; paneId: string }
+  | { delivery: "started"; paneId: string };
+
+/** The project and workspace a PR tool acts on, each defaulting to the caller's. */
+async function prWorkspace(
+  args: Record<string, unknown>,
+  http: Http,
+): Promise<{ projectId: string; workspacePath: string }> {
+  const projectId = await resolveProjectId(http, args.projectId as string | undefined);
+  const workspacePath = await resolveWorkspacePath(
+    http,
+    args.workspacePath as string | undefined,
+  );
+  return { projectId, workspacePath };
+}
+
+/** `fix_pr_checks` and `address_pr_comments`: the brief, or where it went. */
+async function briefPr(
+  route: "fix-checks" | "address-comments",
+  args: Record<string, unknown>,
+  http: Http,
+) {
+  const { projectId, workspacePath } = await prWorkspace(args, http);
+  const result = (await http.post(
+    `/projects/${encodeURIComponent(projectId)}/workspaces/pr/${route}`,
+    { workspacePath, ...(args.print === true && { print: true }) },
+  )) as BriefPrAnswer;
+  switch (result.delivery) {
+    case "printed":
+      return text(result.prompt);
+    case "sent":
+      return text(`Sent to agent ${result.agentName ?? result.agentId} in pane ${result.paneId}.`);
+    case "started":
+      return text(`Started a new agent in pane ${result.paneId}.`);
+  }
+}
 
 // ── Tool handlers ──
 
@@ -1177,6 +1304,34 @@ const handlers: ToolModule["handlers"] = {
     );
     return text(`Merged and removed workspace ${workspacePath}.`);
   },
+
+  // ── The workspace's PR ──
+
+  async merge_pr(args, http) {
+    const { projectId, workspacePath } = await prWorkspace(args, http);
+    const result = (await http.post(
+      `/projects/${encodeURIComponent(projectId)}/workspaces/pr/merge`,
+      {
+        workspacePath,
+        ...(args.method !== undefined && { method: args.method }),
+        ...(args.auto !== undefined && { auto: args.auto }),
+        ...(args.deleteWorkspace !== undefined && { deleteWorkspace: args.deleteWorkspace }),
+      },
+    )) as MergePrAnswer;
+    const lines = [mergeOutcomeLine(result)];
+    if (args.deleteWorkspace === true && result.outcome !== "merged") {
+      lines.push(`The workspace stays until the PR lands.`);
+    }
+    if (result.removedWorkspace) lines.push(`Removed workspace ${result.removedWorkspace}.`);
+    if (result.removeError) {
+      lines.push(`Could not remove workspace ${workspacePath}: ${result.removeError}`);
+    }
+    return text(lines.join("\n"));
+  },
+
+  fix_pr_checks: (args, http) => briefPr("fix-checks", args, http),
+
+  address_pr_comments: (args, http) => briefPr("address-comments", args, http),
 
   // ── Issue links ──
 

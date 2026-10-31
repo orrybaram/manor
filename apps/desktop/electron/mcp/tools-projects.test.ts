@@ -452,3 +452,80 @@ describe("move_workspace_to_host", () => {
     expect(out).toContain("  This machine already has this branch checked out, with 1 changed file:");
   });
 });
+
+describe("merge_pr", () => {
+  it("posts the caller's workspace and says what the merge did", async () => {
+    const http = fakeHttp({
+      get: async (path) => (path.startsWith("/context") ? { projectId: "p1", workspacePath: "/repo/wt" } : {}),
+      post: async () => ({
+        number: 12,
+        method: "squash",
+        outcome: "merged",
+        removedWorkspace: "/repo/wt",
+      }),
+    });
+    const result = await projectsModule.handlers.merge_pr(
+      { projectId: "p1", workspacePath: "/repo/wt", deleteWorkspace: true },
+      http,
+    );
+    expect(http.calls).toEqual([
+      {
+        method: "POST",
+        path: "/projects/p1/workspaces/pr/merge",
+        body: { workspacePath: "/repo/wt", deleteWorkspace: true },
+      },
+    ]);
+    expect(result.content[0].text).toBe("Merged PR #12 (squash).\nRemoved workspace /repo/wt.");
+  });
+
+  it.each([
+    ["queued", "Added PR #12 to the merge queue.\nThe workspace stays until the PR lands."],
+    ["auto", "Auto-merge armed on PR #12 (squash).\nThe workspace stays until the PR lands."],
+  ])("for a %s PR keeps the workspace", async (outcome, expected) => {
+    const http = fakeHttp({
+      post: async () => ({ number: 12, method: "squash", outcome, removedWorkspace: null }),
+    });
+    const result = await projectsModule.handlers.merge_pr(
+      { projectId: "p1", workspacePath: "/repo/wt", deleteWorkspace: true },
+      http,
+    );
+    expect(result.content[0].text).toBe(expected);
+  });
+});
+
+describe("fix_pr_checks and address_pr_comments", () => {
+  it("print returns the brief alone", async () => {
+    const http = fakeHttp({ post: async () => ({ delivery: "printed", prompt: "Fix it." }) });
+    const result = await projectsModule.handlers.fix_pr_checks(
+      { projectId: "p1", workspacePath: "/repo/wt", print: true },
+      http,
+    );
+    expect(http.calls[0]).toMatchObject({
+      path: "/projects/p1/workspaces/pr/fix-checks",
+      body: { workspacePath: "/repo/wt", print: true },
+    });
+    expect(result.content[0].text).toBe("Fix it.");
+  });
+
+  it("names the agent it went to, or the new one's pane", async () => {
+    const sent = fakeHttp({
+      post: async () => ({ delivery: "sent", agentId: "a1", agentName: "fixer", paneId: "pane-2" }),
+    });
+    const sentResult = await projectsModule.handlers.address_pr_comments(
+      { projectId: "p1", workspacePath: "/repo/wt" },
+      sent,
+    );
+    expect(sent.calls[0]).toMatchObject({
+      path: "/projects/p1/workspaces/pr/address-comments",
+      body: { workspacePath: "/repo/wt" },
+    });
+    expect(sentResult.content[0].text).toBe("Sent to agent fixer in pane pane-2.");
+
+    const started = fakeHttp({ post: async () => ({ delivery: "started", paneId: "pane-9" }) });
+    const startedResult = await projectsModule.handlers.fix_pr_checks(
+      { projectId: "p1", workspacePath: "/repo/wt" },
+      started,
+    );
+    expect(startedResult.content[0].text).toBe("Started a new agent in pane pane-9.");
+  });
+});

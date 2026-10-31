@@ -35,6 +35,8 @@ const defaultPreferences: AppPreferences = {
   halloweenEffects: true,
   terminalFontFamily: "",
   terminalFontSize: 13,
+  editorFontFamily: "",
+  editorFontSize: 12,
   remoteControlOnLaunch: false,
 };
 
@@ -61,3 +63,27 @@ export const usePreferencesStore = create<PreferencesState>((set) => {
     },
   };
 });
+
+/** How long a terminal waits on preferences before opening at the defaults. */
+const PREFERENCES_TIMEOUT_MS = 2_000;
+
+/**
+ * Resolve once preferences have been read, or when waiting longer stops being
+ * worth a blank pane. A terminal opens after this so it is created in the
+ * font from Settings: one opened at the default and corrected a moment later
+ * would tell its pty a size the pane never showed.
+ */
+export function whenPreferencesLoaded(): Promise<void> {
+  if (usePreferencesStore.getState().loaded) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    };
+    const timer = setTimeout(done, PREFERENCES_TIMEOUT_MS);
+    const unsubscribe = usePreferencesStore.subscribe((s) => {
+      if (s.loaded) done();
+    });
+  });
+}

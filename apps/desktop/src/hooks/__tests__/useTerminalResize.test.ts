@@ -359,6 +359,12 @@ describe("useFollowerFit", () => {
     });
     expect(term.options.fontSize).toBe(6);
 
+    // A pane wide enough for the grid draws at the new ceiling at once.
+    act(() => {
+      root.render(createElement(Harness, { ...props, width: 4000, fontSize: 10 }));
+    });
+    expect(term.options.fontSize).toBe(10);
+
     act(() => {
       root.render(
         createElement(Harness, { ...props, target: null, enabled: false, fontSize: 16 }),

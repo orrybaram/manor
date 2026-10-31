@@ -464,6 +464,12 @@ export function useFollowerFit(
     };
   }, [containerRef, term, target, enabled]);
 
+  // A new size from Settings is a new ceiling: fit to it now, in either
+  // direction, rather than at the next container or grid change.
+  useLayoutEffect(() => {
+    refitRef.current?.();
+  }, [fontSize]);
+
   /** Fit the font again now, as `useOwnerFit`'s refit does the pty. Stable. */
   return useCallback(() => refitRef.current?.(), []);
 }

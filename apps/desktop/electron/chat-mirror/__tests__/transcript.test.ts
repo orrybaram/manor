@@ -607,6 +607,42 @@ describe("TranscriptParser tasks", () => {
     expect(p.entries().filter((e) => e.kind === "notice")).toEqual([]);
   });
 
+  it("keeps how long a notified task ran: its reported duration, else launch to notification", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu8", "Agent", { description: "d", run_in_background: true }));
+    const [reported] = p.push(
+      userBlocks(
+        "n5",
+        "<task-notification><tool-use-id>tu8</tool-use-id><status>completed</status><summary>s</summary><usage><duration_ms>123456</duration_ms></usage></task-notification>",
+      ),
+    );
+    expect(reported).toMatchObject({ status: "ok", durationMs: 123456 });
+
+    p.push(
+      line({
+        type: "assistant",
+        uuid: "a-tu9",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        message: { role: "assistant", content: [{ type: "tool_use", id: "tu9", name: "Agent", input: { run_in_background: true } }] },
+      }),
+    );
+    const settle = (uuid: string, timestamp: string) =>
+      p.push(
+        line({
+          type: "user",
+          uuid,
+          timestamp,
+          message: {
+            role: "user",
+            content: "<task-notification><tool-use-id>tu9</tool-use-id><status>completed</status><summary>s</summary></task-notification>",
+          },
+        }),
+      );
+    expect(settle("n6", "2026-01-01T00:02:03.000Z")[0]).toMatchObject({ durationMs: 123_000 });
+    // The same notification again, later, doesn't move it.
+    expect(settle("n7", "2026-01-01T00:05:00.000Z")[0]).toMatchObject({ durationMs: 123_000 });
+  });
+
   it("resolves a foreground agent from its result", () => {
     const p = new TranscriptParser();
     p.push(launch("tu2", "Agent", { description: "Look" }));

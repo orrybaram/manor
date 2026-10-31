@@ -35,7 +35,8 @@
       "background": true,
       "status": "ok",
       "taskRef": "c799184691102b358",
-      "result": "Lorem \"Non ipsum qui EST-930 Ex/Ea/In\" occaecat"
+      "result": "Lorem \"Non ipsum qui EST-930 Ex/Ea/In\" occaecat",
+      "durationMs": 952963
     },
     {
       "kind": "thought",

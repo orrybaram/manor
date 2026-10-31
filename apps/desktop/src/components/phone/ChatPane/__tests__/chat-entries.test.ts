@@ -4,12 +4,12 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEntry, ChatTaskEntry } from "../../../../electron.d";
 import {
+  chatTasks,
   formatDuration,
   formatElapsed,
   groupEntries,
   newestContent,
   resultPreview,
-  runningTaskCount,
   sameItem,
   splitPrompt,
   staleTaskIds,
@@ -201,17 +201,22 @@ describe("staleTaskIds", () => {
     expect(staleTaskIds([task("t1")], "idle").size).toBe(0);
   });
 
-  it("groups tasks with the status they show, and counts the running ones", () => {
+  it("groups tasks with the status they show", () => {
     const entries = [task("t1"), user("u1"), task("t2"), task("t3", "ok"), task("t4")];
-    const idle = groupEntries(entries, "idle");
-    expect(idle.flatMap((i) => (i.kind === "task" ? [[i.id, i.display]] : []))).toEqual([
+    const shown = (items: ReturnType<typeof groupEntries>) =>
+      chatTasks(items).map((t) => [t.id, t.display]);
+    expect(shown(groupEntries(entries, "idle"))).toEqual([
       ["t1", "unknown"],
       ["t2", "running"],
       ["t3", "ok"],
       ["t4", "running"],
     ]);
-    expect(runningTaskCount(idle)).toBe(2);
-    expect(runningTaskCount(groupEntries(entries))).toBe(3);
+    expect(shown(groupEntries(entries))).toEqual([
+      ["t1", "running"],
+      ["t2", "running"],
+      ["t3", "ok"],
+      ["t4", "running"],
+    ]);
   });
 });
 

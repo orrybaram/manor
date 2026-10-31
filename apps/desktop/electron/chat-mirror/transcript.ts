@@ -100,6 +100,12 @@ export type ChatEntry =
       /** The agent's own id for this task, when it has one. */
       taskRef?: string;
       /**
+       * How long a background task ran, set when its notification settles
+       * it: the notification's `<duration_ms>`, else the time from launch to
+       * the notification.
+       */
+      durationMs?: number;
+      /**
        * Set by the mirror (`mirror.ts`), never by the parser: the adapter
        * resolves a transcript for this task.
        */
@@ -411,6 +417,17 @@ function notifiedStatus(status: string | undefined): ChatTaskEntry["status"] {
   if (status === "failed") return "error";
   if (status === "killed") return "killed";
   return "ok";
+}
+
+/**
+ * How long a notified task ran: the `<duration_ms>` its notification
+ * reports, else from its launch at `launchTs` to the notification at `ts`.
+ */
+function notifiedDuration(text: string, launchTs: string, ts: string): number | undefined {
+  const reported = Number(tagText(text, "duration_ms")?.trim() || NaN);
+  if (Number.isFinite(reported) && reported >= 0) return reported;
+  const elapsed = Date.parse(ts) - Date.parse(launchTs);
+  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined;
 }
 
 /** Flatten a tool_result `content` (string or block array) to plain text. */
@@ -1041,6 +1058,9 @@ export class TranscriptParser {
         status: notifiedStatus(status),
         result: summary.slice(0, MAX_DETAIL),
       };
+      // The first notification's time stands: the same one again is later.
+      const durationMs = task.durationMs ?? notifiedDuration(text, task.ts, ts);
+      if (durationMs !== undefined) next.durationMs = durationMs;
       this.byId.set(task.id, next);
       return next;
     }

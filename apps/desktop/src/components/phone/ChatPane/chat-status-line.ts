@@ -1,6 +1,7 @@
 import type { PrInfo } from "../../../lib/pr-info";
 import type { DiffStats } from "../../../store/project-store";
 import { branchesEqual } from "../../../utils/branch-name";
+import { formatDuration, formatElapsed, type TaskItem } from "./chat-entries";
 
 export type CiTone = "passing" | "failing" | "pending";
 
@@ -65,6 +66,71 @@ export function formatContextTokens(n: number): string {
 /** The status line's running-tasks chip: "2 running", or null with none. */
 export function runningChipLabel(count: number): string | null {
   return count > 0 ? `${count} running` : null;
+}
+
+/** An agent task launched to run in the background (`run_in_background`). */
+function isBackgroundAgent(task: TaskItem): boolean {
+  return task.taskKind === "agent" && task.background;
+}
+
+export type TaskChips = {
+  /** The chat's background agents: the running ones first, each in chat order. */
+  agents: TaskItem[];
+  /** Background agents running. */
+  runningAgents: number;
+  /** Other tasks running (background shell commands, foreground agents), in chat order. */
+  runningOthers: TaskItem[];
+};
+
+/**
+ * What the status line makes of the chat's tasks: background agents get
+ * their own chip and list; any other task still running keeps the plain
+ * "N running" chip, which scrolls to the newest. A task shown as unknown (a
+ * stale one) isn't running.
+ */
+export function taskChips(tasks: readonly TaskItem[]): TaskChips {
+  const agents = tasks.filter(isBackgroundAgent);
+  const running = agents.filter((t) => t.display === "running");
+  return {
+    agents: [...running, ...agents.filter((t) => t.display !== "running")],
+    runningAgents: running.length,
+    runningOthers: tasks.filter((t) => t.display === "running" && !isBackgroundAgent(t)),
+  };
+}
+
+/** The agents chip: "1 agent", "3 agents". */
+export function agentsChipLabel(count: number): string {
+  return count === 1 ? "1 agent" : `${count} agents`;
+}
+
+/** The agents list's heading: "Background agents · 2 running". */
+export function agentsListTitle(running: number): string {
+  return `Background agents · ${running > 0 ? `${running} running` : "none running"}`;
+}
+
+const FINISHED: Record<Exclude<TaskItem["display"], "running" | "unknown">, [string, string]> = {
+  ok: ["done", "done in"],
+  error: ["failed", "failed after"],
+  killed: ["stopped", "stopped after"],
+};
+
+/**
+ * A background agent's line in the list: its type, then how long it has run
+ * ("Explore · running 1m 12s", from its launch to `now`) or took ("done in
+ * 2m 3s", from its notification).
+ */
+export function agentStatusText(task: TaskItem, now: number): string {
+  let status: string;
+  if (task.display === "running") {
+    const seconds = (now - Date.parse(task.ts)) / 1000;
+    status = Number.isFinite(seconds) && seconds >= 0 ? `running ${formatElapsed(seconds)}` : "running";
+  } else if (task.display === "unknown") {
+    status = "status unknown";
+  } else {
+    const [bare, timed] = FINISHED[task.display];
+    status = task.durationMs !== undefined ? `${timed} ${formatDuration(task.durationMs)}` : bare;
+  }
+  return task.agentType ? `${task.agentType} · ${status}` : status;
 }
 
 /**

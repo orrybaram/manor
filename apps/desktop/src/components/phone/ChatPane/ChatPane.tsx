@@ -13,12 +13,13 @@ import {
   groupEntries,
   mergeHistory,
   newestContent,
-  runningTaskCount,
+  chatTasks,
   upsertEntry,
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
+import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
@@ -314,6 +315,30 @@ export function ChatPane(props: ChatPaneProps) {
     }
     placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
+  /**
+   * A task card to bring into view once it mounts: picked from the status
+   * line's agents list while above the window.
+   */
+  const revealing = useRef<string | null>(null);
+  const revealTask = (id: string) => {
+    const index = items.findIndex((item) => item.id === id);
+    if (index !== -1 && index < start) {
+      // Mount from the card down, then scroll to it; reading up there, the
+      // chat no longer follows the bottom.
+      stuck.current = false;
+      revealing.current = id;
+      setAnchorId(id);
+      return;
+    }
+    revealTaskCard(contentRef.current, id);
+  };
+  useLayoutEffect(() => {
+    if (revealing.current === null) return;
+    // At once: a smooth scroll would start from the bottom, where the chat
+    // would stick again and drop the items just mounted.
+    revealTaskCard(contentRef.current, revealing.current, { smooth: false });
+    revealing.current = null;
+  });
   // Live entries above the window have left it (it only ever trims the top).
   useLayoutEffect(() => {
     if (settledIds === null) return;
@@ -407,7 +432,8 @@ export function ChatPane(props: ChatPaneProps) {
             busy={busy}
             transcript={transcript}
             contextTokens={contextTokens}
-            runningTasks={runningTaskCount(items)}
+            tasks={chatTasks(items)}
+            onRevealTask={revealTask}
             session={session}
             layout={layout}
           />

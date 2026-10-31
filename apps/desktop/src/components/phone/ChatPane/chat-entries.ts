@@ -242,9 +242,9 @@ export function staleTaskIds(
   return stale;
 }
 
-/** How many tasks show as running (the stale ones show as unknown). */
-export function runningTaskCount(items: readonly ChatItem[]): number {
-  return items.filter((i) => i.kind === "task" && i.display === "running").length;
+/** The chat's tasks, in chat order, each with the status it shows. */
+export function chatTasks(items: readonly ChatItem[]): TaskItem[] {
+  return items.filter((i): i is TaskItem => i.kind === "task");
 }
 
 /** The dot's `data-status`: the shared dot styles know pending, ok and error. */

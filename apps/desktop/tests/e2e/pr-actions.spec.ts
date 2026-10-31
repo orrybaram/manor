@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
 import { type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import { killApp, launchApp, openTerminalTab, test as base, expect } from "./fixtures";
 import { editFakePr, fakeGhCalls, installFakeGh, type FakeCheck, type FakePr } from "./helpers/fake-gh";
@@ -353,4 +353,52 @@ test("the phone's PR sheet carries the same footer", async ({ app, window, tempH
     await window.getByTestId("phone-pr-sheet-close").click();
     await expect(sheet).not.toBeVisible({ timeout: 5_000 });
   }
+});
+
+const CLI = path.join(__dirname, "..", "..", "dist-electron", "manor-cli.js");
+
+test("the manor CLI briefs and merges the workspace's PR", async ({ window, tempHome }) => {
+  test.setTimeout(180_000);
+  await expect(window.locator("[data-readiness]")).toHaveCount(BRANCHES.length, { timeout: 60_000 });
+  // The app's own spelling of each path (it resolves /var to /private/var).
+  const paths = new Map<string, string>();
+  for (const branch of BRANCHES) {
+    paths.set(branch, (await row(window, branch).getAttribute("data-workspace-path")) ?? "");
+  }
+  const ws = (branch: string) => paths.get(branch)!;
+  const home = path.dirname(path.dirname(ws("fix-ci")));
+  const env = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("MANOR_"))),
+    HOME: tempHome,
+    PATH: `${path.join(tempHome, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,
+  };
+  const transcript: string[] = [];
+  const manor = (...args: string[]): string => {
+    const out = execFileSync("node", [CLI, ...args, "--project-id", "proj-pr-actions"], { env, encoding: "utf-8" });
+    transcript.push(`$ manor ${args.join(" ").replaceAll(home, "~")}`, out.trim().replaceAll(home, "~"), "");
+    return out;
+  };
+
+  expect(manor("fix-pr-checks", "--workspace-path", ws("fix-ci"), "--print")).toContain("error TS2322");
+  expect(manor("address-pr-comments", "--workspace-path", ws("review-notes"), "--print")).toContain(
+    "src/merge.ts:42",
+  );
+  expect(manor("fix-pr-checks", "--workspace-path", ws("fix-ci"))).toMatch(/Started a new agent in pane/);
+  expect(manor("merge-pr", "--workspace-path", ws("slow-ci"), "--auto")).toContain("Auto-merge armed on PR #303");
+  expect(manor("merge-pr", "--workspace-path", ws("queued"), "--delete-workspace")).toContain(
+    "Added PR #304 to the merge queue",
+  );
+
+  editFakePr(tempHome, 301, (node) => {
+    const contexts = (node.commits as { nodes: { commit: { statusCheckRollup: { contexts: { nodes: FakeCheck[] } } } }[] })
+      .nodes[0].commit.statusCheckRollup.contexts.nodes;
+    for (const c of contexts) c.conclusion = "SUCCESS";
+  });
+  const merged = manor("merge-pr", "--workspace-path", ws("fix-ci"), "--delete-workspace");
+  expect(merged).toContain("Merged PR #301 (squash)");
+  expect(merged).toContain("Removed workspace");
+  expect(fakeGhCalls(tempHome)).toContain("pr merge 301 --squash");
+  await expect(row(window, "fix-ci")).toHaveCount(0, { timeout: 30_000 });
+
+  new Filmstrip("pr-actions-cli").write("cli-transcript.txt", transcript.join("\n"));
 });

@@ -1322,6 +1322,12 @@ describe("TranscriptParser — thought and turn-end", () => {
     expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 4000 }))).toEqual([]);
   });
 
+  it("gives an interrupted turn no closing line", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("i1", [{ type: "text", text: "[Request interrupted by user]" }]));
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 5000 }))).toEqual([]);
+  });
+
   it("leaves the turn state alone at a turn-end", () => {
     const p = new TranscriptParser();
     p.push(assistant("a1", [{ type: "text", text: "done" }], {}));

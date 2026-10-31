@@ -328,7 +328,9 @@ export function ChatPane(props: ChatPaneProps) {
   const latest = newestContent(items);
   const toolRunning =
     latest?.kind === "tool-group" && latest.tools.some((t) => t.status === "pending");
-  const thinking = busy && answerableId === null && !toolRunning;
+  // A turn's closing line says it's over: no live line under it while the
+  // status catches up (a late Stop hook, or one held for background agents).
+  const thinking = busy && answerableId === null && !toolRunning && newest?.kind !== "turn-end";
   const needsYou = status === "requires_input" && answerableId === null;
 
   return (

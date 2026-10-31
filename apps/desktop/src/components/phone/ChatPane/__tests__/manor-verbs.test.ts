@@ -24,6 +24,9 @@ describe("manor verbs", () => {
     const id = "00000000-0000-4000-8000-000000000021";
     expect(pasts.has(pastVerb(id))).toBe(true);
     expect(pastVerb(id)).toBe(pastVerb(id));
+    // Pinned: a change to the hash would reshuffle every past turn's verb.
+    expect(pastVerb(id)).toBe("Tended");
+    expect(pastVerb("turn-b")).toBe("Catalogued");
     // Different turns don't all say the same.
     const picked = new Set(Array.from({ length: 50 }, (_, i) => pastVerb(`turn-${i}`)));
     expect(picked.size).toBeGreaterThan(4);

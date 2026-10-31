@@ -74,9 +74,16 @@ describe("groupEntries with timing lines", () => {
     expect(items[1].kind === "tool-group" && items[1].tools.map((t) => t.id)).toEqual(["t1", "t2"]);
   });
 
-  it("shows a thought after a run while nothing has followed it yet", () => {
+  it("holds back a thought after a run while nothing has followed it yet", () => {
+    // Its tool call usually lands next and would fold it away again.
     const items = groupEntries([tool("t1", "Bash"), thought("th1")]);
-    expect(items.map((i) => i.kind)).toEqual(["tool-group", "thought"]);
+    expect(items.map((i) => i.kind)).toEqual(["tool-group"]);
+  });
+
+  it("shows a thought after a run once text follows it", () => {
+    const text: ChatEntry = { kind: "assistant", id: "a1", ts: "", text: "done" };
+    const items = groupEntries([tool("t1", "Bash"), thought("th1"), text]);
+    expect(items.map((i) => i.kind)).toEqual(["tool-group", "thought", "assistant"]);
   });
 
   it("ends a run at a turn-end", () => {

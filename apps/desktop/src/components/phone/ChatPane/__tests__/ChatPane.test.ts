@@ -502,6 +502,24 @@ describe("ChatPane — entries", () => {
     }
   });
 
+  it("shows no live line under a turn's closing line while hooks still say busy", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({
+        ok: true,
+        contextTokens: null,
+        turnState: "done",
+        entries: [{ kind: "turn-end", id: "e1", ts: "", durationMs: 5000, backgroundAgents: 2 }],
+      });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a note and a way to the terminal when there is no chat", async () => {
     installChat({ ok: false, reason: "no-transcript" });
     const onShowTerminal = await renderChat();

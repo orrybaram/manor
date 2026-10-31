@@ -93,7 +93,9 @@ export function newestContent(items: readonly ChatItem[]): ChatItem | undefined 
  * The chat's items: each run of consecutive tool entries folded into one
  * group (anything else ends a run, a landed edit's card too), and each task with the status it shows
  * while the pane's agent is `agentStatus` (`staleTaskIds`). A thought
- * between two tool calls of a run isn't drawn: the run stays one line.
+ * between two tool calls of a run isn't drawn: the run stays one line. Nor
+ * is one that ends the chat after a run, since its tool call usually lands
+ * next and would fold it away again.
  */
 export function groupEntries(
   entries: readonly ChatEntry[],
@@ -105,7 +107,7 @@ export function groupEntries(
     if (
       entry.kind === "thought" &&
       items[items.length - 1]?.kind === "tool-group" &&
-      nextKind(entries, i) === "tool"
+      (nextKind(entries, i) === "tool" || i === entries.length - 1)
     ) {
       continue;
     }

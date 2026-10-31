@@ -808,6 +808,8 @@ export class TranscriptParser {
     if (type === "system" && parsed.subtype === "turn_duration") {
       const ms = parsed.durationMs;
       if (!this.mainThread || typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return [];
+      // An interrupted turn already says so; it gets no "Polished for 5s".
+      if (this.turn === "interrupted") return [];
       const agents = parsed.pendingBackgroundAgentCount;
       const e = this.add({
         kind: "turn-end",

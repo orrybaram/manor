@@ -32,6 +32,8 @@ interface ThemeState {
   theme: Theme | null;
   selectedThemeName: string;
   projectThemeOverride: string | null;
+  /** The project whose Settings page is open: its theme shows while it is. */
+  settingsProjectId: string | null;
   loadTheme: () => Promise<void>;
   setTheme: (name: string) => Promise<void>;
   applyProjectTheme: (themeName: string | null) => Promise<void>;
@@ -141,6 +143,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: null,
   selectedThemeName: "__ghostty__",
   projectThemeOverride: null,
+  settingsProjectId: null,
 
   loadTheme: async () => applyServerTheme(await fetchServerTheme()),
 

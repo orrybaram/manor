@@ -128,6 +128,7 @@ import "./App.css";
 
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
+  const themedSettingsProjectId = useThemeStore((s) => s.settingsProjectId);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const projectsLoadError = useProjectStore((s) => s.loadError);
   const [appReady, setAppReady] = useState(false);
@@ -493,11 +494,15 @@ function App() {
   // re-applies here.
   // A detached window paints in its claimed workspace's theme:
   // it has no sidebar selection of its own to read one from.
-  const effectiveThemeName = OWN_CLAIM
-    ? (ownerOf(projects, OWN_CLAIM.workspacePath as WorkspaceKey)?.themeName ?? null)
-    : isHomePath(activeWorkspacePath) || tasksViewShown
-      ? null
-      : projects[selectedProjectIndex]?.themeName ?? null;
+  // A project's Settings page shows that project's theme.
+  const settingsProject = projects.find((p) => p.id === themedSettingsProjectId);
+  const effectiveThemeName = settingsProject
+    ? (settingsProject.themeName ?? null)
+    : OWN_CLAIM
+      ? (ownerOf(projects, OWN_CLAIM.workspacePath as WorkspaceKey)?.themeName ?? null)
+      : isHomePath(activeWorkspacePath) || tasksViewShown
+        ? null
+        : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
   if (effectiveThemeName !== prevThemeRef.current) {
     prevThemeRef.current = effectiveThemeName;

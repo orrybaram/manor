@@ -285,24 +285,29 @@ export function PrDetails(props: {
 }) {
   const { pr, workspacePath, hostId, onSendToAgentStart } = props;
 
+  // Set the moment a merge from the footer lands: the header says so before
+  // the next poll does.
+  const [mergedHere, setMergedHere] = useState(false);
+  const state = mergedHere ? "merged" : pr.state;
+
   const PrIcon =
-    pr.state === "merged"
+    state === "merged"
       ? GitMerge
-      : pr.state === "closed"
+      : state === "closed"
         ? GitPullRequestClosed
         : GitPullRequest;
 
   const stateLabel =
-    pr.state === "merged"
+    state === "merged"
       ? "Merged"
-      : pr.state === "closed"
+      : state === "closed"
         ? "Closed"
         : "Open";
 
   const stateClass =
-    pr.state === "merged"
+    state === "merged"
       ? styles.prPopoverStateMerged
-      : pr.state === "closed"
+      : state === "closed"
         ? styles.prPopoverStateClosed
         : styles.prPopoverStateOpen;
 
@@ -324,7 +329,7 @@ export function PrDetails(props: {
       <div className={styles.prPopoverHeader}>
         <PrIcon size={14} />
         <span>#{pr.number}</span>
-        <span className={stateClass}>{stateLabel}</span>
+        <span className={stateClass} data-testid="pr-state">{stateLabel}</span>
         {pr.isDraft && <span className={styles.prPopoverDraft}>Draft</span>}
         {pr.additions != null && pr.deletions != null && (
           <span className={styles.prPopoverDiffStat}>
@@ -361,6 +366,7 @@ export function PrDetails(props: {
           workspacePath={workspacePath}
           hostId={hostId}
           onLeave={onSendToAgentStart}
+          onMerged={() => setMergedHere(true)}
         />
       )}
     </div>

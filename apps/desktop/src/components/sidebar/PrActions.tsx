@@ -55,8 +55,10 @@ export function PrActions(props: {
   hostId?: string;
   /** Called before an action takes the user elsewhere, e.g. to close a popover. */
   onLeave?: () => void;
+  /** Called when a merge from here lands, so the card can say Merged at once. */
+  onMerged?: () => void;
 }) {
-  const { pr, workspacePath, hostId, onLeave } = props;
+  const { pr, workspacePath, hostId, onLeave, onMerged } = props;
   const phone = useLayoutMode() === "phone";
   const project = useProjectStore((s) => ownerOf(s.projects, layoutKeyFor(workspacePath, hostId)));
   const ws = project?.workspaces.find((w) => w.path === workspacePath);
@@ -137,6 +139,7 @@ export function PrActions(props: {
     setPhase(outcome);
     const deleting = deleteAfter && canDelete && ws;
     if (outcome === "merged") {
+      onMerged?.();
       burst(burstRef.current);
       toast.success(`Merged #${pr.number}`);
       // Not cancelled if the card closes meanwhile: the workspace must still go.
@@ -157,7 +160,7 @@ export function PrActions(props: {
         : `Auto-merge armed on #${pr.number}${then}`,
     );
     void fetchPrs();
-  }, [repo, project, offer, phase, pr.number, pr.url, chosen, deleteAfter, canDelete, ws, onLeave]);
+  }, [repo, project, offer, phase, pr.number, pr.url, chosen, deleteAfter, canDelete, ws, onLeave, onMerged]);
 
   if (!repo || !isOpen) return null;
   const showAgents = failing > 0 || threads > 0;

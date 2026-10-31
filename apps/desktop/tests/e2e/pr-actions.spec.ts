@@ -52,13 +52,15 @@ function pr(number: number, branch: string, rollup: FakeCheck[], over: Partial<F
   };
 }
 
-const BRANCHES = ["fix-ci", "review-notes", "slow-ci", "queued"] as const;
+const BRANCHES = ["fix-ci", "review-notes", "slow-ci", "queued", "phone-pr"] as const;
 
 const PRS: Record<string, FakePr> = {
   "fix-ci": pr(301, "fix-ci", [check("typecheck", "FAILURE", 22), check("unit", "SUCCESS")]),
   "review-notes": pr(302, "review-notes", [check("unit", "SUCCESS")], { reviewDecision: null }),
   "slow-ci": pr(303, "slow-ci", [check("unit", null)]),
   queued: pr(304, "queued", [check("unit", "SUCCESS")]),
+  // The phone's: a failing check and an open thread, so all three actions show.
+  "phone-pr": pr(305, "phone-pr", [check("typecheck", "FAILURE", 23), check("unit", "SUCCESS")]),
 };
 
 const thread = (n: number, path: string, line: number, body: string) => ({
@@ -143,7 +145,14 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
           comments: { totalCount: 0, nodes: [] },
           reviews: { totalCount: 0, nodes: [] },
         },
+        305: {
+          isInMergeQueue: false,
+          reviewThreads: { nodes: [thread(3, "src/PrActions.tsx", 64, "Say why Merge is off, in words.")] },
+          comments: { totalCount: 0, nodes: [] },
+          reviews: { totalCount: 0, nodes: [] },
+        },
       },
+      // (conversations above) plus #305's one thread, for the phone.
       repo: {
         viewerDefaultMergeMethod: "SQUASH",
         squashMergeAllowed: true,
@@ -152,7 +161,7 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
         autoMergeAllowed: true,
       },
       mergeQueue: [304],
-      jobLogs: { "22": FAILING_LOG },
+      jobLogs: { "22": FAILING_LOG, "23": FAILING_LOG },
     });
     const originalPath = process.env.PATH ?? "";
     process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
@@ -262,6 +271,13 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   await expect(card.getByTestId("pr-merge-method-merge")).toHaveCount(0);
   await strip.shot(window, "merge-method-menu");
   await window.keyboard.press("Escape");
+  await useTheme(window, "Catppuccin Latte");
+  card = await openCard(window, "fix-ci");
+  await card.getByTestId("pr-merge-method").click();
+  await expect(card.getByTestId("pr-merge-method-squash")).toBeVisible();
+  await strip.shot(window, "merge-method-menu-light");
+  await window.keyboard.press("Escape");
+  await useTheme(window, "Catppuccin Mocha");
   card = await openCard(window, "fix-ci");
   await strip.shot(window, "ready-to-merge");
   await useTheme(window, "Catppuccin Latte");
@@ -273,6 +289,7 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   // ── 3. Merge: gh is asked to squash, the moment plays, the workspace goes ─
   await card.getByTestId("pr-merge").click();
   await expect(card.locator('[data-phase="merged"]')).toBeVisible({ timeout: 10_000 });
+  await expect(card.getByTestId("pr-state")).toHaveText("Merged");
   await strip.shot(window, "merged-moment");
   expect(fakeGhCalls(tempHome)).toContain("pr merge 301 --squash");
   await expect(row(window, "fix-ci")).toHaveCount(0, { timeout: 30_000 });
@@ -314,6 +331,21 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   });
   await refreshUntil(window, async () => (await row(window, "queued").count()) === 0);
   await strip.shot(window, "queued-workspace-removed-on-land");
+
+  // ── 7. With the box unticked the workspace stays, its badge merged ──────
+  card = await openCard(window, "review-notes");
+  await card.getByTestId("pr-delete-after-merge").click();
+  await expect(card.getByTestId("pr-delete-after-merge")).toHaveAttribute("data-state", "unchecked");
+  await card.getByTestId("pr-merge").click();
+  await expect(card.getByTestId("pr-state")).toHaveText("Merged", { timeout: 10_000 });
+  expect(fakeGhCalls(tempHome)).toContain("pr merge 302 --squash");
+  await expect(row(window, "review-notes").locator("[data-readiness]")).toHaveAttribute(
+    "data-readiness",
+    "merged",
+    { timeout: 30_000 },
+  );
+  await window.mouse.move(900, 700);
+  await strip.shot(window, "kept-workspace-badge-merged");
 });
 
 test("the phone's PR sheet carries the same footer", async ({ app, window, tempHome, request }) => {
@@ -323,7 +355,7 @@ test("the phone's PR sheet carries the same footer", async ({ app, window, tempH
 
   // A chat-capable agent in the failing PR's workspace: the phone reaches
   // the PR through the chat's status line.
-  await row(window, "fix-ci").click();
+  await row(window, "phone-pr").click();
   await openTerminalTab(window);
   const paneId = await activePaneId(window);
   await awaitShellReady(window, tempHome, paneId);
@@ -338,9 +370,9 @@ test("the phone's PR sheet carries the same footer", async ({ app, window, tempH
   await expect(pane.getByTestId("chat-pane")).toBeVisible({ timeout: 20_000 });
 
   await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(390, 844);
+    BrowserWindow.getAllWindows()[0]?.setSize(375, 812);
   });
-  const chip = window.getByRole("button", { name: /^Pull request #301/ }).last();
+  const chip = window.getByRole("button", { name: /^Pull request #305/ }).last();
   await expect(chip).toBeVisible({ timeout: 20_000 });
 
   for (const theme of ["Catppuccin Mocha", "Catppuccin Latte"] as const) {
@@ -349,9 +381,11 @@ test("the phone's PR sheet carries the same footer", async ({ app, window, tempH
     const sheet = window.getByTestId("phone-pr-sheet");
     await expect(sheet).toBeVisible({ timeout: 10_000 });
     await expect(sheet.getByTestId("pr-fix-checks")).toBeVisible({ timeout: 10_000 });
+    await expect(sheet.getByTestId("pr-address-comments")).toHaveText(/Address 1 comment/);
+    await expect(sheet.getByTestId("pr-merge")).toBeVisible();
     await expect(sheet.getByTestId("pr-merge-reason")).toHaveText("Fix the failing checks first");
     const box = await sheet.getByTestId("pr-actions").boundingBox();
-    expect(box?.width ?? 0).toBeLessThanOrEqual(390);
+    expect(box?.width ?? 0).toBeLessThanOrEqual(375);
     await window.waitForTimeout(400);
     await strip.shot(window, `phone-sheet-${theme === "Catppuccin Latte" ? "light" : "dark"}`);
     await window.getByTestId("phone-pr-sheet-close").click();

@@ -437,16 +437,44 @@ describe("ChatPane — entries", () => {
     expect(chat.interrupt).toHaveBeenCalledWith(PANE);
   });
 
-  it("typing mid-turn turns Stop back into Send, with Stop beside it", async () => {
+  it("typing mid-turn turns Stop into Send, and Esc still stops", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+    await renderChat();
+    const input = all("chat-composer-input")[0] as HTMLTextAreaElement;
+    await typeInto(input, "and then this");
+    expect(all("chat-send")).toHaveLength(1);
+    expect((all("chat-send")[0] as HTMLButtonElement).disabled).toBe(false);
+    expect(all("chat-stop")).toHaveLength(0);
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(chat.interrupt).toHaveBeenCalledWith(PANE);
+  });
+
+  it("shows a prompt sent mid-turn as queued until its line lands", async () => {
+    usePaneChatViewStore.setState({ queued: {} });
     installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
     await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "and then this");
-    expect(all("chat-send")).toHaveLength(1);
-    expect((all("chat-send")[0] as HTMLButtonElement).disabled).toBe(false);
-    expect(all("chat-stop")).toHaveLength(1);
-    await click(all("chat-stop")[0]);
-    expect(chat.interrupt).toHaveBeenCalledWith(PANE);
+    await click(all("chat-send")[0]);
+    expect(all("chat-queued").map((el) => el.textContent)).toEqual(["Queuedand then this"]);
+    await act(async () => listener?.(PANE, { kind: "user", id: "u1", ts: "", text: "and then this" }));
+    expect(all("chat-queued")).toHaveLength(0);
+    expect(all("chat-user")).toHaveLength(1);
+  });
+
+  it("drops a queued prompt when the turn is interrupted", async () => {
+    usePaneChatViewStore.setState({ queued: {} });
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "never mind");
+    await click(all("chat-send")[0]);
+    expect(all("chat-queued")).toHaveLength(1);
+    await act(async () => listener?.(PANE, { kind: "turn", id: "turn", ts: "", state: "interrupted" }));
+    expect(all("chat-queued")).toHaveLength(0);
   });
 
   it("sending /clear leaves this transcript behind for a fresh chat", async () => {

@@ -35,6 +35,11 @@ type PaneChatViewState = {
    *  until the menu's command lands in the transcript, the transcript
    *  changes, or the user goes back. In memory only. */
   handoffs: Record<string, MenuHandoff>;
+  /** Prompts sent mid-turn that the transcript doesn't hold yet: Claude Code
+   *  writes a queued prompt only when the model can read it. Shown as queued
+   *  until a user entry with the same text lands or the turn ends. In memory
+   *  only. */
+  queued: Record<string, string[]>;
 };
 
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
@@ -43,7 +48,10 @@ export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
   starting: {},
   startingPrompts: {},
   handoffs: {},
+  queued: {},
 }));
+
+const NO_PROMPTS: string[] = [];
 
 /**
  * The view `paneId` shows in `layout` while on `transcript`: the terminal
@@ -123,14 +131,16 @@ export function endMenuHandoff(paneId: string): void {
 }
 
 /**
- * Entries the chat of `transcript` just received for `paneId`: a handoff
- * from another transcript is over, and one whose command landed has closed.
+ * Entries the chat of `transcript` just received for `paneId`: a queued
+ * prompt that landed is no longer queued, a handoff from another transcript
+ * is over, and one whose command landed has closed.
  */
 export function noteChatEntries(
   paneId: string,
   transcript: string,
   entries: readonly ChatEntry[],
 ): void {
+  dropLandedPrompts(paneId, entries);
   const handoff = usePaneChatViewStore.getState().handoffs[paneId];
   if (!handoff) return;
   if (handoff.transcript !== transcript || entries.some((e) => endsMenuHandoff(handoff, e))) {
@@ -161,4 +171,47 @@ export function usePaneChatView(
     [paneId, layout],
   );
   return [view, setView];
+}
+
+/**
+ * Note a prompt sent to `paneId`. One sent mid-turn (`queued`) shows as
+ * queued until it lands; one sent between turns starts a turn, which no
+ * earlier queued prompt can still be waiting on.
+ */
+export function noteSentPrompt(paneId: string, text: string, queued: boolean): void {
+  if (!queued) return clearQueuedPrompts(paneId);
+  usePaneChatViewStore.setState((s) => ({
+    queued: { ...s.queued, [paneId]: [...(s.queued[paneId] ?? NO_PROMPTS), text] },
+  }));
+}
+
+/**
+ * Forget `paneId`'s queued prompts: its turn ended or was interrupted, and a
+ * prompt still queued then was either submitted (its line lands as an
+ * ordinary prompt) or handed back to the agent's input.
+ */
+export function clearQueuedPrompts(paneId: string): void {
+  usePaneChatViewStore.setState((s) =>
+    s.queued[paneId]?.length ? { queued: { ...s.queued, [paneId]: NO_PROMPTS } } : s,
+  );
+}
+
+function dropLandedPrompts(paneId: string, entries: readonly ChatEntry[]): void {
+  const prompts = usePaneChatViewStore.getState().queued[paneId];
+  if (!prompts?.length) return;
+  const landed = entries.flatMap((e) => (e.kind === "user" ? [e.text.trim()] : []));
+  if (landed.length === 0) return;
+  const left = prompts.filter((p) => {
+    const i = landed.indexOf(p.trim());
+    if (i === -1) return true;
+    landed.splice(i, 1);
+    return false;
+  });
+  if (left.length === prompts.length) return;
+  usePaneChatViewStore.setState((s) => ({ queued: { ...s.queued, [paneId]: left } }));
+}
+
+/** `paneId`'s prompts sent mid-turn that haven't landed in its transcript. */
+export function useQueuedPrompts(paneId: string): string[] {
+  return usePaneChatViewStore((s) => s.queued[paneId] ?? NO_PROMPTS);
 }

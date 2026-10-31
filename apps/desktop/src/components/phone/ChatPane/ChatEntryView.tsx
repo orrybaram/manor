@@ -3,7 +3,14 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { isOpenPicker, sameItem, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import {
+  isOpenPicker,
+  sameItem,
+  splitPrompt,
+  summarizeTools,
+  type ChatItem,
+  type ToolGroup,
+} from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
@@ -34,7 +41,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
       return (
         <div className={styles.userRow}>
           <div className={styles.userBubble} data-testid="chat-user">
-            {entry.text}
+            <UserPrompt text={entry.text} />
           </div>
         </div>
       );
@@ -67,7 +74,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
     case "edit":
-      return <EditCard entry={entry} />;
+      return <EditCard paneId={paneId} entry={entry} />;
     case "question":
       return isOpenPicker(entry) ? (
         <QuestionCard
@@ -98,6 +105,36 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
   prev.onShowTerminal === next.onShowTerminal &&
   sameItem(prev.entry, next.entry),
 );
+
+/**
+ * A prompt's text, with each pasted block folded to a "Pasted N lines" row
+ * that opens to the paste.
+ */
+function UserPrompt({ text }: { text: string }) {
+  const parts = splitPrompt(text);
+  if (parts.length === 1 && parts[0].kind === "typed") return <>{text}</>;
+  return (
+    <div className={styles.userParts}>
+      {parts.map((part, i) =>
+        part.kind === "typed" ? (
+          <div key={i}>{part.text}</div>
+        ) : (
+          <details key={i} className={styles.pasted} data-testid="chat-pasted">
+            <summary className={styles.pastedSummary}>
+              Pasted {lineCount(part.text)}
+            </summary>
+            <div className={styles.pastedText}>{part.text}</div>
+          </details>
+        ),
+      )}
+    </div>
+  );
+}
+
+function lineCount(text: string): string {
+  const lines = text.split("\n").length;
+  return lines === 1 ? "1 line" : `${lines} lines`;
+}
 
 type ToolGroupViewProps = {
   group: ToolGroup;

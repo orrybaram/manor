@@ -94,7 +94,9 @@ describe("ChatComposer images", () => {
 
     const event = paste(["Files"], png());
     expect(event.defaultPrevented).toBe(true);
-    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File));
+    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File), {
+      signal: expect.any(AbortSignal),
+    });
     expect(thumbs()).toHaveLength(1);
     expect(thumbs()[0].dataset.uploading).toBe("true");
     expect(sendButton().disabled).toBe(true);
@@ -147,10 +149,29 @@ describe("ChatComposer images", () => {
     paste(["Files"], png());
     act(() => thumbs()[0].querySelector<HTMLButtonElement>("[data-testid=image-attachment-remove]")!.click());
     expect(sendButton().disabled).toBe(false);
+    const { signal } = uploadPastedImage.mock.calls[0][2] as { signal: AbortSignal };
+    expect(signal.aborted).toBe(true);
     await act(async () => resolve("/tmp/a.png"));
     expect(thumbs()).toHaveLength(0);
     await act(async () => sendButton().click());
     expect(send).toHaveBeenCalledWith("p1", "hi");
+  });
+
+  it("keeps an image added while the message sends", async () => {
+    let sent!: () => void;
+    send.mockReturnValue(new Promise<void>((r) => (sent = r)));
+    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
+    typeAt("hi", 2);
+    paste(["Files"], png());
+    await act(async () => {});
+    await act(async () => sendButton().click());
+    paste(["Files"], png());
+    await act(async () => {});
+    await act(async () => sent());
+
+    expect(send).toHaveBeenCalledWith("p1", "hi /tmp/a.png");
+    expect(thumbs()).toHaveLength(1);
+    expect(thumbs()[0].dataset.uploading).toBeUndefined();
   });
 
   it("leaves a text paste alone", () => {

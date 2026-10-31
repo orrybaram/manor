@@ -25,8 +25,11 @@ export type ImageAttachment = {
 };
 
 type UseImageAttachmentsOptions = {
-  /** Uploads the image to the host the message goes to; resolves to its path there. */
-  upload: (file: File) => Promise<string>;
+  /**
+   * Uploads the image to the host the message goes to; resolves to its path
+   * there. `signal` aborts when the image is removed or uploads elsewhere.
+   */
+  upload: (file: File, signal: AbortSignal) => Promise<string>;
   /**
    * The host the message goes to. When it changes, every image is uploaded
    * again, so the paths sent are on the host that reads them.
@@ -51,37 +54,55 @@ function draggingFiles(e: DragEvent): boolean {
 /**
  * A composer's images: pasted, picked with the attach button, or dropped.
  * Each uploads to the host at once and shows as a thumbnail until it is
- * removed or sent; the text never holds its path. `withPaths` adds the
+ * removed or sent; the text never holds its path. `takeMessage` adds the
  * paths to the message on send.
  */
 export function useImageAttachments(opts: UseImageAttachmentsOptions) {
   const { target, setError, buttonClassName } = opts;
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Read from upload callbacks and effects, which outlive the render that
-  // started them.
+  // The list as of the last change, which every change starts from: upload
+  // callbacks and effects outlive the render that started them.
   const listRef = useRef(attachments);
-  listRef.current = attachments;
   const uploadRef = useRef(opts.upload);
   uploadRef.current = opts.upload;
+  // Each image's upload in flight, by id, so removing it stops it.
+  const inFlight = useRef(new Map<string, AbortController>());
+
+  const change = (next: (list: ImageAttachment[]) => ImageAttachment[]) => {
+    listRef.current = next(listRef.current);
+    setAttachments(listRef.current);
+  };
+
+  const stop = (id: string) => {
+    inFlight.current.get(id)?.abort();
+    inFlight.current.delete(id);
+  };
 
   const start = (attachment: ImageAttachment) => {
     const { id, gen } = attachment;
-    uploadRef.current(attachment.file).then(
-      (path) =>
-        setAttachments((list) =>
-          list.map((a) => (a.id === id && a.gen === gen ? { ...a, path } : a)),
-        ),
-      (err: unknown) => {
-        // A removed image, or one a host change uploads again, has no
-        // failure to show.
-        const current = listRef.current.find((a) => a.id === id);
-        if (!current || current.gen !== gen) return;
-        URL.revokeObjectURL(current.url);
-        setAttachments((list) => list.filter((a) => a.id !== id));
-        setError(err instanceof Error ? err.message : "Couldn't attach image");
-      },
-    );
+    stop(id);
+    const controller = new AbortController();
+    inFlight.current.set(id, controller);
+    const current = () => listRef.current.find((a) => a.id === id && a.gen === gen);
+    uploadRef.current(attachment.file, controller.signal)
+      .then(
+        (path) => {
+          if (current()) change((list) => list.map((a) => (a.id === id ? { ...a, path } : a)));
+        },
+        (err: unknown) => {
+          // A removed image, or one a host change uploads again, has no
+          // failure to show.
+          const failed = current();
+          if (!failed) return;
+          URL.revokeObjectURL(failed.url);
+          change((list) => list.filter((a) => a.id !== id));
+          setError(err instanceof Error ? err.message : "Couldn't attach image");
+        },
+      )
+      .finally(() => {
+        if (inFlight.current.get(id) === controller) inFlight.current.delete(id);
+      });
   };
 
   const add = (files: File[]) => {
@@ -94,23 +115,30 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
       path: null,
       gen: 0,
     }));
-    listRef.current = [...listRef.current, ...added];
-    setAttachments(listRef.current);
+    change((list) => [...list, ...added]);
     added.forEach(start);
   };
 
-  const remove = (id: string) => {
-    const gone = listRef.current.find((a) => a.id === id);
-    if (gone) URL.revokeObjectURL(gone.url);
-    listRef.current = listRef.current.filter((a) => a.id !== id);
-    setAttachments(listRef.current);
+  /** Drops the images named, or every image; one still uploading is stopped. */
+  const drop = (ids?: string[]) => {
+    const gone = listRef.current.filter((a) => !ids || ids.includes(a.id));
+    for (const a of gone) {
+      stop(a.id);
+      URL.revokeObjectURL(a.url);
+    }
+    change((list) => list.filter((a) => !gone.includes(a)));
   };
 
-  /** Drops every image, after a send. */
-  const clear = () => {
-    for (const a of listRef.current) URL.revokeObjectURL(a.url);
-    listRef.current = [];
-    setAttachments([]);
+  const remove = (id: string) => drop([id]);
+
+  /**
+   * Ends a message: the paths it carries, after its text, and a `sent` that
+   * drops just those images, so one added while it sends stays.
+   */
+  const takeMessage = (text: string): { message: string; sent: () => void } => {
+    const ready = listRef.current.filter((a) => a.path !== null);
+    const message = [text.trimEnd(), ...ready.map((a) => a.path)].filter(Boolean).join(" ");
+    return { message, sent: () => drop(ready.map((a) => a.id)) };
   };
 
   // A new host: upload every image there instead. An effect, since the
@@ -121,21 +149,18 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
       firstTarget.current = false;
       return;
     }
-    const again = listRef.current.map((a) => ({ ...a, path: null, gen: a.gen + 1 }));
-    listRef.current = again;
-    setAttachments(again);
-    again.forEach(start);
+    change((list) => list.map((a) => ({ ...a, path: null, gen: a.gen + 1 })));
+    listRef.current.forEach(start);
     // `start` reads refs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
-  useMountEffect(() => () => listRef.current.forEach((a) => URL.revokeObjectURL(a.url)));
-
-  /** The message with each uploaded image's path after the text, in the order added. */
-  const withPaths = (text: string): string => {
-    const paths = listRef.current.flatMap((a) => (a.path ? [a.path] : []));
-    return [text.trimEnd(), ...paths].filter(Boolean).join(" ");
-  };
+  useMountEffect(() => () => {
+    for (const a of listRef.current) {
+      stop(a.id);
+      URL.revokeObjectURL(a.url);
+    }
+  });
 
   // A pasted image is attached rather than pasted. Pasted text (which a
   // file copied in Finder also carries, as its name) is left to the textarea.
@@ -201,8 +226,9 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
     uploading: attachments.some((a) => a.path === null),
     hasImages: attachments.length > 0,
     remove,
-    clear,
-    withPaths,
+    /** Drops every image, as when a dialog opens afresh. */
+    clear: () => drop(),
+    takeMessage,
     pasteImage,
     dropProps,
     attachButton,

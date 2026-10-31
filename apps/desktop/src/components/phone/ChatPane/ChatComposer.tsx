@@ -67,7 +67,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const level = slash.level;
 
   const images = useImageAttachments({
-    upload: (file) => uploadPastedImage(paneId, file),
+    upload: (file, signal) => uploadPastedImage(paneId, file, { signal }),
     setError,
     buttonClassName: styles.composerAttach,
   });
@@ -121,7 +121,8 @@ export function ChatComposer(props: ChatComposerProps) {
 
   const send = () => {
     if (!canSend) return;
-    sendText(images.withPaths(text), images.clear);
+    const { message, sent } = images.takeMessage(text);
+    sendText(message, sent);
   };
 
   const stop = () => {

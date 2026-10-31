@@ -120,7 +120,7 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
   const [error, setError] = useState<string | null>(null);
   const hostId = shown?.resolved.hostId;
   const images = useImageAttachments({
-    upload: (file) => uploadPastedImage(uploadPaneId, file, { hostId }),
+    upload: (file, signal) => uploadPastedImage(uploadPaneId, file, { hostId, signal }),
     target: hostId,
     setError,
     buttonClassName: chatStyles.composerAttach,
@@ -130,8 +130,9 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
     (draft.text.trim().length > 0 || images.hasImages) && shown !== null && !images.uploading;
   const submit = () => {
     if (!canSend) return;
-    sendNewAgent(images.withPaths(draft.text), shown.target);
-    images.clear();
+    const { message, sent } = images.takeMessage(draft.text);
+    sendNewAgent(message, shown.target);
+    sent();
   };
 
   return (

@@ -246,6 +246,7 @@ describe("PhoneNewAgentComposer — images", () => {
 
     expect(uploadPastedImage).toHaveBeenCalledWith(expect.stringMatching(/^pane-/), file, {
       hostId: "box",
+      signal: expect.any(AbortSignal),
     });
     expect(all("image-attachment")).toHaveLength(1);
     expect(useAppStore.getState().composerDraft.text).toBe("look at this");
@@ -282,6 +283,7 @@ describe("PhoneNewAgentComposer — images", () => {
     await render(false);
     expect(uploadPastedImage).toHaveBeenLastCalledWith(expect.any(String), expect.any(File), {
       hostId: "local",
+      signal: expect.any(AbortSignal),
     });
     await click(one("phone-empty-send"));
     expect(sendNewAgent).toHaveBeenCalledWith("/local/a.png", expect.anything());

@@ -7,7 +7,8 @@
  * - **Manor's own windows**: a `WebContents` `window.ts` created, while its
  *   frame is still showing the app's renderer. Granted only what the renderer
  *   uses: clipboard read (terminal paste) and write, media (the webview
- *   recorder's tab capture), notifications and fullscreen.
+ *   recorder's tab capture), notifications, fullscreen, and local fonts
+ *   (the font list in Settings).
  * - **Everything else**: `<webview>` guests in browser panes, the popup
  *   windows they open, and any other frame. A short list is granted outright;
  *   sensitive permissions ask the user, once per origin until Manor quits;
@@ -23,6 +24,7 @@ export const APP_WINDOW_GRANTED: ReadonlySet<string> = new Set([
   "media",
   "notifications",
   "fullscreen",
+  "local-fonts",
 ]);
 
 export const PAGE_GRANTED: ReadonlySet<string> = new Set([

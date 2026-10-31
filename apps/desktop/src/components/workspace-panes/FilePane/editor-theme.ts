@@ -1,4 +1,5 @@
 import { EditorView } from "@codemirror/view";
+import { Compartment } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 
@@ -6,19 +7,20 @@ import { tags as t } from "@lezer/highlight";
  * The editor's look, all from manor's CSS variables: the chrome from the
  * surface tokens and the syntax from the terminal theme's ANSI colours. The
  * variables change with the terminal theme and light/dark, so the editor
- * follows without being told.
+ * follows without being told. Its font is Settings' (`useEditorFont`).
  */
 const chrome = EditorView.theme({
   "&": {
     height: "100%",
     color: "var(--fg)",
     backgroundColor: "var(--bg)",
-    fontSize: "12px",
+    fontSize: "var(--editor-font-size, 12px)",
   },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
-    fontFamily: "var(--font-mono)",
-    lineHeight: "17px",
+    fontFamily: "var(--editor-font-family, var(--font-mono))",
+    // 17px at the default 12px, in proportion at any other size.
+    lineHeight: "calc(var(--editor-font-size, 12px) * 17 / 12)",
   },
   ".cm-content": { padding: "6px 0", caretColor: "var(--fg)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
@@ -118,4 +120,23 @@ const syntax = HighlightStyle.define([
 ]);
 
 /** The file pane's editor theme: chrome and syntax, from manor's tokens. */
-export const manorEditorTheme = [chrome, syntaxHighlighting(syntax)];
+/**
+ * Where `useEditorFont` swaps in a font changed in Settings. The CSS variables
+ * already restyle an open view, but CodeMirror keeps the line heights it
+ * measured until its theme changes, and the gutter then drifts from the text.
+ * Empty in a new view, which measures the variables as they stand.
+ */
+export const editorFont = new Compartment();
+
+/** The font as a theme, the same values as the CSS variables `chrome` reads. */
+export function editorFontTheme(font: { family: string; size: number }) {
+  return EditorView.theme({
+    "&": { fontSize: `${font.size}px` },
+    ".cm-scroller": {
+      fontFamily: font.family,
+      lineHeight: `calc(${font.size}px * 17 / 12)`,
+    },
+  });
+}
+
+export const manorEditorTheme = [chrome, syntaxHighlighting(syntax), editorFont.of([])];

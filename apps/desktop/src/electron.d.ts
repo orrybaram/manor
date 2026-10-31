@@ -36,6 +36,14 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Terminal font family; empty means the bundled Nerd Font. */
+  terminalFontFamily: string;
+  /** Terminal font size in px. */
+  terminalFontSize: number;
+  /** File and diff editor font family; empty means the system monospace. */
+  editorFontFamily: string;
+  /** File and diff editor font size in px. */
+  editorFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
 }

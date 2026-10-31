@@ -17,6 +17,7 @@ import { loadOnce } from "../lib/load-once";
 import { terminalFontsReady } from "../lib/terminal-font";
 import { isWebApp } from "../lib/platform";
 import { currentLayoutMode } from "../hooks/useLayoutMode";
+import { whenPreferencesLoaded } from "../store/preferences-store";
 
 /**
  * Import an add-on the terminal can open without. A chunk that fails to load
@@ -67,10 +68,15 @@ export type RenderAddons = Awaited<ReturnType<typeof loadRenderAddons>>;
 /**
  * Everything a terminal needs in hand before it is created: the add-ons that
  * decide how its grid is drawn, and the fonts its cell is measured from (see
- * `lib/terminal-font`). Creating it any earlier measures the wrong cell.
+ * `lib/terminal-font`), in the family and size Settings chose
+ * (`whenPreferencesLoaded`). Creating it any earlier measures the wrong cell.
  */
 export async function whenTerminalCanOpen(): Promise<RenderAddons> {
-  const [addons] = await Promise.all([loadRenderAddons(), terminalFontsReady()]);
+  const [addons] = await Promise.all([
+    loadRenderAddons(),
+    terminalFontsReady(),
+    whenPreferencesLoaded(),
+  ]);
   return addons;
 }
 

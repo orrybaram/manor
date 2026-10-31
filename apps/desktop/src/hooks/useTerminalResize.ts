@@ -335,20 +335,20 @@ export function measureCellHeight(term: Terminal): number | null {
  * `target` is null exactly when `enabled` is false, so the effect below never
  * runs without one.
  *
- * **The font is a loan, not a rename (regression 6).** `configuredFontSizeRef`
- * is captured once per span of `enabled` — guarded by `=== null`, so a grid
- * change partway through a follower session re-fits without recapturing an
- * already-shrunk size — and the cleanup below always undoes the shrink and
- * forgets the ceiling again, whether the reason is the grid moving, this
- * viewer becoming the owner, or the pane unmounting. That makes every capture
- * fresh: by the time the next one happens, the previous cleanup has already
- * put `term.options.fontSize` back, so there is no stale preference to miss.
+ * **The font is a loan, not a rename (regression 6).** The ceiling is
+ * `fontSize`, the pane's configured size, passed in rather than read off the
+ * terminal, so a size already shrunk can never be mistaken for it, and a new
+ * size from Settings mid-session moves the ceiling on the next fit. The
+ * cleanup below always puts that size back, whether the reason is the grid
+ * moving, this viewer becoming the owner, or the pane unmounting.
  */
 export function useFollowerFit(
   containerRef: React.RefObject<HTMLDivElement | null>,
   term: Terminal | null,
   target: Dimensions | null,
   enabled: boolean,
+  /** The configured font size: the most a follower draws at. */
+  fontSize: number,
 ): () => void {
   /** The live effect's re-fit, for the `refit` returned below; null while disabled. */
   const refitRef = useRef<(() => void) | null>(null);
@@ -359,7 +359,9 @@ export function useFollowerFit(
    * new grid back out, without waiting for `target` itself to change.
    */
   const targetRef = useRef<Dimensions | null>(target);
-  const configuredFontSizeRef = useRef<number | null>(null);
+  /** Read by the fit and the cleanup, so a new size needs no new effect. */
+  const fontSizeRef = useRef(fontSize);
+  fontSizeRef.current = fontSize;
 
   useLayoutEffect(() => {
     if (!enabled || !term || !target) return;
@@ -367,9 +369,6 @@ export function useFollowerFit(
     if (!container) return;
 
     targetRef.current = target;
-    if (configuredFontSizeRef.current === null) {
-      configuredFontSizeRef.current = term.options.fontSize ?? null;
-    }
 
     let observerFrame = 0;
     let refitFrame = 0;
@@ -381,8 +380,7 @@ export function useFollowerFit(
       if (!el || !t) return;
       if (el.clientWidth === 0 || el.clientHeight === 0) return;
 
-      const ceiling =
-        configuredFontSizeRef.current ?? term.options.fontSize ?? FONT_FLOOR;
+      const ceiling = fontSizeRef.current;
       const current = term.options.fontSize ?? ceiling;
       const cell = measureCellWidth(term);
       if (cell !== null) {
@@ -460,16 +458,17 @@ export function useFollowerFit(
       if (fontFrame) cancelAnimationFrame(fontFrame);
       observer.disconnect();
       grid.dispose();
-      // Undo the shrink and forget the ceiling, so the next follower session
-      // — another grid change, or this viewer losing ownership again later —
-      // captures it fresh rather than reusing one from long before
-      // (regression 6: a follower used to keep its shrunk font forever).
-      if (configuredFontSizeRef.current !== null) {
-        term.options.fontSize = configuredFontSizeRef.current;
-      }
-      configuredFontSizeRef.current = null;
+      // Undo the shrink (regression 6: a follower used to keep its shrunk
+      // font forever).
+      term.options.fontSize = fontSizeRef.current;
     };
   }, [containerRef, term, target, enabled]);
+
+  // A new size from Settings is a new ceiling: fit to it now, in either
+  // direction, rather than at the next container or grid change.
+  useLayoutEffect(() => {
+    refitRef.current?.();
+  }, [fontSize]);
 
   /** Fit the font again now, as `useOwnerFit`'s refit does the pty. Stable. */
   return useCallback(() => refitRef.current?.(), []);

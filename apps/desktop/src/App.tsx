@@ -96,6 +96,7 @@ import { onBridgeResync } from "./bridge/resync";
 import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { useEditorFont } from "./hooks/useEditorFont";
 import { reportUnsavedFiles } from "./lib/report-unsaved-files";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
@@ -167,6 +168,7 @@ function App() {
   useRemoteRecovery();
   useTerminalResync();
   useAgentContextRepair();
+  useEditorFont();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [goToFileOpen, setGoToFileOpen] = useState(false);

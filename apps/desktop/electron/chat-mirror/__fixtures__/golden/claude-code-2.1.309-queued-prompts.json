@@ -24,6 +24,12 @@
       "text": "veniam magna aliquip 22"
     },
     {
+      "kind": "thought",
+      "id": "msg_992SjBzwwvCFcDzKDZy87ih3:thought",
+      "ts": "2026-01-01T00:00:05.705Z",
+      "durationMs": 837
+    },
+    {
       "kind": "assistant",
       "id": "00000000-0000-4000-8000-000000000018:0",
       "ts": "2026-01-01T00:00:05.708Z",
@@ -43,6 +49,12 @@
       "id": "00000000-0000-4000-8000-00000000001e",
       "ts": "2026-01-01T00:00:05.261Z",
       "text": "in commodo"
+    },
+    {
+      "kind": "thought",
+      "id": "msg_258PiHluFZALWMudkbWPlMgJ:thought",
+      "ts": "2026-01-01T00:00:11.461Z",
+      "durationMs": 2584
     },
     {
       "kind": "assistant",

@@ -1255,3 +1255,95 @@ describe("TranscriptParser — session info", () => {
     expect(p.sessionInfo()).toEqual({ model: null, effort: null, gitBranch: null });
   });
 });
+
+describe("TranscriptParser — thought and turn-end", () => {
+  function thinkingLine(uuid: string, messageId: string, ms: unknown, extra = {}): string {
+    return line({
+      type: "assistant",
+      uuid,
+      thinkingDurationMs: ms,
+      message: { id: messageId, role: "assistant", content: [{ type: "thinking", thinking: "" }] },
+      ...extra,
+    });
+  }
+  function blockLine(uuid: string, messageId: string, block: unknown): string {
+    return line({ type: "assistant", uuid, message: { id: messageId, role: "assistant", content: [block] } });
+  }
+
+  it("emits one thought per message, summing its thinking blocks, before its first text", () => {
+    const p = new TranscriptParser();
+    expect(p.push(thinkingLine("a1", "msg_1", 2683))).toEqual([
+      { kind: "thought", id: "msg_1:thought", ts: T, durationMs: 2683 },
+    ]);
+    expect(p.push(thinkingLine("a2", "msg_1", 2))).toEqual([
+      { kind: "thought", id: "msg_1:thought", ts: T, durationMs: 2685 },
+    ]);
+    p.push(blockLine("a3", "msg_1", { type: "text", text: "Done." }));
+    expect(p.entries().map((e) => e.kind)).toEqual(["thought", "assistant"]);
+  });
+
+  it("counts a line once, however often it is pushed", () => {
+    const p = new TranscriptParser();
+    p.push(thinkingLine("a1", "msg_1", 1000));
+    expect(p.push(thinkingLine("a1", "msg_1", 1000))).toEqual([]);
+    expect(p.entries()).toEqual([{ kind: "thought", id: "msg_1:thought", ts: T, durationMs: 1000 }]);
+  });
+
+  it("puts a thought that arrives late before its message's first entry", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(blockLine("a1", "msg_1", { type: "tool_use", id: "t1", name: "Read", input: {} }));
+    p.push(thinkingLine("a2", "msg_1", 900));
+    expect(p.entries().map((e) => e.id)).toEqual(["u1", "msg_1:thought", "t1"]);
+  });
+
+  it("skips a missing, zero or non-numeric duration", () => {
+    const p = new TranscriptParser();
+    p.push(thinkingLine("a1", "msg_1", 0));
+    p.push(thinkingLine("a2", "msg_2", "5"));
+    p.push(blockLine("a3", "msg_3", { type: "text", text: "hi" }));
+    expect(p.entries().map((e) => e.kind)).toEqual(["assistant"]);
+  });
+
+  it("names a thought by the line's uuid when its message has no id", () => {
+    const p = new TranscriptParser();
+    p.push(line({ type: "assistant", uuid: "a1", thinkingDurationMs: 5000, message: { role: "assistant", content: [] } }));
+    expect(p.entries()).toEqual([{ kind: "thought", id: "a1:thought", ts: T, durationMs: 5000 }]);
+  });
+
+  it("reads a turn's duration and the background agents it left running", () => {
+    const p = new TranscriptParser();
+    expect(
+      p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 134000, pendingBackgroundAgentCount: 2 })),
+    ).toEqual([{ kind: "turn-end", id: "s1", ts: T, durationMs: 134000, backgroundAgents: 2 }]);
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 4000 }))).toEqual([
+      { kind: "turn-end", id: "s2", ts: T, durationMs: 4000, backgroundAgents: 0 },
+    ]);
+    expect(p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 4000 }))).toEqual([]);
+  });
+
+  it("leaves the turn state alone at a turn-end", () => {
+    const p = new TranscriptParser();
+    p.push(assistant("a1", [{ type: "text", text: "done" }], {}));
+    const before = p.turnState();
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000 }));
+    expect(p.turnState()).toBe(before);
+  });
+
+  it("ignores a sidechain's turn-end, and a child transcript's", () => {
+    const p = new TranscriptParser();
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000, isSidechain: true }));
+    expect(p.entries()).toEqual([]);
+    const child = new TranscriptParser({ sidechain: true });
+    child.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 1000, isSidechain: true }));
+    expect(child.entries()).toEqual([]);
+  });
+
+  it("keeps a shell command's output attached across a turn-end", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "<bash-input>ls</bash-input>"));
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s1", durationMs: 10 }));
+    p.push(userBlocks("u2", "<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"));
+    expect(p.entry("u1")).toMatchObject({ kind: "command", output: "a.txt" });
+  });
+});

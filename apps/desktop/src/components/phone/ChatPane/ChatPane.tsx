@@ -12,6 +12,7 @@ import {
   answerablePickerId,
   groupEntries,
   mergeHistory,
+  newestContent,
   runningTaskCount,
   upsertEntry,
 } from "./chat-entries";
@@ -322,9 +323,11 @@ export function ChatPane(props: ChatPaneProps) {
   });
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
-  // A running tool call already has its own live line.
+  // A running tool call already has its own live line. A timing line
+  // ("Thought for 5s") after it doesn't hide it.
+  const latest = newestContent(items);
   const toolRunning =
-    newest?.kind === "tool-group" && newest.tools.some((t) => t.status === "pending");
+    latest?.kind === "tool-group" && latest.tools.some((t) => t.status === "pending");
   const thinking = busy && answerableId === null && !toolRunning;
   const needsYou = status === "requires_input" && answerableId === null;
 

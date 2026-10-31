@@ -9,6 +9,12 @@
   "skills": 0,
   "entries": [
     {
+      "kind": "thought",
+      "id": "msg_248GsnBSIEJGn7wrPT9ArWdT:thought",
+      "ts": "2026-01-01T00:00:01.943Z",
+      "durationMs": 1102
+    },
+    {
       "kind": "question",
       "id": "toolu_607wotM9AjvUUdxSjwOkoD0L",
       "ts": "2026-01-01T00:00:07.852Z",
@@ -45,6 +51,13 @@
       "id": "00000000-0000-4000-8000-000000000011:0",
       "ts": "2026-01-01T00:03:52.085Z",
       "text": "EST-930 ut commodo et `~/d1/d2/d3/d4/d5/`, amet 14 officia. Laborum ad nulla sit.\n\nElit culpa sed enim ex eiusmod? Non lorem quis ipsum t fugiat nisi:\n\n- **Qui est dolor I duis aute SIT-974 esse'u:**\n  - **Ea (mollit 13):** sed sint tempor nostrud non qui'l est `magna` SIT. Sunt minim sed non 918 in qui anim deserunt est voluptate.\n  - **Id:** amet pariatur occaecat sit sed irure velit do non elit labore. Proident dolore nulla ullamco enim qui aliqua incididunt ut culpa; laboris et ad est veniam ex quis sit lorem 3.\n- **Ea (cillum sed aliquip nisi non qui):** in duis aute est esse. Sit commodo officia sed sint sunt ipsum non qui deserunt id dolor est laborum, sit magna e fugiat minim. Do anim irure amet sed elit mollit, non qui'd enim quis.\n- **Velit:** est ut SIT-952'm nulla-2 nisi et ad sed NON. Eiusmod 1–4 qui excepteur duis tempor ex pariatur, est culpa aute ea lorem sit SED ipsum."
+    },
+    {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "ts": "2026-01-01T00:03:52.238Z",
+      "durationMs": 906396,
+      "backgroundAgents": 0
     },
     {
       "kind": "user",

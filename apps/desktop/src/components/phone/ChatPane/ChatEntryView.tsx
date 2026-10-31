@@ -4,6 +4,7 @@ import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
 import {
+  formatDuration,
   isOpenPicker,
   sameItem,
   splitPrompt,
@@ -14,6 +15,8 @@ import {
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
+import { GableMark } from "./GableMark";
+import { pastVerb } from "./manor-verbs";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
@@ -73,6 +76,19 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
       );
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
+    case "thought":
+      return (
+        <div className={styles.thought} data-testid="chat-thought">
+          <span className={styles.thoughtDot} aria-hidden>
+            ·
+          </span>
+          <span>
+            Thought for <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+          </span>
+        </div>
+      );
+    case "turn-end":
+      return <TurnEnd entry={entry} />;
     case "edit":
       return <EditCard paneId={paneId} entry={entry} />;
     case "question":
@@ -134,6 +150,37 @@ function UserPrompt({ text }: { text: string }) {
 function lineCount(text: string): string {
   const lines = text.split("\n").length;
   return lines === 1 ? "1 line" : `${lines} lines`;
+}
+
+type TurnEndProps = {
+  entry: Extract<ChatEntry, { kind: "turn-end" }>;
+};
+
+/**
+ * A finished turn, as a centred divider in Manor's voice: "Polished for
+ * 2m 14s", and the background agents it left running.
+ */
+function TurnEnd(props: TurnEndProps) {
+  const { entry } = props;
+
+  const agents = entry.backgroundAgents;
+  return (
+    <div className={styles.turnEnd} data-testid="chat-turn-end">
+      <GableMark />
+      <span className={styles.turnEndText}>
+        <span className={styles.turnVerb}>{pastVerb(entry.id)}</span> for{" "}
+        <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+      </span>
+      {agents > 0 && (
+        <>
+          <span aria-hidden>·</span>
+          <span className={styles.turnAgents}>
+            {agents === 1 ? "1 background agent" : `${agents} background agents`} still running
+          </span>
+        </>
+      )}
+    </div>
+  );
 }
 
 type ToolGroupViewProps = {

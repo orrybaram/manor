@@ -115,6 +115,27 @@ export type ChatEntry =
       ts: string;
       text: string;
       status: "ok" | "error";
+    }
+  | {
+      /**
+       * How long the model thought before an assistant message: its thinking
+       * blocks' durations summed. Placed before the message's first text or
+       * tool entry. Drawn as a quiet line; no thinking text is kept.
+       */
+      kind: "thought";
+      /** `${message id}:thought`, else the line's uuid with that suffix. */
+      id: string;
+      ts: string;
+      durationMs: number;
+    }
+  | {
+      /** The main thread's turn ended, after `durationMs`. */
+      kind: "turn-end";
+      id: string;
+      ts: string;
+      durationMs: number;
+      /** Background agents still running when it ended. */
+      backgroundAgents: number;
     };
 
 export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
@@ -611,6 +632,10 @@ export class TranscriptParser {
   private turnBeforeCommand: ChatTurnState | null | undefined = undefined;
   /** Notifications already turned into a notice; one may arrive in two forms. */
   private seenNotices = new Set<string>();
+  /** Each assistant message's first text or tool entry, by message id. */
+  private messageFirst = new Map<string, string>();
+  /** The lines already counted into each thought, by thought id. */
+  private thoughtLines = new Map<string, Set<string>>();
 
   constructor(opts: TranscriptParserOptions = {}) {
     this.sidechain = opts.sidechain === true;
@@ -707,8 +732,10 @@ export class TranscriptParser {
   private add(entry: ChatEntry): ChatEntry | null {
     if (this.byId.has(entry.id)) return null;
     // A command's output follows it directly; once anything else lands, a
-    // late stdout belongs to no command.
-    if (entry.kind !== "command") this.lastCommandId = null;
+    // late stdout belongs to no command. A turn's timing lines aren't content.
+    if (entry.kind !== "command" && entry.kind !== "thought" && entry.kind !== "turn-end") {
+      this.lastCommandId = null;
+    }
     this.byId.set(entry.id, entry);
     this.order.push(entry.id);
     return entry;
@@ -777,6 +804,20 @@ export class TranscriptParser {
       const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
       return e ? [e] : [];
     }
+    // The main thread's turn ended: how long it took, and what it left running.
+    if (type === "system" && parsed.subtype === "turn_duration") {
+      const ms = parsed.durationMs;
+      if (!this.mainThread || typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return [];
+      const agents = parsed.pendingBackgroundAgentCount;
+      const e = this.add({
+        kind: "turn-end",
+        id: uuid,
+        ts,
+        durationMs: ms,
+        backgroundAgents: isCount(agents) ? agents : 0,
+      });
+      return e ? [e] : [];
+    }
     if (type !== "user" && type !== "assistant") return [];
     const message = parsed.message;
     if (!isObject(message)) return [];
@@ -823,7 +864,14 @@ export class TranscriptParser {
     }
     const stop = str(message.stop_reason);
     this.setTurn(stop !== undefined && TURN_ENDS.has(stop) ? "done" : "working");
-    if (!Array.isArray(content)) return [];
+    // Claude Code writes one line per content block, all of one message.
+    const messageKey = str(message.id) || uuid;
+    const thought = this.thought(messageKey, uuid, ts, parsed.thinkingDurationMs);
+    if (thought) out.push(thought);
+    if (!Array.isArray(content)) return out;
+    const first = (e: ChatEntry | null) => {
+      if (e && !this.messageFirst.has(messageKey)) this.messageFirst.set(messageKey, e.id);
+    };
     content.forEach((block, i) => {
       if (!isObject(block)) return;
       if (block.type === "text") {
@@ -835,6 +883,7 @@ export class TranscriptParser {
           ts,
           text,
         });
+        first(e);
         if (e) out.push(e);
       } else if (block.type === "tool_use") {
         const id = str(block.id);
@@ -842,11 +891,40 @@ export class TranscriptParser {
         if (!id || !name) return;
         const input = isObject(block.input) ? block.input : {};
         const e = this.add(toolUseEntry(id, ts, name, input));
+        first(e);
         if (e) out.push(e);
       }
       // thinking and unknown block types: dropped
     });
     return out;
+  }
+
+  /**
+   * Count a line's `thinkingDurationMs` into its message's thought: one
+   * entry per message, each thinking block's line adding its own duration
+   * once. A new thought goes before the message's first text or tool entry.
+   */
+  private thought(messageKey: string, lineId: string, ts: string, ms: unknown): ChatEntry | null {
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return null;
+    const id = `${messageKey}:thought`;
+    const counted = this.thoughtLines.get(id) ?? new Set<string>();
+    if (counted.has(lineId)) return null;
+    counted.add(lineId);
+    this.thoughtLines.set(id, counted);
+    const existing = this.byId.get(id);
+    if (existing?.kind === "thought") {
+      const next: ChatEntry = { ...existing, durationMs: existing.durationMs + ms };
+      this.byId.set(id, next);
+      return next;
+    }
+    if (existing) return null;
+    const entry: ChatEntry = { kind: "thought", id, ts, durationMs: ms };
+    this.byId.set(id, entry);
+    const firstId = this.messageFirst.get(messageKey);
+    const at = firstId === undefined ? -1 : this.order.indexOf(firstId);
+    if (at === -1) this.order.push(id);
+    else this.order.splice(at, 0, id);
+    return entry;
   }
 
   /** Move the main thread's turn; a sidechain line leaves it be. */

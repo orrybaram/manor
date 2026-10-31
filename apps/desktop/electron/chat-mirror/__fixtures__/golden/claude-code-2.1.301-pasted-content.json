@@ -15,6 +15,13 @@
       "text": "L consequat sit lorem ipsum do `pariatur` sed tempor ut et `amet`, dolor non eiusmod `labore/elit`. I dolore enim qui quis magna D nostrud est nisi sit sed `Ad-Occaecat-Ex` duis, non qui aute esse.\n\nEst minim irure velit's sint ullamco ea sit laboris sed."
     },
     {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-00000000000a",
+      "ts": "2026-01-01T00:00:00.085Z",
+      "durationMs": 7429,
+      "backgroundAgents": 0
+    },
+    {
       "kind": "user",
       "id": "00000000-0000-4000-8000-00000000000d",
       "ts": "2026-01-01T00:13:58.925Z",

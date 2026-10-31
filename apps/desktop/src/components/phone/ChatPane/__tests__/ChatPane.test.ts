@@ -18,6 +18,7 @@ import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../.
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
 import { TURN_SETTLE_MS } from "../turn-settle";
+import { pastVerb } from "../manor-verbs";
 import {
   endMenuHandoff,
   noteChatEntries,
@@ -175,6 +176,48 @@ describe("ChatPane — entries", () => {
     await click(tool.querySelector("button")!);
     expect(tool.querySelector("pre")?.textContent).toBe("a.txt\nb.txt");
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
+  });
+
+  it("shows a thought as a quiet line and a turn's end as a divider in Manor's voice", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [
+        { kind: "user", id: "u1", ts: "", text: "go" },
+        { kind: "thought", id: "m1:thought", ts: "", durationMs: 4600 },
+        { kind: "assistant", id: "a1", ts: "", text: "Done." },
+        { kind: "turn-end", id: "e1", ts: "", durationMs: 134_000, backgroundAgents: 2 },
+        { kind: "turn-end", id: "e2", ts: "", durationMs: 48_000, backgroundAgents: 0 },
+      ],
+    });
+    await renderChat();
+
+    expect(all("chat-thought")[0].textContent).toBe("·Thought for 5s");
+    const [first, second] = all("chat-turn-end");
+    expect(first.textContent).toBe(`${pastVerb("e1")} for 2m 14s·2 background agents still running`);
+    expect(first.querySelector("svg")).not.toBeNull();
+    expect(second.textContent).toBe(`${pastVerb("e2")} for 48s`);
+  });
+
+  it("keeps the running tool's line, not Thinking, when a thought lands after it", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({
+        ok: true,
+        contextTokens: null,
+        entries: [
+          { kind: "tool", id: "t1", ts: "", name: "Bash", summary: "ls", status: "pending" },
+          { kind: "thought", id: "m1:thought", ts: "", durationMs: 1000 },
+        ],
+      });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(0);
+      expect(all("chat-tool-group")[0].dataset.status).toBe("pending");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a declined question as declined, and never as an open card", async () => {

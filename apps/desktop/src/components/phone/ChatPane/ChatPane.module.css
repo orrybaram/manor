@@ -373,6 +373,69 @@ button.toolLine:disabled {
   color: var(--text-primary);
 }
 
+/* How long the model thought before a reply: quieter than a tool line. */
+.thought {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.thoughtDot {
+  font-family: var(--font-mono);
+  opacity: 0.6;
+}
+
+.duration {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A finished turn: a centred divider with Manor's mark and verb. */
+.turnEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.turnEnd::before,
+.turnEnd::after {
+  content: "";
+  flex: 1;
+  min-width: 16px;
+  height: 1px;
+  background: var(--border);
+}
+
+.turnEndText {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.turnVerb {
+  color: var(--text-primary);
+}
+
+.turnAgents {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--yellow);
+}
+
+.gable {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+}
+
 /* Claude is working with nothing to show yet: a light sweeps the label. */
 .thinking {
   display: flex;

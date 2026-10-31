@@ -4,8 +4,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChatEntry, ChatTaskEntry } from "../../../../electron.d";
 import {
+  formatDuration,
   formatElapsed,
   groupEntries,
+  newestContent,
   resultPreview,
   runningTaskCount,
   sameItem,
@@ -39,6 +41,57 @@ describe("groupEntries", () => {
       ["tool-group", "t3"],
     ]);
     expect(items[0].kind === "tool-group" && items[0].tools.map((t) => t.id)).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("groupEntries with timing lines", () => {
+  const thought = (id: string): ChatEntry => ({ kind: "thought", id, ts: "", durationMs: 3000 });
+  const turnEnd = (id: string): ChatEntry => ({
+    kind: "turn-end",
+    id,
+    ts: "",
+    durationMs: 9000,
+    backgroundAgents: 0,
+  });
+
+  it("keeps a run of tool calls one group across the thoughts between them", () => {
+    const items = groupEntries([
+      thought("th1"),
+      tool("t1", "Bash"),
+      thought("th2"),
+      tool("t2", "Read"),
+      thought("th3"),
+      { kind: "assistant", id: "a1", ts: "", text: "done" },
+      turnEnd("e1"),
+    ]);
+    expect(items.map((i) => [i.kind, i.id])).toEqual([
+      ["thought", "th1"],
+      ["tool-group", "t1"],
+      ["thought", "th3"],
+      ["assistant", "a1"],
+      ["turn-end", "e1"],
+    ]);
+    expect(items[1].kind === "tool-group" && items[1].tools.map((t) => t.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("shows a thought after a run while nothing has followed it yet", () => {
+    const items = groupEntries([tool("t1", "Bash"), thought("th1")]);
+    expect(items.map((i) => i.kind)).toEqual(["tool-group", "thought"]);
+  });
+
+  it("ends a run at a turn-end", () => {
+    const items = groupEntries([tool("t1", "Bash"), turnEnd("e1"), tool("t2", "Bash")]);
+    expect(items.map((i) => [i.kind, i.id])).toEqual([
+      ["tool-group", "t1"],
+      ["turn-end", "e1"],
+      ["tool-group", "t2"],
+    ]);
+  });
+
+  it("finds the newest item that isn't a timing line", () => {
+    const items = groupEntries([tool("t1", "Bash", "pending"), thought("th1"), turnEnd("e1")]);
+    expect(newestContent(items)?.id).toBe("t1");
+    expect(newestContent(groupEntries([thought("th1")]))).toBeUndefined();
   });
 });
 
@@ -176,6 +229,15 @@ describe("task card text", () => {
     expect(formatElapsed(59.9)).toBe("59s");
     expect(formatElapsed(185)).toBe("3m 05s");
     expect(formatElapsed(3720)).toBe("1h 02m");
+  });
+
+  it("formats a finished duration", () => {
+    expect(formatDuration(2)).toBe("1s");
+    expect(formatDuration(2685)).toBe("3s");
+    expect(formatDuration(59_000)).toBe("59s");
+    expect(formatDuration(120_000)).toBe("2m");
+    expect(formatDuration(134_000)).toBe("2m 14s");
+    expect(formatDuration(3_725_000)).toBe("1h 2m");
   });
 
   it("previews the first non-empty line of a result", () => {

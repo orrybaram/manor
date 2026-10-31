@@ -68,10 +68,23 @@
       "text": "[Nulla #3]"
     },
     {
+      "kind": "thought",
+      "id": "msg_103Yl4i2f1slu42py5gR3iEs:thought",
+      "ts": "2026-01-01T00:00:13.126Z",
+      "durationMs": 5509
+    },
+    {
       "kind": "assistant",
       "id": "00000000-0000-4000-8000-00000000002b:0",
       "ts": "2026-01-01T00:00:13.135Z",
       "text": "Est Labore dolore id amet adipiscing do elit. Aliqua sit sed non qui **Exercitation** laborum ut est Veniam eiusmod enim: https://example.com/d8/d9\n\nCillum sit fugiat et sed irure non qui est mollit; quis incididunt sit velit tempor nisi labore.\n\n- **Sed nulla** non qui duis Aute, \"Nostrud culpa ad\" est sit sed esse. Non sint lorem ipsum \"Dolor ullamco sunt…\" qui \"Anim occaecat\".\n- **Est sit laboris** amet magna sed minim, elit non enim \"Quis ex consectetur'c qui nisi duis Est ea d aute, in esse aliquip sit sed id irure velit sint Non dolore.\" Qui aliqua est nulla \"Veniam · Voluptate do sunt Sit\", anim a cillum sed amet ut non culpa: lorem et, fugiat qui.\n- **Ad, est sit / ex commodo mollit**, sed non elit officia, enim ipsum quis.\n\nQui exercitation dolor nisi est i sit ea sed duis magna. Aute non qui in minim laborum, est esse sint irure sit proident velit sed nulla id sunt non culpa qui eiusmod. Do anim'i tempor, R'v labore ut est sit sed consectetur amet v elit dolore."
+    },
+    {
+      "kind": "turn-end",
+      "id": "00000000-0000-4000-8000-00000000002e",
+      "ts": "2026-01-01T00:00:13.224Z",
+      "durationMs": 71762,
+      "backgroundAgents": 0
     },
     {
       "kind": "user",

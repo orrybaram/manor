@@ -120,6 +120,22 @@ test.describe("desk chat view", () => {
     await menuItem.click();
     await expect(chat).toBeVisible();
 
+    // 6b. The sidebar's right-click menu paints over the shown chat, not under it.
+    await window.locator('[data-testid="workspace-item"]', { hasText: "desk-chat" }).click({ button: "right" });
+    const sidebarMenu = window.locator('[role="menu"]');
+    await expect(sidebarMenu).toBeVisible();
+    const menuBox = (await sidebarMenu.boundingBox())!;
+    const chatBox = (await chat.boundingBox())!;
+    expect(menuBox.x + menuBox.width).toBeGreaterThan(chatBox.x);
+    const onTop = await window.evaluate(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return !!hit?.closest('[role="menu"]');
+    }, { x: menuBox.x + menuBox.width - 6, y: menuBox.y + menuBox.height / 2 });
+    expect(onTop).toBe(true);
+    await film.shot(window, "dark-sidebar-menu-over-chat");
+    await window.keyboard.press("Escape");
+    await expect(sidebarMenu).toHaveCount(0);
+
     // 7. A reload comes back on the chat; the phone's choice was never written.
     await window.reload();
     await expect(paneLocator(window, paneId).getByTestId("chat-pane")).toBeVisible({ timeout: 30_000 });

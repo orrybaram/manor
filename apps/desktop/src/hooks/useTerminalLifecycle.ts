@@ -40,6 +40,7 @@ import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
+import { useTerminalFont } from "./useTerminalFont";
 import { useMountEffect } from "./useMountEffect";
 import {
   registerTerminal,
@@ -76,6 +77,10 @@ export function useTerminalLifecycle(
     null,
   );
   const termRef = useRef<Terminal | null>(null);
+  /** The font from Settings; a ref so the terminal is created in the latest one. */
+  const font = useTerminalFont();
+  const fontRef = useRef(font);
+  fontRef.current = font;
   /** The link under the pointer, for the context menu's link items. */
   const [linkHover] = useState(createLinkHoverTracker);
   /**
@@ -149,7 +154,13 @@ export function useTerminalLifecycle(
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
   // both called: see each hook's own comment.
   const refitOwner = useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
-  const refitFollower = useFollowerFit(containerRef, term, follower, follower !== null);
+  const refitFollower = useFollowerFit(
+    containerRef,
+    term,
+    follower,
+    follower !== null,
+    font.size,
+  );
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -218,6 +229,24 @@ export function useTerminalLifecycle(
     if (shown && refitPendingRef.current) refitAfterSwap();
   }, [shown, refitAfterSwap]);
 
+  // A font from Settings: draw with it now and refit, as a renderer swap
+  // does — a new cell is a new grid, and the pty hears it once. A follower's
+  // size is `useFollowerFit`'s to set: it is shrunk to the owner's grid, and
+  // the new size is only its ceiling.
+  useLayoutEffect(() => {
+    if (!term) return;
+    const owner = follower === null;
+    if (
+      term.options.fontFamily === font.family &&
+      (!owner || term.options.fontSize === font.size)
+    ) {
+      return;
+    }
+    term.options.fontFamily = font.family;
+    if (owner) term.options.fontSize = font.size;
+    refitAfterSwap();
+  }, [term, font.family, font.size, follower, refitAfterSwap]);
+
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.
   const prevThemeRef = useRef<ITheme | null>(theme);
@@ -251,6 +280,8 @@ export function useTerminalLifecycle(
       const currentTheme = prevThemeRef.current;
       const t = new Terminal(
         terminalOptions({
+          fontFamily: fontRef.current.family,
+          fontSize: fontRef.current.size,
           ...(currentTheme ? { theme: currentTheme } : {}),
           linkHandler: {
             activate: (_event, text) => {

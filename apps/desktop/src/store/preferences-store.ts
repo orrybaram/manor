@@ -33,6 +33,8 @@ const defaultPreferences: AppPreferences = {
   achievementTitle: null,
   revealedBadges: [],
   halloweenEffects: true,
+  terminalFontFamily: "",
+  terminalFontSize: 13,
   remoteControlOnLaunch: false,
 };
 

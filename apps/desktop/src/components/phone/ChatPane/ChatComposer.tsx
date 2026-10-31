@@ -5,13 +5,14 @@ import { agentChat } from "../../../lib/agent-chat";
 import { uploadPastedImage } from "../../../lib/paste-image-upload";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import { ImageAttachments } from "../../ui/ImageAttachments/ImageAttachments";
+import { useImageAttachments } from "../../ui/ImageAttachments/useImageAttachments";
 import styles from "./ChatPane.module.css";
 import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, noteSentPrompt, startMenuHandoff } from "./usePaneChatView";
-import { useImageAttach, type ComposerSnapshot } from "./useImageAttach";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ChatComposerProps = {
@@ -57,8 +58,6 @@ export function ChatComposer(props: ChatComposerProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // The latest text and caret, for an upload that finishes after more typing.
-  const latest = useRef<ComposerSnapshot>({ text: "", caret: 0 });
 
   // Called back from a row of the `/` menu or choice sheet, after this render.
   const slash = useSlashCommands(paneId, text, caret, {
@@ -67,18 +66,16 @@ export function ChatComposer(props: ChatComposerProps) {
   }, chatOf.commands);
   const level = slash.level;
 
-  const { uploading, pasteImage, attachButton } = useImageAttach({
+  const images = useImageAttachments({
     upload: (file) => uploadPastedImage(paneId, file),
-    inputRef,
-    latestRef: latest,
-    fill: (nextText, nextCaret) => fill(nextText, nextCaret),
     setError,
+    buttonClassName: styles.composerAttach,
   });
 
-  const canSend = text.trim().length > 0 && !sending && !uploading;
+  const canSend =
+    (text.trim().length > 0 || images.hasImages) && !sending && !images.uploading;
 
   const update = (nextText: string, nextCaret: number) => {
-    latest.current = { text: nextText, caret: nextCaret };
     setText(nextText);
     setCaret(nextCaret);
     slash.sync(nextText, nextCaret);
@@ -98,12 +95,13 @@ export function ChatComposer(props: ChatComposerProps) {
     focusAt(nextCaret);
   };
 
-  const sendText = (sent: string) => {
+  const sendText = (sent: string, afterSent?: () => void) => {
     setSending(true);
     setError(null);
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);
+        afterSent?.();
         setSending(false);
         const command = splitCommand(sent);
         const effect = commandEffect(command, slash.lookup, chatOf.clearCommands);
@@ -123,7 +121,7 @@ export function ChatComposer(props: ChatComposerProps) {
 
   const send = () => {
     if (!canSend) return;
-    sendText(text.trimEnd());
+    sendText(images.withPaths(text), images.clear);
   };
 
   const stop = () => {
@@ -132,7 +130,7 @@ export function ChatComposer(props: ChatComposerProps) {
     });
   };
 
-  const mode = busy && !text.trim() ? "stop" : "send";
+  const mode = busy && !text.trim() && !images.hasImages ? "stop" : "send";
 
   return (
     <div className={styles.composer} data-keyboard-lift data-testid="chat-composer">
@@ -140,14 +138,14 @@ export function ChatComposer(props: ChatComposerProps) {
       {level?.kind === "commands" && (
         <SlashCommandMenu level={level} skillsKnown={slash.skillsKnown} />
       )}
-      {uploading && (
-        <div className={styles.composerHint} data-testid="chat-composer-uploading">
-          Uploading image…
-        </div>
-      )}
       {error && <div className={styles.composerError}>{error}</div>}
-      <div className={styles.composerField}>
-        {attachButton}
+      <div className={styles.composerField} {...images.dropProps}>
+        <ImageAttachments
+          attachments={images.attachments}
+          onRemove={images.remove}
+          className={styles.composerImages}
+        />
+        {images.attachButton}
         <EmojiTextarea
           ref={inputRef}
           className={styles.composerInput}
@@ -164,7 +162,7 @@ export function ChatComposer(props: ChatComposerProps) {
           onChange={(e) => {
             update(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
-          onPaste={pasteImage}
+          onPaste={images.pasteImage}
           onSelect={(e) => {
             const el = e.currentTarget;
             if (el.selectionStart !== caret) update(el.value, el.selectionStart);

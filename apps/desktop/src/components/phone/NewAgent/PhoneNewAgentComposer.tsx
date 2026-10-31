@@ -5,7 +5,7 @@ import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import X from "lucide-react/dist/esm/icons/x";
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
 import { useHostDisplay, useSourcedHosts } from "../../../hooks/useHostDisplay";
@@ -26,9 +26,10 @@ import { HostStateIcon } from "../../hosts/HostStateIcon";
 import { Button } from "../../ui/Button/Button";
 import { Checkbox } from "../../ui/Checkbox/Checkbox";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import { ImageAttachments } from "../../ui/ImageAttachments/ImageAttachments";
+import { useImageAttachments } from "../../ui/ImageAttachments/useImageAttachments";
 import { ManorLogo } from "../../ui/ManorLogo";
 import chatStyles from "../ChatPane/ChatPane.module.css";
-import { useImageAttach, type ComposerSnapshot } from "../ChatPane/useImageAttach";
 import { recentStatus, recentWorkspaceAgents } from "../phone-empty-state";
 import { useViewerFirstName } from "../useViewerFirstName";
 import {
@@ -117,30 +118,20 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
   // upload under an id no layout holds, routed by host instead.
   const [uploadPaneId] = useState(newPaneId);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const latest = useRef<ComposerSnapshot>({ text: draft.text, caret: draft.text.length });
-  const fill = (text: string, caret: number) => {
-    latest.current = { text, caret };
-    setComposerDraft({ text });
-    requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(caret, caret);
-    });
-  };
   const hostId = shown?.resolved.hostId;
-  const { uploading, pasteImage, attachButton } = useImageAttach({
+  const images = useImageAttachments({
     upload: (file) => uploadPastedImage(uploadPaneId, file, { hostId }),
-    inputRef,
-    latestRef: latest,
-    fill,
+    target: hostId,
     setError,
+    buttonClassName: chatStyles.composerAttach,
   });
 
-  const canSend = draft.text.trim().length > 0 && shown !== null && !uploading;
+  const canSend =
+    (draft.text.trim().length > 0 || images.hasImages) && shown !== null && !images.uploading;
   const submit = () => {
-    if (canSend) sendNewAgent(draft.text, shown.target);
+    if (!canSend) return;
+    sendNewAgent(images.withPaths(draft.text), shown.target);
+    images.clear();
   };
 
   return (
@@ -194,32 +185,23 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
             onToggleWorktree={() => setPicked({ ...shown.target, newWorktree: !shown.target.newWorktree })}
           />
         )}
-        {uploading && (
-          <div className={chatStyles.composerHint} data-testid="chat-composer-uploading">
-            Uploading image…
-          </div>
-        )}
         {error && <div className={chatStyles.composerError}>{error}</div>}
-        <div className={chatStyles.composerField}>
-          {shown && attachButton}
+        <div className={chatStyles.composerField} {...(shown ? images.dropProps : {})}>
+          <ImageAttachments
+            attachments={images.attachments}
+            onRemove={images.remove}
+            className={chatStyles.composerImages}
+          />
+          {shown && images.attachButton}
           <EmojiTextarea
-            ref={inputRef}
             className={chatStyles.composerInput}
             value={draft.text}
             rows={1}
             placeholder="Ask Claude…"
             aria-label="First message for a new agent"
             data-testid="phone-empty-composer-input"
-            onChange={(e) => {
-              const el = e.target;
-              latest.current = { text: el.value, caret: el.selectionStart ?? el.value.length };
-              setComposerDraft({ text: el.value });
-            }}
-            onSelect={(e) => {
-              const el = e.currentTarget;
-              latest.current = { text: el.value, caret: el.selectionStart };
-            }}
-            onPaste={pasteImage}
+            onChange={(e) => setComposerDraft({ text: e.target.value })}
+            onPaste={shown ? images.pasteImage : undefined}
             onKeyDown={(e) => {
               // As in the chat: ⌘/Ctrl+Enter sends, a plain Enter is a new line.
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

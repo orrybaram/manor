@@ -4,6 +4,7 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { ghRepoOf } from "../lib/gh-repo";
+import { settleMergeCleanup } from "../lib/merge-cleanup";
 import { noteGhStatus } from "../lib/gh-host-status";
 import { keyOf } from "../lib/workspace-directory";
 import { branchesEqual } from "../utils/branch-name";
@@ -97,6 +98,7 @@ async function fetchAllPrs() {
             usePreferencesStore.getState().preferences,
           );
           updateWorkspacePr(keyOf(project, ws), pr);
+          settleMergeCleanup(project, ws, pr);
         }
       }
     } catch {

@@ -63,6 +63,8 @@ export interface AppPreferences {
    * `isSharedPreferenceKey`.
    */
   remoteControlOnLaunch: boolean;
+  /** The PR card's "Delete workspace after merge" tick box, as last left. */
+  deleteWorkspaceAfterMerge: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -92,6 +94,7 @@ const DEFAULTS: AppPreferences = {
   editorFontFamily: "",
   editorFontSize: 12,
   remoteControlOnLaunch: false,
+  deleteWorkspaceAfterMerge: true,
 };
 
 /**

@@ -34,6 +34,7 @@ import {
 import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
+import { PrActions } from "./PrActions";
 import styles from "./PrPopover.module.css";
 
 type PrPopoverProps = {
@@ -275,7 +276,11 @@ export function PrDetails(props: {
   pr: PrInfo;
   workspacePath?: string;
   hostId?: string;
-  /** Called just before "Send to agent" launches, e.g. to close a popover. */
+  /**
+   * Called just before an action takes the user elsewhere ("Send to agent",
+   * the footer's agent briefs, a merge that deletes the workspace), e.g. to
+   * close a popover.
+   */
   onSendToAgentStart?: () => void;
 }) {
   const { pr, workspacePath, hostId, onSendToAgentStart } = props;
@@ -349,6 +354,15 @@ export function PrDetails(props: {
         />
         <ChecksSection pr={pr} />
       </div>
+
+      {workspacePath && (
+        <PrActions
+          pr={pr}
+          workspacePath={workspacePath}
+          hostId={hostId}
+          onLeave={onSendToAgentStart}
+        />
+      )}
     </div>
   );
 }

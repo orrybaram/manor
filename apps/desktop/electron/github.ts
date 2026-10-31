@@ -8,8 +8,11 @@ import type {
   ChecksSummary,
   PrCheckRun,
   PrCheckStatus,
+  PrAgentTask,
   PrComment,
   PrInfo,
+  PrMergeMethod,
+  PrMergeOptions,
 } from "../src/lib/pr-info";
 import { normalizeHostId } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
@@ -23,8 +26,41 @@ import {
   type RawStatusCheck,
   type RepoPrNumbers,
 } from "./github-pr-query";
+import {
+  actionsJobId,
+  failedLogArgs,
+  failingChecksPrompt,
+  mergeArgs,
+  mergeOptionsQueryArgs,
+  parseMergeOptions,
+  parsePrContext,
+  prContextQueryArgs,
+  reviewThreadsPrompt,
+  tailFailedLog,
+} from "./github-pr-actions";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * `gh` for one of the PR card's actions, its failure carrying `gh`'s own
+ * stderr ("Pull request is not mergeable: …") rather than "Command failed",
+ * since that is what the toast shows.
+ */
+async function runGh(args: string[], cwd: string | undefined, timeout = 20_000): Promise<{ stdout: string }> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd,
+      encoding: "utf-8",
+      timeout,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    return { stdout };
+  } catch (err) {
+    const stderr = (err as { stderr?: unknown }).stderr;
+    const reason = typeof stderr === "string" && stderr.trim() ? stderr.trim() : null;
+    throw reason ? new Error(reason) : err;
+  }
+}
 
 export interface GitHubIssue {
   number: number;
@@ -565,6 +601,63 @@ export class GitHubManager {
       encoding: "utf-8",
       timeout: 10000,
     });
+  }
+
+  /** What the repo allows when merging, its default method first. Throws when `gh` fails. */
+  async getMergeOptions(repo: GhRepo): Promise<PrMergeOptions> {
+    const { cwd } = await this.ghTarget(repo);
+    const { stdout } = await runGh(["api", "graphql", ...mergeOptionsQueryArgs()], cwd);
+    return parseMergeOptions(stdout);
+  }
+
+  /**
+   * Merge a PR, or with `auto` arm auto-merge so it merges itself once its
+   * requirements pass. Throws with `gh`'s own reason when GitHub refuses.
+   */
+  async mergePr(
+    repo: GhRepo,
+    number: number,
+    method: PrMergeMethod,
+    auto: boolean,
+  ): Promise<void> {
+    const { cwd } = await this.ghTarget(repo);
+    await runGh(mergeArgs(number, method, auto), cwd, 60_000);
+  }
+
+  /**
+   * The first message for an agent asked to fix a PR's failing checks or
+   * answer its unresolved review threads, fetched fresh rather than from the
+   * poller's capped view. Throws when there is nothing to do, so the caller
+   * says so instead of starting an agent with an empty brief.
+   */
+  async getPrAgentPrompt(repo: GhRepo, number: number, task: PrAgentTask): Promise<string> {
+    const { cwd } = await this.ghTarget(repo);
+    const { stdout } = await runGh(["api", "graphql", ...prContextQueryArgs(number)], cwd);
+    const pr = parsePrContext(stdout);
+    if (task === "comments") {
+      if (pr.threads.length === 0) throw new Error(`PR #${number} has no unresolved review threads`);
+      return reviewThreadsPrompt(pr, pr.threads);
+    }
+    const failing = (parseStatusCheckRollup(pr.rollup).checkRuns ?? []).filter(
+      (run) => run.status === "failing",
+    );
+    if (failing.length === 0) throw new Error(`PR #${number} has no failing checks`);
+    const checks = await Promise.all(
+      failing.map(async (run) => {
+        const jobId = actionsJobId(run.url);
+        let logTail: string | null = null;
+        if (jobId) {
+          try {
+            const { stdout: log } = await runGh(failedLogArgs(jobId), cwd, 30_000);
+            logTail = tailFailedLog(log) || null;
+          } catch {
+            // A log GitHub expired or a job still uploading: the link stays.
+          }
+        }
+        return { name: run.name, workflow: run.workflow ?? null, url: run.url ?? null, logTail };
+      }),
+    );
+    return failingChecksPrompt(pr, checks);
   }
 
   /**

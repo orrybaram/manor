@@ -19,7 +19,9 @@
  */
 
 import {
+  assertBoolean,
   assertGhRepo,
+  assertPositiveInt,
   assertString,
   assertStringArray,
   isLinearAssociation,
@@ -37,7 +39,12 @@ import type {
   LinearTeam,
   LinkedIssue,
 } from "../../linear";
-import type { PrInfo } from "../../../src/lib/pr-info";
+import type {
+  PrAgentTask,
+  PrInfo,
+  PrMergeMethod,
+  PrMergeOptions,
+} from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
 import { byGhRepo, byHost, byProject, delegated, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { SharedDeps } from "../../ipc/types";
@@ -168,6 +175,49 @@ export function githubCloseIssue(
 ): Promise<void> {
   assertRepo(repo);
   return ctx.deps.githubManager.closeIssue(repo, issueNumber);
+}
+
+/** What the PR's repo allows when merging, for the PR card's Merge button. */
+export function githubGetMergeOptions(
+  ctx: HandlerCtx<GithubDeps>,
+  repo: GhRepo,
+): Promise<PrMergeOptions> {
+  assertRepo(repo);
+  return ctx.deps.githubManager.getMergeOptions(repo);
+}
+
+const MERGE_METHODS: readonly PrMergeMethod[] = ["squash", "merge", "rebase"];
+
+/** Merge a PR, or with `auto` arm auto-merge. */
+export function githubMergePr(
+  ctx: HandlerCtx<GithubDeps>,
+  repo: GhRepo,
+  number: number,
+  mergeMethod: PrMergeMethod,
+  auto?: boolean | null,
+): Promise<void> {
+  assertRepo(repo);
+  assertPositiveInt(number, "number");
+  if (!MERGE_METHODS.includes(mergeMethod)) {
+    throw new Error(`mergeMethod: expected one of ${MERGE_METHODS.join(", ")}`);
+  }
+  if (auto != null) assertBoolean(auto, "auto");
+  return ctx.deps.githubManager.mergePr(repo, number, mergeMethod, auto === true);
+}
+
+/** The first message for an agent asked to fix a PR's checks or comments. */
+export function githubGetPrAgentPrompt(
+  ctx: HandlerCtx<GithubDeps>,
+  repo: GhRepo,
+  number: number,
+  task: PrAgentTask,
+): Promise<string> {
+  assertRepo(repo);
+  assertPositiveInt(number, "number");
+  if (task !== "checks" && task !== "comments") {
+    throw new Error("task: expected checks or comments");
+  }
+  return ctx.deps.githubManager.getPrAgentPrompt(repo, number, task);
 }
 
 export function githubCreateIssue(
@@ -405,6 +455,11 @@ export const github = {
   proxyImage: method(githubProxyImage, { route: LOCAL_ROUTE }),
   assignIssue: method(githubAssignIssue, { mutating: true, route: byGhRepo(0) }),
   closeIssue: method(githubCloseIssue, { mutating: true, route: byGhRepo(0) }),
+  // The PR card's actions. Merging changes the PR for everyone; the
+  // repo's merge settings and an agent's brief are reads.
+  getMergeOptions: method(githubGetMergeOptions, { route: byGhRepo(0) }),
+  mergePr: method(githubMergePr, { mutating: true, route: byGhRepo(0) }),
+  getPrAgentPrompt: method(githubGetPrAgentPrompt, { route: byGhRepo(0) }),
   createIssue: method(githubCreateIssue, { mutating: true, route: LOCAL_ROUTE }),
   uploadFeedbackImages: method(githubUploadFeedbackImages, {
     mutating: true,

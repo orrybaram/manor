@@ -131,3 +131,17 @@ export interface PrInfo {
   /** Last activity on the PR, from GitHub. Absent when unknown. */
   updatedAt?: string;
 }
+
+/** How `gh pr merge` lands a PR: `--squash`, `--merge` or `--rebase`. */
+export type PrMergeMethod = "squash" | "merge" | "rebase";
+
+/** What a repo allows when merging, for the PR card's Merge button. */
+export interface PrMergeOptions {
+  /** The methods the repo allows, its default first. Empty: none allowed. */
+  allowed: PrMergeMethod[];
+  /** The repo lets a PR merge itself once its requirements pass. */
+  autoMergeAllowed: boolean;
+}
+
+/** Which of a PR's problems an agent is asked to deal with. */
+export type PrAgentTask = "checks" | "comments";

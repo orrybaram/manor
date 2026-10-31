@@ -228,7 +228,8 @@ function BranchChipButton(props: BranchChipButtonProps) {
       onClick={phone ? () => setOpen(true) : undefined}
     >
       <GitBranch size={11} className={styles.statusBranchIcon} />
-      {mismatch ? `${label} ≠` : label}
+      <span className={styles.statusBranchName}>{label}</span>
+      {mismatch && " ≠"}
     </Button>
   );
   const details = <SessionDetails chip={chip} model={model} effort={effort} />;

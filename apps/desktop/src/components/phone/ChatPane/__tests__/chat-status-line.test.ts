@@ -170,4 +170,8 @@ describe("branchChip", () => {
     expect(branchChip("Feat/X", "feat/x")).toEqual({ branch: "Feat/X", agentBranch: null });
     expect(branchChip("feat/x", null)).toEqual({ branch: "feat/x", agentBranch: null });
   });
+
+  it("does not flag a detached checkout, which the transcript names HEAD", () => {
+    expect(branchChip("73970ed", "HEAD")).toEqual({ branch: "73970ed", agentBranch: null });
+  });
 });

@@ -1121,6 +1121,14 @@ button.editToggle {
   overflow: hidden;
 }
 
+/* A long branch name on a narrow desk pane mustn't push the chips after it
+   out of sight; the full name is in the chip's title and popover. */
+.statusLine[data-layout="desk"] .statusBranchName {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .statusChip:active {
   background: var(--hover);
 }

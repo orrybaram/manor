@@ -113,6 +113,9 @@ export function branchChip(
   transcriptBranch: string | null | undefined,
 ): BranchChip | null {
   if (!workspaceBranch) return null;
-  const differs = !!transcriptBranch && !branchesEqual(transcriptBranch, workspaceBranch);
-  return { branch: workspaceBranch, agentBranch: differs ? transcriptBranch : null };
+  // Claude Code writes "HEAD" on a detached checkout, where Manor shows the
+  // commit: that names no branch, so it can't disagree.
+  const named = transcriptBranch && transcriptBranch !== "HEAD" ? transcriptBranch : null;
+  const differs = !!named && !branchesEqual(named, workspaceBranch);
+  return { branch: workspaceBranch, agentBranch: differs ? named : null };
 }

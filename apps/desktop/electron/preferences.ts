@@ -65,6 +65,12 @@ export interface AppPreferences {
   remoteControlOnLaunch: boolean;
   /** The PR card's "Delete workspace after merge" tick box, as last left. */
   deleteWorkspaceAfterMerge: boolean;
+  /**
+   * Workspaces to remove once their queued or auto-merging PR merges: PR URL
+   * by workspace key. Here, not in one renderer's storage, so a merge queued
+   * from the phone is cleaned up by the desk's poller.
+   */
+  mergeCleanups: Record<string, string>;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -95,6 +101,7 @@ const DEFAULTS: AppPreferences = {
   editorFontSize: 12,
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
+  mergeCleanups: {},
 };
 
 /**

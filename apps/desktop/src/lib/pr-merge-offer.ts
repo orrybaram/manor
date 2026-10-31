@@ -18,6 +18,10 @@ export function mergeOffer(pr: PrInfo, options: PrMergeOptions | undefined): Mer
     if (verdict.blocker.kind === "checks") return { kind: "none", reason: "Fix the failing checks first" };
   }
   if (options.mergeQueue) return { kind: "queue" };
+  // A repo with no required review reports no decision, which the badge
+  // reads as "pending"; with its checks clear the PR can merge now.
+  const checksClear = pr.checks == null || (pr.checks.failing === 0 && pr.checks.pending === 0);
+  if (verdict.readiness === "pending" && checksClear) return { kind: "merge" };
   if (verdict.readiness === "pending" || verdict.readiness === "review") {
     return options.autoMergeAllowed
       ? { kind: "auto" }

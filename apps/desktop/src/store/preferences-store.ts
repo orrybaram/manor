@@ -40,6 +40,7 @@ const defaultPreferences: AppPreferences = {
   editorFontSize: 12,
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
+  mergeCleanups: {},
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

@@ -341,3 +341,15 @@
     display: none;
   }
 }
+
+/* Why Merge is unavailable, in words: a phone can't hover for the tooltip. */
+.reason {
+  align-self: flex-end;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.phone .reason {
+  font-size: 12px;
+}

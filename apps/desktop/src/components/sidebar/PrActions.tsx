@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQuery } from "@tanstack/react-query";
 import Bot from "lucide-react/dist/esm/icons/bot";
@@ -108,7 +108,19 @@ export function PrActions(props: {
     [repo, pr.number, workspacePath, hostId, onLeave],
   );
 
-  const offer = isOpen && !pr.queuedToMerge ? mergeOffer(pr, options.data) : null;
+  const optionsError = options.error ? String((options.error as Error).message ?? options.error) : null;
+  useEffect(() => {
+    if (optionsError) toast.error(`Couldn't read how #${pr.number} can merge`, { detail: optionsError });
+  }, [optionsError, pr.number]);
+  const offer = useMemo(
+    () =>
+      !isOpen || pr.queuedToMerge
+        ? null
+        : optionsError
+          ? ({ kind: "none", reason: "Couldn't read the repo's merge settings" } as const)
+          : mergeOffer(pr, options.data),
+    [isOpen, pr, optionsError, options.data],
+  );
   const canDelete = ws != null && !ws.isMain;
 
   const merge = useCallback(async () => {
@@ -126,7 +138,7 @@ export function PrActions(props: {
     const deleting = deleteAfter && canDelete && ws;
     if (outcome === "merged") {
       burst(burstRef.current);
-      toast.success(`Merged #${pr.number} into ${project.defaultBranch}`);
+      toast.success(`Merged #${pr.number}`);
       // Not cancelled if the card closes meanwhile: the workspace must still go.
       setTimeout(() => {
         void fetchPrs();
@@ -295,6 +307,13 @@ export function PrActions(props: {
     </span>
   );
 
+  // Said in words, not only in the button's tooltip: a phone has no hover.
+  // Not while the settings are still loading: that is a wait, not a reason.
+  const reason =
+    phase === "idle" && offer?.kind === "none" && (options.data !== undefined || optionsError)
+      ? offer.reason
+      : undefined;
+
   return (
     <div className={`${styles.footer}${phone ? ` ${styles.phone}` : ""}`} data-testid="pr-actions">
       {agentButtons ? (
@@ -305,6 +324,7 @@ export function PrActions(props: {
             {mergeButton}
           </div>
           {deleteTick && <div className={styles.row}>{deleteTick}</div>}
+          {reason && <div className={styles.reason} data-testid="pr-merge-reason">{reason}</div>}
         </>
       ) : (
         <div className={styles.row}>
@@ -312,6 +332,9 @@ export function PrActions(props: {
           <span className={styles.spacer} />
           {mergeButton}
         </div>
+      )}
+      {!agentButtons && reason && (
+        <div className={styles.reason} data-testid="pr-merge-reason">{reason}</div>
       )}
     </div>
   );

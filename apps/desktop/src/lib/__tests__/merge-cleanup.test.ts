@@ -7,6 +7,7 @@ vi.mock("../../toast", () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
 
 import { deleteWorkspaceWhenMerged, isDeletingWhenMerged, settleMergeCleanup } from "../merge-cleanup";
 import { workspaceKey } from "../workspace-key";
+import { usePreferencesStore } from "../../store/preferences-store";
 import type { ProjectInfo, WorkspaceInfo } from "../../store/project-store";
 import type { PrInfo } from "../pr-info";
 
@@ -18,7 +19,7 @@ const pr = (state: string, url = URL_) => ({ number: 9, state, title: "t", url }
 
 describe("settleMergeCleanup", () => {
   beforeEach(() => {
-    localStorage.clear();
+    usePreferencesStore.setState((s) => ({ preferences: { ...s.preferences, mergeCleanups: {} } }));
     removeWorktreeWithToast.mockClear();
   });
 

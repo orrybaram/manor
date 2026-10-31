@@ -48,6 +48,8 @@ export interface AppPreferences {
   remoteControlOnLaunch: boolean;
   /** The PR card's "Delete workspace after merge" tick box, as last left. */
   deleteWorkspaceAfterMerge: boolean;
+  /** Workspaces to remove once their queued PR merges: PR URL by workspace key. */
+  mergeCleanups: Record<string, string>;
 }
 
 export type AgentLifecycleStatus =

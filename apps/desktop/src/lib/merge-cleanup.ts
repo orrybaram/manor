@@ -3,32 +3,22 @@ import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { removeWorktreeWithToast } from "../store/workspace-actions";
 import { workspaceKey, type WorkspaceKey } from "./workspace-key";
 import { toast } from "../toast";
+import { usePreferencesStore } from "../store/preferences-store";
 
 /**
  * Workspaces whose PR went into a merge queue (or armed auto-merge) with
  * "Delete workspace after merge" ticked: removed once the PR poller sees the
- * PR merged. Kept in this renderer's storage so a restart in between still
- * cleans up, keyed by workspace with the PR's URL, so a new PR on the same
- * branch is not mistaken for the queued one.
+ * PR merged. Kept in the shared preferences, so a restart in between, or a
+ * merge queued from the phone, still cleans up on the desk; keyed by
+ * workspace with the PR's URL, so a new PR on the same branch is not taken
+ * for the queued one.
  */
-const STORAGE_KEY = "manor.mergeCleanups";
-
 function read(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
+  return usePreferencesStore.getState().preferences.mergeCleanups ?? {};
 }
 
 function write(entries: Record<string, string>): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
-    // Storage full or refused: the workspace just stays, as if unticked.
-  }
+  usePreferencesStore.getState().set("mergeCleanups", entries);
 }
 
 /** Remove the workspace `key` once its PR at `prUrl` merges. */
@@ -51,11 +41,9 @@ export function settleMergeCleanup(
   pr: PrInfo | null,
 ): void {
   const key = workspaceKey(project.hostId, ws.path);
-  const entries = read();
-  const url = entries[key];
+  const { [key]: url, ...rest } = read();
   if (url === undefined || !pr || pr.url !== url || pr.state === "open") return;
-  delete entries[key];
-  write(entries);
+  write(rest);
   const name = ws.name || ws.branch;
   if (pr.state === "merged") {
     toast.success(`PR #${pr.number} merged: removing "${name}"`);

@@ -46,6 +46,12 @@ describe("mergeOffer", () => {
     expect(mergeOffer(pr({ unresolvedThreads: 2 }), options)).toEqual({ kind: "merge" });
   });
 
+  it("merges a green PR now in a repo with no required review", () => {
+    expect(mergeOffer(pr({ reviewDecision: null }), options)).toEqual({ kind: "merge" });
+    expect(mergeOffer(pr({ reviewDecision: null, checks: null }), options)).toEqual({ kind: "merge" });
+    expect(mergeOffer(pr({ reviewDecision: "REVIEW_REQUIRED" }), options)).toEqual({ kind: "auto" });
+  });
+
   it("waits for the repo's settings", () => {
     expect(mergeOffer(pr(), undefined).kind).toBe("none");
   });

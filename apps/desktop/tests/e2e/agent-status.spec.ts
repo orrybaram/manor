@@ -74,6 +74,34 @@ test.describe("agent status", () => {
     await expect(tooltip).toHaveText("Stop hook", { timeout: 5_000 });
   });
 
+  test("an idle agent still has an icon in the sidebar", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    await bootWorkspaceWithTerminal(app, window, tempHome, "agent-status-idle");
+    await startAgent(window, tempHome);
+    const session = await waitForVisibleSession(request, tempHome, {
+      name: AGENT_TITLE,
+    });
+
+    // Killed without its SessionEnd hook: the pane is back at the shell, so
+    // its status is idle, but nothing told Manor the agent is done, so it
+    // stays active and keeps its row rather than taking the completed badge.
+    await window.locator('[data-testid="terminal-pane"]:visible').first().click();
+    await window.keyboard.press("Control+C");
+
+    const row = window.locator(
+      `[data-testid="sidebar-agent-row"][data-agent-id="${session.id}"]`,
+    );
+    const dot = row.locator('[data-testid="agent-dot"]');
+    await expect(dot).toHaveAttribute("data-status", "idle", { timeout: 10_000 });
+    await expect(dot.locator('[title="Agent idle"]')).toBeVisible();
+    await expect(row.locator('[data-testid="agent-lifecycle-badge"]')).toHaveCount(0);
+    await row.screenshot({ path: test.info().outputPath("idle-agent-row.png") });
+  });
+
   test("agent exit parks the pane in idle and the agent completed", { tag: "@smoke" }, async ({
     app,
     window,
@@ -95,8 +123,7 @@ test.describe("agent status", () => {
     const row = window.locator(
       `[data-testid="sidebar-agent-row"][data-agent-id="${session.id}"]`,
     );
-    // `idle` renders no dot at all (AgentDot returns null for it) — the
-    // agent's lifecycle badge takes its place once it is `completed`.
+    // A `completed` agent shows its lifecycle badge in place of any dot.
     await expect(row.locator('[data-testid="agent-dot"]')).toHaveCount(0);
     const badge = row.locator('[data-testid="agent-lifecycle-badge"]');
     await expect(badge).toHaveAttribute("data-lifecycle", "completed", {

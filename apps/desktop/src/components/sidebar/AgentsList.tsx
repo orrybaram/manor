@@ -16,6 +16,7 @@ import { useProjectStore, MIN_AGENTS_HEIGHT, MAX_AGENTS_HEIGHT } from "../../sto
 import { useCollapsibleResize } from "../../hooks/useCollapsibleResize";
 import { AgentDot } from "../ui/AgentDot/AgentDot";
 import { Button } from "../ui/Button/Button";
+import { SpinnerLoader } from "../ui/SpinnerLoader/SpinnerLoader";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { useAgentDisplay } from "../../hooks/useAgentDisplay";
@@ -79,6 +80,12 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
                 data-lifecycle="completed"
               />
             </Tooltip>
+          ) : !status || status === "idle" ? (
+            // AgentDot draws nothing for idle; the row still needs its icon,
+            // the same still ring a read "responded" agent shows.
+            <span data-testid="agent-dot" data-status="idle">
+              <SpinnerLoader size="sidebar" variant="idle" />
+            </span>
           ) : (
             <AgentDot
               status={status}

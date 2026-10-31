@@ -1,13 +1,14 @@
 /* Design tokens: every color and font the page uses. Change the look here first. */
 :root {
   /* inks and grounds */
-  --bile: #FFE800;
+  --bile: #E1BE52;   /* the Manor app icon fill, display-p3(0.861 0.752 0.393) in sRGB */
   --wound: #FF40B4;
   --pitch: #0a0a00;
   --bone: #fffdf2;
   --ash: #d6d4cc;     /* light gray ground for chapter III */
   --blood: #c4001a;
   --misreg-blue: #0000FF;
+  --misreg-cyan: #00D8FF; /* the headline's second pass */
   --dim-bone: #d9d6c4;
   --soot: #11110a;    /* "Don't wake the house." on the black footer */
 

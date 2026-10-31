@@ -3,9 +3,10 @@
 .hero { background: var(--bile); color: var(--pitch); position: relative; z-index: 1; display: flow-root; overflow-x: clip; padding-bottom: 0; }
 .hero .knight { position: absolute; left: -5%; bottom: 0; width: 110%; max-width: none; height: clamp(560px, 67vw, 1080px); object-fit: cover; object-position: 50% -4vw; opacity: .9; -webkit-mask-image: radial-gradient(ellipse 66% 85% at 50% 45%, #000 48%, transparent 100%), linear-gradient(to bottom, transparent, #000 16%); -webkit-mask-composite: source-in; mask-image: radial-gradient(ellipse 66% 85% at 50% 45%, #000 48%, transparent 100%), linear-gradient(to bottom, transparent, #000 16%); mask-composite: intersect; }
 .hero .tagline { position: relative; z-index: 2; margin-top: clamp(28px, 5vw, 72px); font-family: var(--f-black); font-weight: 400; line-height: .9; text-shadow: .035em .035em 0 var(--wound); }
-.hero .tagline .l1 { display: block; white-space: nowrap; font-size: clamp(28px, 9.6vw, 140px); }
-.hero .tagline .l2 { display: block; font-size: clamp(26px, 4.6vw, 68px); line-height: 1; margin-top: .25em; }
-.hero .tagline .hit { background: var(--pitch); color: var(--bile); padding: 0 .12em .06em; text-shadow: 4px 3px 0 var(--wound); display: inline-block; transform: rotate(-1.5deg); }
+/* the headline's misregistered print: a pink and a cyan pass, offsets in vars so hero.ts can glitch them */
+.hero .tagline .l1 { --pk: .019em .019em; --cy: -.014em -.01em; text-shadow: var(--pk) 0 var(--wound), var(--cy) 0 var(--misreg-cyan); display: block; white-space: nowrap; font-size: clamp(28px, 15.4vw, 214px); letter-spacing: -.037em; /* -8px at full size, scaled with the type */ }
+.hero .tagline .l2 { display: block; width: fit-content; font-size: clamp(26px, 7vw, 110px); line-height: 1; margin-top: .25em; transform: rotate(-1deg); transform-origin: left center; }
+.hero .tagline .hit { background: var(--pitch); color: var(--bile); padding: 0 .12em .06em; text-shadow: var(--pk) 0 var(--wound), var(--cy) 0 var(--misreg-cyan); display: inline-block; transform: rotate(-1.5deg); }
 .hero .lede { position: relative; z-index: 3; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px 64px; align-items: end; margin-top: clamp(32px, 4.5vw, 72px); }
 .hero .lede p { font-size: clamp(16px, 1.55vw, 19px); line-height: 1.5; max-width: 52ch; }
 .cta { display: grid; gap: 12px; justify-items: start; }

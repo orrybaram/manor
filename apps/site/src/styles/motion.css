@@ -1,6 +1,7 @@
 /* MOTION
    Subtle and optional: everything is fully visible at rest, and all motion is tied to scroll
    (scroll-driven timelines where supported, static elsewhere) apart from two tiny status loops.
+   The headline's print glitch is random, so it lives in hero.ts.
    Movement uses the `translate`/`scale` properties so it never clobbers a tilt in `transform`. */
 @media (prefers-reduced-motion: no-preference) {
 

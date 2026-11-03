@@ -20,7 +20,7 @@
 .gh-plain:hover { border-color: var(--plain-line-hi); }
 .hero .meta { font-size: 13px; color: var(--plain-faint); margin: 14px auto 0; }
 
-.hero .shot { margin: clamp(48px, 6vw, 80px) auto 0; max-width: 1180px; border-radius: 14px; overflow: hidden; border: 1px solid var(--plain-line-hi); box-shadow: 0 0 0 6px rgba(255, 255, 255, .03), 0 40px 120px -20px rgba(225, 190, 82, .14), 0 30px 60px -20px rgba(0, 0, 0, .8); text-align: left; }
+.hero .shot { border-radius: 14px; overflow: hidden; border: 1px solid var(--plain-line-hi); box-shadow: 0 0 0 6px rgba(255, 255, 255, .03), 0 40px 120px -20px rgba(225, 190, 82, .14), 0 30px 60px -20px rgba(0, 0, 0, .8); text-align: left; }
 
 .hero .works { margin-top: clamp(48px, 6vw, 72px); }
 .hero .works p { font-size: 13px; color: var(--plain-faint); margin: 0 auto; }

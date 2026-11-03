@@ -89,10 +89,14 @@ function workspaceIndicatorDot(indicator: NonNullable<WorkspaceIndicator>): stri
 
 // ---- sidebar -------------------------------------------------------------
 
-/** components/window-lead/WindowLead: back and forward with nowhere to go yet, and the bell. */
+/**
+ * components/window-lead/WindowLead: back and forward with nowhere to go yet,
+ * and the bell. The traffic lights are native in the app, so nothing there draws
+ * them; here they're drawn in the room its `lightsSpacer` leaves.
+ */
 function windowLead(unread: boolean): string {
   return (
-    `<div class="ma-lead"><div class="ma-lead-controls">` +
+    `<div class="ma-lead"><div class="ma-lights" aria-hidden="true"><span></span><span></span><span></span></div><div class="ma-lead-controls">` +
     iconButton("ma-btn ma-ghost ma-lead-button", "Navigate back", icon("arrow-left", 14), true) +
     iconButton("ma-btn ma-ghost ma-lead-button", "Navigate forward", icon("arrow-right", 14), true) +
     iconButton(

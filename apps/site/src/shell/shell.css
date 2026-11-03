@@ -35,6 +35,7 @@
   --frame-gap: 6px;
   --window-edge-gap: 8px;
   --window-lead-inset: 0px;
+  --traffic-light-inset: 78px;
   --title-row: 40px;
   --panel-header-height: calc(var(--title-row) - 7px);
   --status-bar-height: 36px;
@@ -83,6 +84,11 @@
 
 /* components/window-lead/WindowLead/WindowLead.module.css */
 .ma-lead { position: absolute; top: 0; left: 0; width: 220px; height: var(--title-row); z-index: 10; display: flex; align-items: flex-end; padding-right: 3px; background: transparent; }
+/* Native in the app: x and y from trafficLightPosition (electron/window.ts) centred in the title row, in macOS's own size, gap and colours. */
+.ma-lights { flex-shrink: 0; display: flex; align-items: center; gap: 8px; width: var(--traffic-light-inset); height: 100%; padding-left: 13px; }
+.ma-lights span { width: 12px; height: 12px; border-radius: 50%; background: #28c840; }
+.ma-lights span:first-child { background: #ff5f57; }
+.ma-lights span:nth-child(2) { background: #febc2e; }
 .ma-lead-controls { display: flex; margin-left: auto; align-items: center; gap: 4px; flex-shrink: 0; }
 .ma-btn.ma-lead-button { width: 24px; height: 24px; padding: 0; }
 

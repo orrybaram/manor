@@ -82,3 +82,14 @@ export function renderPanes(root: HTMLElement, state: ShellState, ids: readonly 
     if (el) el.innerHTML = paneBody(state, id);
   }
 }
+
+/** How often the ambient frame counts up. */
+export const TICK_MS = 250;
+
+/** One ambient frame: Claude's timer, opencode's moon. */
+export function tickAgents(root: HTMLElement, state: ShellState): void {
+  state.tick++;
+  const hero = state.agents.hero;
+  if (hero.status === "working" && state.tick % 4 === 0) hero.secs++;
+  renderPanes(root, state, ["hero", "sweep"]);
+}

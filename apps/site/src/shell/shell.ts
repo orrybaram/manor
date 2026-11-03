@@ -5,30 +5,31 @@
  */
 import "./shell.css";
 import { onShellClick, onShellKey, type ShellContext } from "./interactions";
-import { renderPanes, renderShell } from "./render";
+import { TICK_MS, renderShell, tickAgents } from "./render";
 import { createState, type AgentId } from "./state";
 import { DEFAULT_THEME, applyTheme } from "./tokens";
 
 const WIDTH = 1280;
 const HEIGHT = 800;
-const TICK_MS = 250;
 
 /** A region of the 1280×800 layout, in its own px. */
 export type ShellCrop = { x: number; y: number; width: number; height: number };
 
-export type ShellOptions = {
+type WindowOptions = {
   /** What a screen reader hears for this mount. */
   label: string;
   /** Show only this region; the whole window when left out. */
   crop?: ShellCrop;
+};
+
+export type ShellOptions = WindowOptions & {
   /** The pane focused at first; null for none. */
   focus?: AgentId | null;
 };
 
-export function mountShell(view: HTMLElement, options: ShellOptions): void {
+/** An empty window in `view`, themed and scaled to fit, for the caller to draw into. Returns its root. */
+export function mountWindow(view: HTMLElement, options: WindowOptions): HTMLElement {
   const crop = options.crop ?? { x: 0, y: 0, width: WIDTH, height: HEIGHT };
-  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-  const state = createState({ focus: options.focus });
 
   const root = document.createElement("div");
   root.className = "mapp";
@@ -38,9 +39,6 @@ export function mountShell(view: HTMLElement, options: ShellOptions): void {
   view.style.aspectRatio = `${crop.width} / ${crop.height}`;
   view.appendChild(root);
 
-  const render = () => renderShell(root, state);
-  render();
-
   const fit = () => {
     const s = view.clientWidth / crop.width;
     root.style.setProperty("--s", String(s));
@@ -49,6 +47,17 @@ export function mountShell(view: HTMLElement, options: ShellOptions): void {
   };
   fit();
   new ResizeObserver(fit).observe(view);
+  return root;
+}
+
+/** A window running the shell's own world of Agents, on its own. */
+export function mountShell(view: HTMLElement, options: ShellOptions): void {
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const state = createState({ focus: options.focus });
+  const root = mountWindow(view, options);
+
+  const render = () => renderShell(root, state);
+  render();
 
   let visible = false;
   const ctx: ShellContext = {
@@ -68,12 +77,7 @@ export function mountShell(view: HTMLElement, options: ShellOptions): void {
   // Ambient ticks (Claude's timer, opencode's moon) run only while this
   // mount is on screen, the tab is showing, and motion is welcome.
   let timer = 0;
-  const tick = () => {
-    state.tick++;
-    const hero = state.agents.hero;
-    if (hero.status === "working" && state.tick % 4 === 0) hero.secs++;
-    renderPanes(root, state, ["hero", "sweep"]);
-  };
+  const tick = () => tickAgents(root, state);
   const sync = () => {
     const run = visible && !document.hidden && !reduced.matches;
     if (run && !timer) timer = window.setInterval(tick, TICK_MS);

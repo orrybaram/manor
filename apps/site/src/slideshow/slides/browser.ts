@@ -16,6 +16,8 @@ const WORKSPACE_DIR = "~/harbor/berth-page";
 /** The pane's width after a drag of the split's divider: the page wants the room. */
 const AGENT_PANE_PERCENT = 36;
 const TERMINAL_COLUMNS = 44;
+/** usePageNotes's `page-notes-${paneId}`: a second send or copy replaces the toast. */
+const TOAST_ID = "page-notes-browser";
 
 /** note-placement.ts. */
 const EDGE = 8;
@@ -174,7 +176,7 @@ export const browser: Slide = {
   alt: "An interactive mock of Manor: an agent's terminal beside a browser pane showing a small web app, with element picking on, one element pinned with a note, and a pill offering to send the notes to an agent.",
   enter(ctx) {
     const { root } = ctx;
-    const toasts = createToasts(root, ctx.after);
+    const toasts = createToasts(root, ctx.hold);
 
     const firstAgent: Agent = {
       id: "agent",
@@ -318,7 +320,7 @@ export const browser: Slide = {
     const copyPrompt = () => {
       void navigator.clipboard?.writeText(flatPrompt(notes)).catch(() => {});
       ctx.render();
-      toasts.show(`Copied ${countLabel(notes.length)} to the clipboard`);
+      toasts.show(`Copied ${countLabel(notes.length)} to the clipboard`, TOAST_ID);
     };
 
     /** agent-send.ts `sendPromptToAgent`, then usePageNotes's `send`: into the pane, the pane focused, the toast, the queue empty. */
@@ -353,7 +355,7 @@ export const browser: Slide = {
       agent.secs = 0;
       agent.log.push(...wrapped(flatPrompt(sent), '<span class="d">&gt;</span> ', "  ", TERMINAL_COLUMNS), "");
       ctx.render();
-      toasts.show(target === "new" ? `Sent ${label} to a new agent` : `Sent ${label} to ${agent.title}`);
+      toasts.show(target === "new" ? `Sent ${label} to a new agent` : `Sent ${label} to ${agent.title}`, TOAST_ID);
 
       const asPrefilled = sent.filter((n) => n.note.trim() === n.prefill);
       ctx.later(1000, () => {

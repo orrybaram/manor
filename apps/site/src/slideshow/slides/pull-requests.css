@@ -85,6 +85,7 @@
 .ma-pr-reason { align-self: flex-end; font-size: 10px; color: var(--text-dim); text-align: right; }
 
 @media (prefers-reduced-motion: reduce) {
+  .ma-pr-card-in, .ma-pr-card[data-state="closed"] { animation: none; }
   .ma-pr-split, .ma-pr-inviting, .ma-pr-inviting .ma-pr-main::after, .ma-pr-tone-merged, .ma-pr-zip-a, .ma-pr-zip-b, .ma-pr-spin { animation: none; transition: none; }
   .ma-pr-inviting .ma-pr-main::after, .ma-pr-main::before { display: none; }
 }

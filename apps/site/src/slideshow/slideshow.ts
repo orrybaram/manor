@@ -105,14 +105,16 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
       root.innerHTML = renderWindow(entered.render());
       entered.drawn?.();
     };
-    const after = (ms: number, fn: () => void) =>
+    const hold = (ms: number, fn: () => void) =>
       void setTimeout(() => {
         if (current === entry) fn();
-      }, motionReduced ? Math.min(ms, 300) : ms);
+      }, ms);
+    const after = (ms: number, fn: () => void) => hold(motionReduced ? Math.min(ms, 300) : ms, fn);
     const ctx: SlideContext = {
       root,
       render,
       after,
+      hold,
       later: (ms, fn) =>
         after(ms, () => {
           fn();

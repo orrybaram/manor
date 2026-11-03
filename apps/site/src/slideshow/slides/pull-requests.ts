@@ -91,7 +91,7 @@ export const pullRequests: Slide = {
   alt: "An interactive mock of Manor: a workspace's pull request card, open from its sidebar badge, with one failing check, a Fix checks button and a disabled Squash and merge button.",
   enter(ctx) {
     const { root } = ctx;
-    const toasts = createToasts(root, ctx.after);
+    const toasts = createToasts(root, ctx.hold);
 
     let runs: Run[] = [
       { name: "typecheck", status: "failing" },
@@ -284,7 +284,8 @@ export const pullRequests: Slide = {
           { name: "unit", status: "passing" },
         ];
       });
-      ctx.later(4300, () => {
+      // One callback, so nothing can land between the redraw and the card's rebuild.
+      ctx.after(4300, () => {
         runs = [
           { name: "typecheck", status: "passing" },
           { name: "lint", status: "passing" },
@@ -295,8 +296,7 @@ export const pullRequests: Slide = {
         // Where this leaves the app: its card stays shut until the badge is hovered. A visitor shouldn't have to know that, so the slide's opens by itself.
         hover++;
         pinned = true;
-      });
-      ctx.after(4301, () => {
+        ctx.render();
         cardOpen = false;
         showCard();
       });

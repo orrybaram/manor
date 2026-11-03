@@ -784,6 +784,41 @@ test.describe("the Review slide", () => {
     await expect(card(page)).toHaveCount(0);
   });
 
+  test("under reduced motion the toast and Discard's confirm still last their full time", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    const discard = win(page).locator("[data-discard]");
+    await discard.click();
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await page.waitForTimeout(1200);
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await discard.click();
+    await expect(discard).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator("[data-send]").first().click();
+    await page.waitForTimeout(1200);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 1 comment to Tide heights");
+  });
+
+  test("Edit on a card with another composer holding edits keeps them and shows that composer", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator('[data-line="9"]').hover();
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await composer.fill("Mine, half written");
+    await card(page).locator("[data-edit]").click();
+    await expect(composer).toHaveValue("Mine, half written");
+    await expect(composer).toBeFocused();
+    await expect(card(page)).toHaveCount(1);
+  });
+
   test("two comments count up and go together, and leaving resets the slide", async ({ page }) => {
     await openReview(page);
     await chip(page).click();

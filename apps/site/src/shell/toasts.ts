@@ -16,16 +16,26 @@ const PEEK_OPACITY = [1, 0.9, 0.75, 0.5];
 /** One line of text in the card's padding, until measured. */
 const FALLBACK_HEIGHT_PX = 34;
 
-type Toast = { id: number; message: string; leaving: boolean; height: number };
+type Toast = {
+  id: number;
+  /** The app's toast id: showing another with the same one replaces it. */
+  key?: string;
+  message: string;
+  leaving: boolean;
+  height: number;
+  /** Bumped each time it's replaced, which restarts its countdown. */
+  shown: number;
+};
 
 export type ToastDeck = {
-  /** Show a success toast (the only kind a slide needs), for the app's 3s. Call it after the window's drawn. */
-  show: (message: string) => void;
+  /** Show a success toast (the only kind a slide needs), for the app's 3s. Call it after the window's drawn. With a `key`, replaces the one showing under it. */
+  show: (message: string, key?: string) => void;
   /** For `WindowData.overlay`. */
   html: () => string;
 };
 
-export function createToasts(root: HTMLElement, after: (ms: number, fn: () => void) => void): ToastDeck {
+/** `hold`: `SlideContext.hold`, so a toast stays up long enough to read under reduced motion too. */
+export function createToasts(root: HTMLElement, hold: (ms: number, fn: () => void) => void): ToastDeck {
   let toasts: Toast[] = [];
   let nextId = 0;
 
@@ -66,20 +76,30 @@ export function createToasts(root: HTMLElement, after: (ms: number, fn: () => vo
         el.classList.add("ma-toast-in");
         deck.append(el);
         toast.height = el.querySelector<HTMLElement>(".ma-toast-body")!.offsetHeight;
+      } else {
+        const message = el.querySelector<HTMLElement>(".ma-toast-message")!;
+        if (message.textContent !== toast.message) {
+          message.textContent = toast.message;
+          toast.height = el.querySelector<HTMLElement>(".ma-toast-body")!.offsetHeight;
+        }
       }
       place(el, toast);
     }
   };
 
   return {
-    show: (message) => {
-      const toast: Toast = { id: nextId++, message, leaving: false, height: FALLBACK_HEIGHT_PX };
-      toasts.push(toast);
+    show: (message, key) => {
+      const showing = key === undefined ? undefined : toasts.find((t) => t.key === key && !t.leaving);
+      const toast: Toast = showing ?? { id: nextId++, key, message, leaving: false, height: FALLBACK_HEIGHT_PX, shown: 0 };
+      toast.message = message;
+      const shown = ++toast.shown;
+      if (!showing) toasts.push(toast);
       sync();
-      after(AUTO_DISMISS_MS, () => {
+      hold(AUTO_DISMISS_MS, () => {
+        if (toast.shown !== shown) return;
         toast.leaving = true;
         sync();
-        after(EXIT_MS, () => {
+        hold(EXIT_MS, () => {
           toasts = toasts.filter((t) => t !== toast);
           sync();
         });

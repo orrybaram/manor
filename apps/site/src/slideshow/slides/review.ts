@@ -14,6 +14,8 @@ const FILE_PATH = "src/tides/TideRow.tsx";
 const FILE_NAME = "TideRow.tsx";
 /** The pane's width after a drag of the split's divider: even, the diff wouldn't fit beside the 240px drawer. */
 const AGENT_PANE_PERCENT = 36;
+/** lib/review-submit.ts's toast id, for this workspace: a second send replaces the toast. */
+const TOAST_ID = "review-submit-~/harbor/tide-tables";
 /** useReviewSend's `CONFIRM_TIMEOUT`. */
 const DISCARD_CONFIRM_MS = 4000;
 /** Word-wrapped columns of the agent's prompt, in that width. */
@@ -58,6 +60,10 @@ const CHANGED: readonly Changed[] = [
   },
 ];
 
+/** `snippetFor`'s rows once the agent has rounded line 8, and what it says when asked again. */
+const LINE_8_ROUNDED_SNIPPET = "8: -  const height = level / 100;\n8: +  const feet = +(level * 3.28).toFixed(1);";
+const ALREADY_ROUNDED_REPLY = "Feet are already rounded to one decimal, so that line stays as it is.";
+
 const LINE_8_ROUNDED = "  «k|const» «x|feet» «p|=» «px|+(»level «px|*» «nx|3.28»«px|).»«fx|toFixed»«px|(»«nx|1»«px|);»";
 const DELETED = "  «k|const» «x|height» «p|=» level «px|/» «nx|100»«p|;»";
 
@@ -74,14 +80,16 @@ const TRAILING: readonly [number, string, boolean?][] = [
 ];
 
 type Comment = { id: number; line: number; body: string };
-type Composing = { line: number; body: string; editing: Comment | null };
+/** `initial`: what it opened with, which says whether it holds edits worth keeping. */
+type Composing = { line: number; body: string; initial: string; editing: Comment | null };
 
 const countLabel = (n: number) => (n === 1 ? "1 comment" : `${n} comments`);
 const changedAt = (line: number) => CHANGED.find((c) => c.line === line)!;
 
 /** lib/review-submit.ts `reviewPrompt` through lib/agent-command.ts `flattenPrompt`, with the app's default text. */
-function flatPrompt(comments: readonly Comment[]): string {
-  const lines = comments.flatMap((c, i) => [`[${i + 1}] ${FILE_PATH} L${c.line} — ${c.body.trim()}`, `    Code: ${changedAt(c.line).snippet}`]);
+function flatPrompt(comments: readonly Comment[], rounded: boolean): string {
+  const snippet = (line: number) => (line === 8 && rounded ? LINE_8_ROUNDED_SNIPPET : changedAt(line).snippet);
+  const lines = comments.flatMap((c, i) => [`[${i + 1}] ${FILE_PATH} L${c.line} — ${c.body.trim()}`, `    Code: ${snippet(c.line)}`]);
   const prompt = [
     `I left ${countLabel(comments.length)} on the current diff. Take each on its own terms — it may be a question about the code rather than a request to change it. Answer questions directly, and only edit code where a comment actually asks for that.`,
     ...lines,
@@ -167,7 +175,7 @@ export const review: Slide = {
   alt: "An interactive mock of Manor: an agent's terminal beside a file pane showing Source Control and a unified diff of a changed file, with a Comment button on a changed line.",
   enter(ctx) {
     const { root } = ctx;
-    const toasts = createToasts(root, ctx.after);
+    const toasts = createToasts(root, ctx.hold);
 
     let view: "local" | "branch" = "local";
     let focus: "agent" | "file" = "file";
@@ -287,8 +295,9 @@ export const review: Slide = {
       `<div class="ma-fp-stack">${diff()}</div>${reviewBar()}</div></div>`;
 
     const startComposing = (line: number, body: string, editing: Comment | null) => {
-      composing = { line, body, editing };
+      composing = { line, body, initial: body, editing };
       composerFocused = true;
+      focus = "file";
       caret = body.length;
       selected = null;
       ctx.render();
@@ -299,7 +308,6 @@ export const review: Slide = {
       const body = composing.body.trim();
       if (composing.editing) composing.editing.body = body;
       else comments.push({ id: nextComment++, line: composing.line, body });
-      comments.sort((a, b) => a.line - b.line);
       composing = null;
       ctx.render();
     };
@@ -340,17 +348,19 @@ export const review: Slide = {
       const thisRun = ++run;
       comments = [];
       confirmingDiscard = false;
-      composing = null;
+      // Only drafts go: a new comment still being written stays open, an edit's draft has gone.
+      if (composing?.editing) composing = null;
       selected = null;
       focus = "agent";
       status = "thinking";
       secs = 0;
-      log.push(...wrapped(flatPrompt(sent), '<span class="d">&gt;</span> ', "  ", TERMINAL_COLUMNS), "");
+      log.push(...wrapped(flatPrompt(sent, rounded), '<span class="d">&gt;</span> ', "  ", TERMINAL_COLUMNS), "");
       ctx.render();
-      toasts.show(`Sent ${label} to ${AGENT}`);
+      toasts.show(`Sent ${label} to ${AGENT}`, TOAST_ID);
 
       const asPrefilled = sent.map((c) => ({ c, plan: changedAt(c.line) })).filter(({ c, plan }) => c.body.trim() === plan.prefill);
-      const editsLine8 = asPrefilled.some(({ c }) => c.line === 8);
+      const wasRounded = rounded;
+      const editsLine8 = !wasRounded && asPrefilled.some(({ c }) => c.line === 8);
       ctx.later(1000, () => {
         if (thisRun !== run) return;
         status = "working";
@@ -365,7 +375,10 @@ export const review: Slide = {
       ctx.later(2400, () => {
         if (thisRun !== run) return;
         status = "responded";
-        const replies = sent.map((c) => (c.body.trim() === changedAt(c.line).prefill ? changedAt(c.line).reply : `Took your comment on L${c.line} on its own terms.`));
+        const replies = sent.map((c) => {
+          if (c.body.trim() !== changedAt(c.line).prefill) return `Took your comment on L${c.line} on its own terms.`;
+          return c.line === 8 && wasRounded ? ALREADY_ROUNDED_REPLY : changedAt(c.line).reply;
+        });
         replies.forEach((reply, i) => log.push(...wrapped(reply, i === 0 ? '<span class="g">●</span> ' : "  ", "  ", TERMINAL_COLUMNS)));
         log.push("");
       });
@@ -457,15 +470,24 @@ export const review: Slide = {
             comments = [];
           } else {
             confirmingDiscard = true;
-            ctx.later(DISCARD_CONFIRM_MS, () => {
-              if (press === discardPress) confirmingDiscard = false;
+            ctx.hold(DISCARD_CONFIRM_MS, () => {
+              if (press !== discardPress) return;
+              confirmingDiscard = false;
+              ctx.render();
             });
           }
           return ctx.render();
         }
         const cardEl = hit("[data-comment]");
         const shown = comments.find((c) => String(c.id) === cardEl?.dataset.comment);
-        if (shown && hit("[data-edit]")) return startComposing(shown.line, shown.body, shown);
+        if (shown && hit("[data-edit]")) {
+          // diff-comments.tsx `editComment`: an open composer holding edits isn't thrown away; it's shown instead.
+          if (composing && composing.body.trim() !== composing.initial.trim()) {
+            root.querySelector<HTMLTextAreaElement>("[data-composer]")?.focus({ preventScroll: true });
+            return;
+          }
+          return startComposing(shown.line, shown.body, shown);
+        }
         if (shown && hit("[data-delete]")) {
           comments = comments.filter((c) => c !== shown);
           return ctx.render();

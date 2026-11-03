@@ -239,7 +239,26 @@ test.describe("desk chat view", () => {
     await expect(fresh.getByTestId("chat-composer-input")).toBeVisible();
     await expect(fresh.getByTestId("pane-chat-toggle")).toHaveAttribute("aria-pressed", "true");
     await expect(fresh.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+    // Its composer has the keyboard: typing lands in it straight away.
+    await expect(fresh.getByTestId("chat-composer-input")).toBeFocused();
+    await window.keyboard.type("typed after new agent");
+    await expect(fresh.getByTestId("chat-composer-input")).toHaveValue("typed after new agent");
     await film.shot(window, "dark-new-agent-chat");
+
+    // Back on the first tab, its chat's composer has the keyboard again.
+    await window.keyboard.press("ControlOrMeta+1");
+    await expect.poll(() => activePaneId(window)).toBe(paneId);
+    await expect(pane.getByTestId("chat-composer-input")).toBeFocused();
+
+    // `/clear` replaces the chat's composer with a fresh chat's, keyboard and all.
+    await pane.getByTestId("chat-composer-input").fill("/clear");
+    await pane.getByTestId("chat-send").click();
+    await expect(pane.getByTestId("chat-starting")).toBeVisible({ timeout: 15_000 });
+    await expect(pane.getByTestId("chat-composer-input")).toBeFocused();
+
+    await window.keyboard.press("ControlOrMeta+2");
+    await expect.poll(() => activePaneId(window)).not.toBe(paneId);
+    await expect(fresh.getByTestId("chat-composer-input")).toBeFocused();
 
     // From the terminal, ⌘N opens on the terminal as before.
     await fresh.getByTestId("pane-chat-toggle").click();

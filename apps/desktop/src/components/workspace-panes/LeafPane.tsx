@@ -78,7 +78,8 @@ import {
 import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
-import { focusShownView, togglePaneChat, useDeskChatDefault } from "../phone/ChatPane/pane-chat-toggle";
+import { focusChatComposer, focusShownView, togglePaneChat, useDeskChatDefault } from "../phone/ChatPane/pane-chat-toggle";
+import { isNavRegionKeyboardFocused } from "../../lib/focus-regions";
 
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
@@ -153,15 +154,18 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   if (showChat && !chatOpened) setChatOpened(true);
   const mountChat = layoutMode === "phone" || chatOpened;
   // A desk flip, asked for or not (the setting flips a pane whose transcript
-  // just landed), takes focus along to the shown view. The phone leaves focus
-  // alone: focusing the composer would raise its keyboard.
-  const shownBefore = useRef(showChat);
+  // just landed), takes focus along to the shown view, and so does a chat
+  // whose composer was replaced: a first transcript landing swaps the starting
+  // chat for the real one. The phone leaves focus alone: focusing the composer
+  // would raise its keyboard.
+  const shownChat = showChat ? (chatStarting ? "starting" : chatTranscript) : null;
+  const shownBefore = useRef(shownChat);
   useEffect(() => {
-    if (shownBefore.current === showChat) return;
-    shownBefore.current = showChat;
+    if (shownBefore.current === shownChat) return;
+    shownBefore.current = shownChat;
     if (layoutMode !== "desk") return;
-    return focusShownView(containerRef.current, showChat);
-  }, [showChat, layoutMode]);
+    return focusShownView(containerRef.current, shownChat !== null);
+  }, [shownChat, layoutMode]);
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
   // While the chat has handed the terminal a TUI menu, a key bar
@@ -182,6 +186,25 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const setWebviewFocused = useAppStore((s) => s.setWebviewFocused);
   const { drag, dragEnabled, startDrag, endDrag } = usePaneDrag();
   const isFocused = focusedPaneId === paneId;
+
+  // A desk chat takes focus as its terminal would (`useTerminalLifecycle`):
+  // when its pane opens focused or becomes the focused one, unless the user is
+  // driving a navigation region from the keyboard, or on an explicit
+  // refocusActivePane(). The hidden terminal below can't take it.
+  const paneFocusNonce = useAppStore((s) => s.paneFocusNonce);
+  const seenFocusNonce = useRef(paneFocusNonce);
+  const firstFocusRun = useRef(true);
+  useEffect(() => {
+    const demanded = seenFocusNonce.current !== paneFocusNonce;
+    seenFocusNonce.current = paneFocusNonce;
+    const fresh = firstFocusRun.current;
+    firstFocusRun.current = false;
+    if (!isFocused || !showChat || layoutMode !== "desk") return;
+    if (!demanded && !fresh && isNavRegionKeyboardFocused()) return;
+    return focusChatComposer(containerRef.current);
+    // Only these two say the pane was given focus; a flip has its own effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused, paneFocusNonce]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const browserRef = useRef<BrowserPaneRef>(null);

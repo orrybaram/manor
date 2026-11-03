@@ -82,15 +82,26 @@ export function togglePaneChat(paneId: string, layout: LayoutMode = currentLayou
 /**
  * After a desk pane flips, move focus into the view it now shows, if the pane
  * held it (or nothing did): the view it left is hidden, and typing would land
- * there. The chat mounts lazily, so its composer is waited for a few frames.
- * Returns a cancel for the wait.
+ * there. Returns a cancel for the wait.
  */
 export function focusShownView(pane: HTMLElement | null, chat: boolean): () => void {
   const active = document.activeElement;
   if (!pane || (active && active !== document.body && !pane.contains(active))) return () => {};
-  const selector = chat
-    ? '[data-chat-pane]:not([aria-hidden]) [data-testid="chat-composer-input"]'
-    : ".xterm-helper-textarea";
+  return focusWhenMounted(pane, chat ? CHAT_COMPOSER : ".xterm-helper-textarea");
+}
+
+/**
+ * Put focus in the composer of the chat `pane` shows, wherever focus is now.
+ * Returns a cancel for the wait.
+ */
+export function focusChatComposer(pane: HTMLElement | null): () => void {
+  return pane ? focusWhenMounted(pane, CHAT_COMPOSER) : () => {};
+}
+
+const CHAT_COMPOSER = '[data-chat-pane]:not([aria-hidden]) [data-testid="chat-composer-input"]';
+
+/** The chat mounts lazily, so its composer is waited for a few frames. */
+function focusWhenMounted(pane: HTMLElement, selector: string): () => void {
   let frame = 0;
   let tries = 30;
   const attempt = () => {

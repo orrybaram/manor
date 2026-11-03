@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory, ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
@@ -6,6 +6,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { agentChat } from "../../../lib/agent-chat";
+import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { PullToRefresh } from "../PullToRefresh";
 import {
@@ -18,6 +19,7 @@ import {
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
+import { ChatLinkMenuContext } from "./ChatLink";
 import { ChatThinking } from "./ChatThinking";
 import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
@@ -101,6 +103,12 @@ type ChatPaneProps = {
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, agentKind, transcript, hidden, onShowTerminal, layout = "phone" } = props;
   const agentName = agentChat(agentKind).name;
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const linkMenu = useMemo(
+    () => (isWebApp() ? null : { paneId, containerRef: rootRef }),
+    [paneId],
+  );
 
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -360,6 +368,7 @@ export function ChatPane(props: ChatPaneProps) {
 
   return (
     <div
+      ref={rootRef}
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
       data-chat-pane
       data-layout={layout}
@@ -397,13 +406,15 @@ export function ChatPane(props: ChatPaneProps) {
                     data-item-id={entry.id}
                     data-enter={live || undefined}
                   >
-                    <ChatEntryView
-                      paneId={paneId}
-                      entry={entry}
-                      answerableId={answerableId}
-                      live={live}
-                      onShowTerminal={onShowTerminal}
-                    />
+                    <ChatLinkMenuContext.Provider value={linkMenu}>
+                      <ChatEntryView
+                        paneId={paneId}
+                        entry={entry}
+                        answerableId={answerableId}
+                        live={live}
+                        onShowTerminal={onShowTerminal}
+                      />
+                    </ChatLinkMenuContext.Provider>
                   </div>
                 );
               })}

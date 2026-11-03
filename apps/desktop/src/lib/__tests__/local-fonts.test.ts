@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isMonospace, monospaceFamilies } from "../local-fonts";
+import { isMonospace, installedFamilies } from "../local-fonts";
 
 /** Every letter 10px wide in a monospace family, `i` 4px and `W` 14px otherwise. */
 const measure = (text: string, family: string) =>
@@ -23,7 +23,7 @@ describe("local fonts", () => {
       { family: "Andale Mono" },
     ];
     expect(
-      monospaceFamilies(fonts, (family) => isMonospace(measure, family)),
+      installedFamilies(fonts, (family) => isMonospace(measure, family)),
     ).toEqual(["Andale Mono", "Fira Mono"]);
   });
 });

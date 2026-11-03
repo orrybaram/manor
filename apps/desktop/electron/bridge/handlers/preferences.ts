@@ -103,12 +103,9 @@ export function keybindingsRunInMainWindow(
 /**
  * Wire the `preferences.changed` broadcast.
  *
- * `PreferencesManager.onChange` holds exactly one callback, so this is the
- * only place a preferences change can be observed — hence the bridge sink
- * here rather than a second subscription of its own. Every caller of
- * `preferencesSet` shares it, table and route alike. Not `register()`: this
- * subscription has to run once, at boot, the same way `wireStatsBroadcast`
- * and `wireRemoteControlStatus` do for their namespaces.
+ * Every caller of `preferencesSet` shares it, table and route alike. Not
+ * `register()`: this subscription has to run once, at boot, the same way
+ * `wireStatsBroadcast` and `wireRemoteControlStatus` do for their namespaces.
  */
 export function wirePreferencesBroadcast(
   deps: Pick<ServerDeps, "preferencesManager">,

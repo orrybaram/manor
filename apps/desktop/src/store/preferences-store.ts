@@ -38,6 +38,8 @@ const defaultPreferences: AppPreferences = {
   terminalFontSize: 13,
   editorFontFamily: "",
   editorFontSize: 12,
+  chatFontFamily: "",
+  chatFontSize: 14,
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
   mergeCleanups: {},

@@ -57,6 +57,10 @@ export interface AppPreferences {
   editorFontFamily: string;
   /** File and diff editor font size in px. */
   editorFontSize: number;
+  /** Chat message font family; empty means the system font. */
+  chatFontFamily: string;
+  /** Chat message font size in px on the desk; a phone keeps its own. */
+  chatFontSize: number;
   /**
    * Turn remote control on, relay and all, every time Manor opens. Written
    * only through `remoteControl.setStartOnLaunch`, which is local-only — see
@@ -99,6 +103,8 @@ const DEFAULTS: AppPreferences = {
   terminalFontSize: 13,
   editorFontFamily: "",
   editorFontSize: 12,
+  chatFontFamily: "",
+  chatFontSize: 14,
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
   mergeCleanups: {},
@@ -135,7 +141,7 @@ export class PreferencesManager {
   private dataDir: string;
   private prefs: AppPreferences;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private changeCallback: ((prefs: AppPreferences) => void) | null = null;
+  private changeCallbacks = new Set<(prefs: AppPreferences) => void>();
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -214,9 +220,7 @@ export class PreferencesManager {
   set<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]): void {
     this.prefs[key] = value;
     this.saveState();
-    if (this.changeCallback) {
-      this.changeCallback({ ...this.prefs });
-    }
+    for (const callback of this.changeCallbacks) callback({ ...this.prefs });
   }
 
   getAll(): AppPreferences {
@@ -224,6 +228,6 @@ export class PreferencesManager {
   }
 
   onChange(callback: (prefs: AppPreferences) => void): void {
-    this.changeCallback = callback;
+    this.changeCallbacks.add(callback);
   }
 }

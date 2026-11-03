@@ -44,6 +44,10 @@ export interface AppPreferences {
   editorFontFamily: string;
   /** File and diff editor font size in px. */
   editorFontSize: number;
+  /** Chat message font family; empty means the system font. */
+  chatFontFamily: string;
+  /** Chat message font size in px on the desk; a phone keeps its own. */
+  chatFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
   /** The PR card's "Delete workspace after merge" tick box, as last left. */

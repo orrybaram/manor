@@ -101,6 +101,8 @@ describe("profiles on the Hosts page", () => {
   }
 
   beforeEach(() => {
+    // jsdom has no layout, so no scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
     api.hosts.listTemplates.mockReset().mockResolvedValue([kubernetes]);
     api.hosts.checkTemplate.mockReset().mockResolvedValue({ checks: [ok("kubectl")], choices: {} });
     api.hostProfiles.list.mockReset().mockResolvedValue([work]);

@@ -21,23 +21,24 @@ test.describe("desktop 1440", () => {
 
   test("Download points at the latest .dmg with the desktop version", async ({ page }) => {
     await open(page);
-    const buttons = page.locator("a.btn");
-    await expect(buttons).toHaveCount(2);
+    const buttons = page.locator('a[href$=".dmg"]');
+    await expect(buttons).toHaveCount(3);
     for (const b of await buttons.all()) {
       await expect(b).toHaveAttribute("href", "https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg");
-      await expect(b).toContainText(`v${VERSION}`);
     }
+    await expect(page.locator(".hero .meta")).toContainText(`v${VERSION}`);
+    await expect(page.locator(".foot a.btn")).toContainText(`v${VERSION}`);
   });
 });
 
 test.describe("phone 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
-  test("no sideways scroll and the tagline's first line stays on one line", async ({ page }) => {
+  test("no sideways scroll and the headline's first line stays on one line", async ({ page }) => {
     const errors = await open(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-    const l1 = page.locator(".hero .tagline .l1");
-    const lineHeight = await l1.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.3);
+    const l1 = page.locator(".omen-h .ln").first();
+    const lineHeight = await l1.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.5);
     expect((await l1.boundingBox())!.height).toBeLessThan(lineHeight);
     expect(errors).toEqual([]);
   });

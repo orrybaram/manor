@@ -16,11 +16,15 @@
   --app-bg: #1e1e2e; --app-mantle: #181825; --app-crust: #11111b; --app-surface: #313244; --app-border: #383850;
   --app-fg: #cdd6f4; --app-dim: #7f849c; --app-blue: #89b4fa; --app-green: #a6e3a1; --app-red: #f38ba8; --app-peach: #fab387; --app-mauve: #cba6f7; --app-yellow: #f9e2af;
 
+  /* the facade: the plain dark top of the page, a cool black against the omen's warm pitch */
+  --plain-bg: #0c0d12; --plain-raise: #15161d; --plain-ink: #f3f3f6; --plain-mute: #a0a1ad; --plain-faint: #6c6d79; --plain-line: rgba(255, 255, 255, .09); --plain-line-hi: rgba(255, 255, 255, .2);
+
   /* type */
   --f-black: "Pirata One", "Old English Text MT", serif;
   --f-logo: "UnifrakturCook", var(--f-black);
   --f-shout: "Anton", "Impact", "Haettenschweiler", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-fell: "IM Fell English", "Iowan Old Style", Georgia, serif;
 
   color-scheme: light;

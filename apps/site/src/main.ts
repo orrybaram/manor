@@ -4,6 +4,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./sections/header.css";
 import "./sections/hero";
+import "./sections/omen";
 import "./sections/chapter.css";
 import "./sections/chapter-1";
 import "./sections/chapter-2";

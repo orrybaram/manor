@@ -1,12 +1,14 @@
-/* Header: logo left, section links and Download right, on bile. */
-.top { background: var(--bile); color: var(--pitch); }
-.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; position: relative; z-index: 5; }
-.nav ul { list-style: none; display: flex; gap: 22px; margin: 0; padding: 0; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; align-items: center; flex-wrap: wrap; }
-.nav .logo { display: flex; align-items: baseline; font-family: var(--f-logo); font-weight: 700; font-size: 44px; line-height: 1; letter-spacing: -.035em; text-decoration: none; color: var(--pitch); }
-.nav .logo svg { height: .74em; width: auto; margin-right: -.04em; transform: translateY(.04em); filter: drop-shadow(2px 2px 0 var(--wound)); }
-.nav .logo span { text-shadow: 2px 2px 0 var(--wound); }
-.nav .dl { text-decoration: none; background: var(--pitch); color: var(--bile); padding: 7px 12px; box-shadow: 4px 4px 0 var(--wound); }
+/* Header: the facade. A plain dark SaaS bar, nothing to see here. */
+.top { background: var(--plain-bg); color: var(--plain-ink); font-family: var(--f-sans); position: sticky; top: 0; z-index: 50; border-bottom: 1px solid var(--plain-line); }
+.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 60px; }
+.nav .logo { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 17px; letter-spacing: -.02em; text-decoration: none; color: var(--plain-ink); }
+.nav .logo svg { width: 22px; height: auto; }
+.nav ul { list-style: none; display: flex; gap: 28px; margin: 0; padding: 0; font-size: 14px; font-weight: 500; align-items: center; }
+.nav ul a { text-decoration: none; color: var(--plain-mute); transition: color .15s; }
+.nav ul a:hover { color: var(--plain-ink); }
+.nav ul a.dl { color: var(--plain-bg); background: var(--plain-ink); padding: 7px 14px; border-radius: 8px; }
+.nav ul a.dl:hover { background: #fff; color: var(--plain-bg); }
 
-@media (max-width: 540px) {
+@media (max-width: 720px) {
   .nav ul li:not(:last-child) { display: none; }
 }

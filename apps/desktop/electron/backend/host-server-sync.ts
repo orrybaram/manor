@@ -6,6 +6,8 @@
  *   channel — the first, and each after a host reconnect
  *   (`BackendRegistry.onHostServerStateChange` reporting `connected`) — so a
  *   phone's one browser subscription is valid in every room.
+ * - **The prompts edited in Settings**, whole, after every connect and every
+ *   edit, so what a host server builds itself matches the desktop.
  * - **Adoption**, after the key: what the desktop still holds
  *   for the host — its projects, agents and layout, the layout in the shape
  *   `hostLayoutSnapshot` builds, below — handed to the host's server and
@@ -41,6 +43,7 @@
  */
 
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
 import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { errorMessage } from "../lib/errors";
 import {
@@ -157,6 +160,8 @@ export interface HostServerSyncOptions {
    * Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
+  /** The prompts edited in Settings, pushed whole. */
+  promptOverrides?(): PromptOverrides;
   /** Hands each host's records to its server. */
   adoption?: Pick<HostAdoption, "run">;
   /** Revokes owed to each host, sent on every connect. */
@@ -173,6 +178,7 @@ export interface HostServerSyncOptions {
 export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
+  private readonly promptOverrides: (() => PromptOverrides) | undefined;
   private readonly adoption: Pick<HostAdoption, "run"> | undefined;
   private readonly pending: PendingRevokes | undefined;
   private readonly mints: PendingMints | undefined;
@@ -189,6 +195,7 @@ export class HostServerSync {
   constructor(opts: HostServerSyncOptions) {
     this.registry = opts.registry;
     this.vapidKeys = opts.vapidKeys;
+    this.promptOverrides = opts.promptOverrides;
     this.adoption = opts.adoption;
     this.pending = opts.pendingRevokes;
     this.mints = opts.pendingMints;
@@ -358,6 +365,13 @@ export class HostServerSync {
     this.pending?.revoked?.(hostId);
   }
 
+  /** After an edit in Settings: to every host connected now; the rest get it on connect. */
+  promptOverridesChanged(): void {
+    for (const client of this.registry.hostServers()) {
+      void this.pushPromptOverrides(client.hostId, client);
+    }
+  }
+
   dispose(): void {
     this.idleStop.dispose();
     this.unsubscribe?.();
@@ -370,6 +384,7 @@ export class HostServerSync {
     // A changed key clears the host's subscriptions, so its endpoints are
     // read only after the key is in.
     await this.pushVapidKeys(hostId, client);
+    await this.pushPromptOverrides(hostId, client);
     await this.adopt(hostId, client);
     await this.reconcileMints(hostId);
     await this.revokePending(hostId);
@@ -412,6 +427,16 @@ export class HostServerSync {
       await this.adoption.run(hostId, client);
     } catch (err) {
       this.log.warn(`[host-server-sync] ${hostId}: adoption failed: ${errorMessage(err)}`);
+    }
+  }
+
+  /** Whole, every connect and edit. An older server has no such method: it keeps its defaults. */
+  private async pushPromptOverrides(hostId: string, client: HostServerClient): Promise<void> {
+    if (!this.promptOverrides || client.state !== "connected") return;
+    try {
+      await client.api.hostServer.setPromptOverrides(this.promptOverrides());
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: setPromptOverrides failed: ${errorMessage(err)}`);
     }
   }
 

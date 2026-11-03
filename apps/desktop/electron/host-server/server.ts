@@ -54,7 +54,9 @@ import {
   hostServerPaths,
   type DaemonNamespace,
   type HostServerPaths,
+  remoteSessionHintsFile,
 } from "../paths";
+import { writeSessionHints } from "../session-hints";
 import type { SecretBox } from "../platform/secret-box";
 import type { ServerKeyStatus } from "./secrets-command";
 import { createManorServer } from "../server/create-manor-server";
@@ -94,6 +96,8 @@ export interface HostServerOptions {
   /** Seals the relay identity, paired devices and push keys. */
   secretBox: SecretBox;
   /** The running app's version: the daemon handshake and the hello reply. */
+  /** Where the hook script finds edited hints: elsewhere only in tests. */
+  sessionHintsFile?: string;
   appVersion: string;
   /** How the daemon is reached. Defaults to its local socket; tests inject. */
   transport?: HostTransport;
@@ -310,6 +314,10 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         winsize,
         daemonStatus,
         preferences: () => shared.preferencesManager.getAll(),
+        setPromptOverrides: (overrides) => {
+          shared.preferencesManager.set("promptOverrides", overrides);
+          writeSessionHints(opts.sessionHintsFile ?? remoteSessionHintsFile(), overrides);
+        },
         theme: () => shared.themeManager.getThemeByName("__default__"),
         remoteControl: relay.remoteControl,
         relay,

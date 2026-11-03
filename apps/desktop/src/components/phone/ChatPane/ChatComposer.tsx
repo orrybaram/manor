@@ -15,7 +15,13 @@ import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { markChatStarting, noteSentPrompt, startMenuHandoff } from "./usePaneChatView";
+import {
+  clearStartingPrompt,
+  markChatStarting,
+  noteSentPrompt,
+  noteStartingPrompt,
+  startMenuHandoff,
+} from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ChatComposerProps = {
@@ -108,6 +114,10 @@ export function ChatComposer(props: ChatComposerProps) {
   const sendText = (sent: string, afterSent?: () => void) => {
     setSending(true);
     setError(null);
+    // A fresh chat has no transcript to show this for a moment yet. A command
+    // may never write a line that ends the wait, so it isn't drawn.
+    const echoed = transcript === undefined && splitCommand(sent) === null;
+    if (echoed) noteStartingPrompt(paneId, sent);
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);
@@ -123,6 +133,7 @@ export function ChatComposer(props: ChatComposerProps) {
         }
       },
       () => {
+        if (echoed) clearStartingPrompt(paneId);
         setError("Couldn't send. Try again, or use the terminal.");
         setSending(false);
       },

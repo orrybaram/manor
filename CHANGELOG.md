@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.26.2] - 2026-11-03
+
+### Improvements
+
+- A folder's workspace count in the sidebar now sits right after its name and hides when the folder is empty. A long name truncates before the count does, and a folder holding only subfolders still shows its subtree's total.
+
 ## [0.26.1] - 2026-11-03
 
 ### Features

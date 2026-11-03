@@ -611,6 +611,13 @@ export const projectRoutes: ServerRoute[] = [
       const body = await readBody();
       const project = resolveCreateTarget(ctx, pm, named, projects, body);
       if (!project) return;
+      const { folder } = body;
+      if (folder !== undefined && (typeof folder !== "string" || !folder.trim())) {
+        json(400, { error: "'folder' must be a folder name" });
+        return;
+      }
+      // Sent on as it came: a folder name, unlike an id, means the same thing
+      // in every member of a linked group.
       if (await createOnHost(ctx, project, "workspaces", body)) return;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
@@ -620,6 +627,12 @@ export const projectRoutes: ServerRoute[] = [
         json(400, {
           error: "Missing 'name' or 'branch' string in request body",
         });
+        return;
+      }
+      const folderId =
+        folder === undefined ? undefined : pm.ensureTopLevelFolder(project.id, folder)?.id;
+      if (folder !== undefined && !folderId) {
+        json(500, { error: `Could not make the folder "${folder}"` });
         return;
       }
       const baseBranch =
@@ -639,6 +652,7 @@ export const projectRoutes: ServerRoute[] = [
         branch,
         baseBranch,
         useExistingBranch,
+        folderId,
         ...(wait && { awaitSetup: { timeoutMs: CREATE_SETUP_WAIT_MS } }),
       });
       json(200, updated && { ...withHostLabel(pm, updated), ...(setup && { setup }) });

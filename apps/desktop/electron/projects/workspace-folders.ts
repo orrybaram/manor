@@ -134,6 +134,24 @@ export function createWorkspaceFolder(
   return folder;
 }
 
+/**
+ * The project's top-level folder of this name, made if there is none. Reads
+ * the persisted state with no await before it writes, so creates in parallel
+ * share one folder.
+ */
+export function ensureTopLevelFolder(
+  ctx: ProjectContext,
+  projectId: string,
+  name: string,
+): WorkspaceFolder | null {
+  const trimmed = name.trim();
+  const existing = ctx
+    .find(projectId)
+    ?.workspaceFolders?.find((f) => f.name === trimmed && f.parentId == null);
+  if (existing) return { ...existing, parentId: null };
+  return createWorkspaceFolder(ctx, projectId, trimmed, null);
+}
+
 export function renameWorkspaceFolder(
   ctx: ProjectContext,
   projectId: string,

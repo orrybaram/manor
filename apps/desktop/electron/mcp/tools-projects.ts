@@ -435,6 +435,11 @@ const tools: ToolDef[] = [
           description:
             "Check out an existing branch instead of creating a new one.",
         },
+        folder: {
+          type: "string",
+          description:
+            "Name of the top-level sidebar folder to file the workspace in, on whichever host it lands. The folder is made if there is none.",
+        },
         host: CREATE_HOST_PROP,
         wait: {
           type: "boolean",
@@ -1036,6 +1041,7 @@ const handlers: ToolModule["handlers"] = {
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.useExistingBranch !== undefined)
       body.useExistingBranch = args.useExistingBranch;
+    if (args.folder !== undefined) body.folder = args.folder;
     if (args.host !== undefined) body.host = args.host;
     const waited = args.wait === true;
     if (waited) body.wait = true;

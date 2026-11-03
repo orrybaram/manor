@@ -152,6 +152,40 @@ describe("the box's manor CLI, with no desktop connected", () => {
     expect(onPhone.workspaces.map((ws) => ws.path)).toContain(wsPath);
   });
 
+  it("files workspaces in a folder named at create, making it once", async () => {
+    await withGit();
+    const repo = path.join(h.tmp, "repo");
+    await seedRepo(repo);
+    h.adopt();
+    await h.serve();
+    await relayListener();
+
+    const owner = await h.owner();
+    const project = await owner.invoke<ProjectInfo>("projects", "add", "demo", repo);
+    await owner.invoke("projects", "update", project.id, {
+      worktreePath: path.join(h.tmp, "worktrees"),
+    });
+
+    const create = (name: string) =>
+      manor("create-workspace", "--project-id", project.id, "--name", name, "--folder", "PR Screens");
+    const first = await eventually(() => create("pr-1-screen"), (r) => r.code === 0, "the first create");
+    const second = await create("pr-2-screen");
+    expect(second.err).toBe("");
+    expect(second.code).toBe(0);
+    expect(first.out).toContain("PR Screens");
+
+    const projects = await owner.invoke<ProjectInfo[]>("projects", "getAll");
+    const found = projects.find((p) => p.id === project.id)!;
+    expect(found.folders.map((f) => f.name)).toEqual(["PR Screens"]);
+    const filed = found.workspaces.filter((ws) => ws.folderId === found.folders[0].id);
+    expect(filed.map((ws) => ws.path).sort()).toEqual([
+      path.join(h.tmp, "worktrees", "pr-1-screen"),
+      path.join(h.tmp, "worktrees", "pr-2-screen"),
+    ]);
+
+    owner.client.dispose();
+  });
+
   it("says a desktop-only route needs Manor desktop", async () => {
     h.adopt();
     await h.serve();

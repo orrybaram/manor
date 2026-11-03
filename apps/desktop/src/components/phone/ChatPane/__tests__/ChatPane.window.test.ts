@@ -214,34 +214,30 @@ describe("the chat's window", { timeout: 30_000 }, () => {
 });
 
 describe("ChatPane — revealing a task above the window", () => {
-  it("mounts from a background agent picked in the agents list and scrolls to its card", async () => {
+  it("mounts from a shell command the running chip asks for and scrolls to its card", async () => {
     const scrollIntoView = vi.fn();
     const original = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoView;
     onTestFinished(() => {
       Element.prototype.scrollIntoView = original;
     });
-    const agent: ChatEntry = {
+    const shell: ChatEntry = {
       kind: "task",
-      id: "agent-1",
+      id: "shell-1",
       ts: new Date().toISOString(),
-      taskKind: "agent",
-      title: "Map the sheets",
-      agentType: "Explore",
+      taskKind: "shell",
+      title: "pnpm test",
       background: true,
       status: "running",
     };
-    await open([agent, ...history(WINDOW_ITEMS + 20)]);
-    expect(container.querySelector('[data-task-id="agent-1"]')).toBeNull();
+    await open([shell, ...history(WINDOW_ITEMS + 20)]);
+    expect(container.querySelector('[data-task-id="shell-1"]')).toBeNull();
 
     await act(async () => {
-      container.querySelector<HTMLElement>('[data-testid="chat-agents-chip"]')?.click();
-    });
-    await act(async () => {
-      document.body.querySelector<HTMLElement>('[data-agent-id="agent-1"]')?.click();
+      container.querySelector<HTMLElement>('[data-testid="chat-running-chip"]')?.click();
     });
 
-    const card = container.querySelector('[data-task-id="agent-1"]');
+    const card = container.querySelector('[data-task-id="shell-1"]');
     expect(card).not.toBeNull();
     expect(scrollIntoView.mock.contexts).toContain(card);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "auto" });

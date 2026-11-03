@@ -194,19 +194,6 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await setWidth(app, 1400);
   await expect(window.locator(".app[data-layout='desk']")).toHaveCount(1, { timeout: 10_000 });
   await expect(window.getByTestId("tab-dust").first()).toBeAttached();
-
-  // Turning the setting off clears everything at once.
-  await window.keyboard.press("ControlOrMeta+,");
-  await window.getByRole("button", { name: "Appearance" }).click();
-  const toggle = window.getByRole("switch").last();
-  await toggle.scrollIntoViewIfNeeded();
-  await expect(window.getByText("Halloween effects")).toBeVisible();
-  await window.screenshot({ path: shot(testInfo, "setting-light") });
-  await toggle.click();
-  await expect(window.getByTestId("tab-dust")).toHaveCount(0);
-  await expect(window.getByTestId("panel-cobwebs")).toHaveCount(0);
-  await toggle.click();
-  await expect(window.getByTestId("tab-dust").first()).toBeAttached();
 });
 
 test("a dusty tab in another workspace leaves no dust on the one on screen", async ({

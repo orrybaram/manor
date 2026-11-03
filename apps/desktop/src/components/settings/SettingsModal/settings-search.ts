@@ -87,11 +87,6 @@ const PAGE_SECTIONS: {
         label: "Font",
         keywords: ["font", "family", "size", "typeface"],
       },
-      {
-        id: "app-seasonal",
-        label: "Seasonal",
-        keywords: ["halloween", "cobwebs", "dust", "seasonal", "spooky"],
-      },
     ],
   },
   {

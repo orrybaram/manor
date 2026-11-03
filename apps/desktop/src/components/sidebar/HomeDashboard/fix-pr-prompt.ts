@@ -23,6 +23,11 @@ function prLine(pr: PrRef): string {
   return `PR #${pr.number} "${pr.title}" (${pr.url})`;
 }
 
+/** The brief for a PR that conflicts with its base: nothing to read from GitHub first. */
+export function prConflictsPrompt(pr: PrRef, overrides?: PromptOverrides | null): string {
+  return renderPrompt("prConflicts", { pr: prLine(pr) }, overrides);
+}
+
 /**
  * The first message for a "Fix with agent" launch from a blocked-PR card.
  * Failing checks and review threads are the PR card's briefs (`fetchBrief`),
@@ -42,7 +47,7 @@ export async function fixPrPrompt(
     case "threads":
       return fetchBrief("comments");
     case "conflicts":
-      return renderPrompt("prConflicts", { pr: prLine(pr) }, overrides);
+      return prConflictsPrompt(pr, overrides);
     case "changes-requested":
       return renderPrompt("prChanges", { pr: prLine(pr), number: String(pr.number) }, overrides);
   }

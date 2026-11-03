@@ -118,7 +118,7 @@ const definitions: PromptDefinition[] = [
     id: "prConflicts",
     group: "Pull requests",
     label: "Resolve merge conflicts",
-    usedWhen: "Fix with agent on the Home dashboard, for a PR with conflicts",
+    usedWhen: "Fix conflicts on the PR card, and Fix with agent on the Home dashboard",
     placeholders: { pr: "The PR's number, title and link" },
     template: [
       "{{pr}} has merge conflicts with its base branch.",

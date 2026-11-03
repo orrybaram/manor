@@ -122,16 +122,19 @@ test.describe("slideshow at 1440", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the window has to be half on screen for progress to run", async ({ page }) => {
+  test("the window has to be a fifth on screen for progress to run, which it is on load at 1440×900", async ({ page }) => {
     await open(page);
     await windowOnScreen(page);
     const shot = (await page.locator(".slideshow .shot").boundingBox())!;
     const top = (await page.evaluate(() => window.scrollY)) + shot.y;
-    // Scroll so this share of the window shows above the viewport's bottom edge.
-    const show = (share: number) => scrollTo(page, top + shot.height * share - 900);
-    await show(0.4);
+    // Scroll so this share of the window shows below the viewport's top edge.
+    const show = (share: number) => scrollTo(page, top + shot.height * (1 - share));
+    await show(0.1);
     await expectHeld(page);
-    await show(0.6);
+    await show(0.3);
+    await expectRunning(page);
+
+    await scrollTo(page, 0);
     await expectRunning(page);
   });
 
@@ -301,6 +304,54 @@ test.describe("slideshow at 1440", () => {
     expect(errors).toEqual([]);
   });
 
+  test("a key the slide takes stops autoplay as a click does, so the hand-off can't wipe it", async ({ page }) => {
+    await open(page);
+    await page.locator('.slideshow [data-pane="suite"]').click();
+    await toggle(page).focus();
+    await toggle(page).press("Enter"); // Play from the keyboard, so the pane keeps the keys.
+    await page.locator(".hero .gh-plain").focus();
+    await windowOnScreen(page);
+    await expect(toggle(page)).toHaveText("Pause");
+    await expectRunning(page);
+    await page.keyboard.type("hi");
+    await expect(page.locator('.slideshow [data-pane="suite"] .ma-term')).toContainText("hi");
+    await expect(toggle(page)).toHaveText("Play");
+    await expectHeld(page);
+  });
+
+  test("a key the slide leaves alone doesn't stop autoplay", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await page.keyboard.press("x");
+    await expect(toggle(page)).toHaveText("Pause");
+    await expectRunning(page);
+  });
+
+  test("the page's terminal holds the slideshow while it's open", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await expectRunning(page);
+    await page.keyboard.press("Control+k");
+    await expect(page.locator(".term")).toBeVisible();
+    await expectHeld(page);
+    await expect(toggle(page)).toHaveText("Pause"); // Only held: still meant to play.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".term")).toBeHidden();
+    await expectRunning(page);
+  });
+
+  test("under reduced motion, Play advances the slides and nothing inside one moves by itself", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await open(page);
+    await windowOnScreen(page);
+    const secs = await composingSecs(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+    await page.waitForTimeout(1500);
+    expect(await composingSecs(page)).toBe(secs);
+  });
+
   test("typing into a pane stays in the pane, and not while the keyboard is on the controls", async ({ page }) => {
     await open(page);
     const suite = page.locator('.slideshow [data-pane="suite"] .ma-term');
@@ -324,10 +375,11 @@ test.describe("slideshow at 1440", () => {
       const b = (await lights.nth(i).boundingBox())!;
       expect((b.x - box.x) / scale).toBeCloseTo(x, 0);
       expect(b.width / scale).toBeCloseTo(12, 0);
-      expect((b.y + b.height / 2 - box.y) / scale).toBeCloseTo(20, 0);
+      expect((b.y + b.height / 2 - box.y) / scale).toBeCloseTo(28, 0);
     }
     const back = (await page.locator('.slideshow .ma-lead-button[aria-label="Navigate back"]').boundingBox())!;
     expect((back.x - box.x) / scale).toBeGreaterThan(65);
+    expect((back.y + back.height / 2 - box.y) / scale).toBeCloseTo(28, 0);
   });
 });
 

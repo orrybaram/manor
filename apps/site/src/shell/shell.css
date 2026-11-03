@@ -84,8 +84,9 @@
 
 /* components/window-lead/WindowLead/WindowLead.module.css */
 .ma-lead { position: absolute; top: 0; left: 0; width: 220px; height: var(--title-row); z-index: 10; display: flex; align-items: flex-end; padding-right: 3px; background: transparent; }
-/* Native in the app: x and y from trafficLightPosition (electron/window.ts) centred in the title row, in macOS's own size, gap and colours. */
-.ma-lights { flex-shrink: 0; display: flex; align-items: center; gap: 8px; width: var(--traffic-light-inset); height: 100%; padding-left: 13px; }
+.ma-lights-spacer { height: 100%; flex-shrink: 0; width: var(--traffic-light-inset); }
+/* Native in the app, above everything it draws: x from trafficLightPosition (electron/window.ts), y level with the lead's 24px buttons (WindowLead.module.css), in macOS's own size, gap and colours. */
+.ma-lights { position: absolute; left: 13px; top: 16px; height: 24px; z-index: 200; display: flex; align-items: center; gap: 8px; }
 .ma-lights span { width: 12px; height: 12px; border-radius: 50%; background: #28c840; }
 .ma-lights span:first-child { background: #ff5f57; }
 .ma-lights span:nth-child(2) { background: #febc2e; }

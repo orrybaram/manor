@@ -18,11 +18,14 @@ export const SLIDE_ORDER = [
 
 export type SlideId = (typeof SLIDE_ORDER)[number];
 
+/** How long a slide stays open while the slideshow plays. */
+export const SLIDE_MS = 8000;
+
 /** What the frame lends a slide for as long as it's the open one. */
 export type SlideContext = {
   /** The window's root. Theme it with `applyTheme`; the frame puts the default back on the next entry. */
   root: HTMLElement;
-  /** Redraw the whole window from `render`. */
+  /** Redraw the whole window from `render`. A no-op until `enter` has returned; the frame draws right after. */
   render: () => void;
   /** Run `fn` after a delay (shortened under reduced motion), then redraw. Dropped if the slide is left first. */
   later: (ms: number, fn: () => void) => void;
@@ -33,7 +36,7 @@ export type SlideContext = {
 export type SlideFrame = {
   /** Time since the last frame. */
   ms: number;
-  /** The slideshow's clock is running: not hovered, not focused, not stopped, at least half on screen. */
+  /** The slideshow's clock is running: not hovered, not focused, not stopped, at least a fifth on screen, the page's terminal shut. */
   advancing: boolean;
 };
 
@@ -43,9 +46,9 @@ export type OpenSlide = {
   render: () => WindowData;
   /** A click inside the window. The frame has already stopped autoplay. */
   onClick?: (e: MouseEvent) => void;
-  /** A key pressed anywhere but the slideshow's own controls. Leave page keys alone. */
+  /** A key pressed anywhere but the slideshow's own controls. Leave page keys alone; `preventDefault` a key you take, which stops autoplay as a click does. */
   onKey?: (e: KeyboardEvent) => void;
-  /** Each animation frame while the window is on screen, the tab is showing and motion is welcome. */
+  /** Each animation frame while the window is on screen and the tab is showing. Never under reduced motion, even after Play: the slides advance, but nothing inside one moves by itself. */
   onFrame?: (frame: SlideFrame) => void;
 };
 

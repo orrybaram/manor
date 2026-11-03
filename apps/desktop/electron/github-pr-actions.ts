@@ -8,6 +8,7 @@
  * poll; every query answers one click.
  */
 
+import { renderPrompt, type PromptOverrides } from "../src/lib/prompts/catalog";
 import type { PrMergeMethod, PrMergeOptions, PrMergeOutcome } from "../src/lib/pr-info";
 import { normalizeRawPr, type RawStatusCheck } from "./github-pr-query";
 
@@ -243,7 +244,11 @@ function header(pr: Pick<PrContext, "number" | "title" | "url">): string {
  * The first message for an agent asked to fix a PR's failing checks: each
  * check by name, its link, and the end of its failed log, within one budget.
  */
-export function failingChecksPrompt(pr: Pick<PrContext, "number" | "title" | "url">, checks: FailingCheck[]): string {
+export function failingChecksPrompt(
+  pr: Pick<PrContext, "number" | "title" | "url">,
+  checks: FailingCheck[],
+  overrides?: PromptOverrides | null,
+): string {
   let budget = LOG_BUDGET_CHARS;
   const sections = checks.map((check) => {
     const title = check.workflow && check.workflow !== check.name ? `${check.name} (${check.workflow})` : check.name;
@@ -260,13 +265,15 @@ export function failingChecksPrompt(pr: Pick<PrContext, "number" | "title" | "ur
     }
     return lines.join("\n");
   });
-  const s = checks.length === 1 ? "" : "s";
-  return [
-    `${checks.length} check${s} failing on ${header(pr)}.`,
-    "",
-    ...sections.flatMap((section) => [section, ""]),
-    `Find the cause of ${checks.length === 1 ? "the failure" : "each failure"}, fix it on this branch, check it passes locally, then commit and push.`,
-  ].join("\n");
+  return renderPrompt(
+    "prChecks",
+    {
+      count_checks: `${checks.length} check${checks.length === 1 ? "" : "s"}`,
+      pr: header(pr),
+      checks: sections.join("\n\n"),
+    },
+    overrides,
+  );
 }
 
 function where(thread: PrReviewThread): string {
@@ -280,7 +287,11 @@ function where(thread: PrReviewThread): string {
  * The first message for an agent asked to deal with a PR's unresolved review
  * threads: each with its file and line, and every comment in it.
  */
-export function reviewThreadsPrompt(pr: Pick<PrContext, "number" | "title" | "url">, threads: PrReviewThread[]): string {
+export function reviewThreadsPrompt(
+  pr: Pick<PrContext, "number" | "title" | "url">,
+  threads: PrReviewThread[],
+  overrides?: PromptOverrides | null,
+): string {
   const sections = threads.map((thread, i) => {
     const lines = [`## ${i + 1}. ${where(thread)}${thread.isOutdated ? " (outdated: the code has changed since)" : ""}`];
     for (const c of thread.comments) {
@@ -290,11 +301,13 @@ export function reviewThreadsPrompt(pr: Pick<PrContext, "number" | "title" | "ur
     if (link) lines.push(link);
     return lines.join("\n");
   });
-  const s = threads.length === 1 ? "" : "s";
-  return [
-    `${threads.length} unresolved review thread${s} on ${header(pr)}.`,
-    "",
-    ...sections.flatMap((section) => [section, ""]),
-    "Address each one on this branch: change the code where the reviewer is right, and where you disagree say why in your summary. Then commit and push, and list what you did per thread.",
-  ].join("\n");
+  return renderPrompt(
+    "prThreads",
+    {
+      count_threads: `${threads.length} unresolved review thread${threads.length === 1 ? "" : "s"}`,
+      pr: header(pr),
+      threads: sections.join("\n\n"),
+    },
+    overrides,
+  );
 }

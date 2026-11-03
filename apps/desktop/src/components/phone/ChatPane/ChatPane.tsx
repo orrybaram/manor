@@ -29,7 +29,8 @@ import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
-import { clearQueuedPrompts, noteChatEntries, useQueuedPrompts } from "./usePaneChatView";
+import { UserBubble } from "./UserBubble";
+import { clearQueuedPrompts, noteChatEntries, useQueuedPrompts, useStartingPrompt } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
@@ -103,6 +104,10 @@ type ChatPaneProps = {
  * Busy is the hook status, unless the transcript has said the turn ended
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
  * the chat on its live line with its composer held.
+ *
+ * A new session's hook names its transcript a moment before the transcript
+ * holds the first prompt. A prompt the starting chat was showing stays drawn
+ * through that, and its line landing takes its place without animating in.
  *
  * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
  * top mounts earlier ones; back at the bottom, the window drops back to the
@@ -275,6 +280,11 @@ export function ChatPane(props: ChatPaneProps) {
     observer.observe(content);
     return () => observer.disconnect();
   }, []);
+
+  // As it was when this chat took over: landing, the store's copy is cleared.
+  const storedPrompt = useStartingPrompt(paneId);
+  const [firstPrompt] = useState(storedPrompt);
+  const awaitingPrompt = entries.length === 0 ? firstPrompt : null;
 
   const answerableId = answerablePickerId(entries);
   const busy = isBusyStatus(status) && !turnSettled;
@@ -475,14 +485,15 @@ export function ChatPane(props: ChatPaneProps) {
                   onScroll={onScroll}
                 >
                   <div ref={followBottom} className={styles.entries}>
-                    {loaded && entries.length === 0 && (
+                    {loaded && entries.length === 0 && awaitingPrompt === null && (
                       <p className={styles.empty}>Nothing in this conversation yet.</p>
                     )}
                     {items.slice(start).map((entry) => {
                       const live =
                         settledIds !== null &&
                         !settledIds.has(entry.id) &&
-                        !retired.current.has(entry.id);
+                        !retired.current.has(entry.id) &&
+                        !(firstPrompt !== null && entry.id === entries[0]?.id);
                       return (
                         <div
                           key={entry.id}
@@ -502,6 +513,11 @@ export function ChatPane(props: ChatPaneProps) {
                         </div>
                       );
                     })}
+                    {awaitingPrompt !== null && (
+                      <div className={styles.entry}>
+                        <UserBubble text={awaitingPrompt} />
+                      </div>
+                    )}
                     {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
                     {queued.map((text, i) => (
                       <div key={i} className={styles.userRow} data-testid="chat-queued">

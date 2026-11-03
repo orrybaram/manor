@@ -10,6 +10,7 @@
  */
 
 import { useProjectStore, type LinkedIssue, type ProjectInfo } from "../store/project-store";
+import { savedPromptOverrides } from "./prompts/saved-overrides";
 import { BridgeUnavailableError } from "../bridge/client";
 import { onBehalfOf } from "../bridge/router";
 import { showBridgeUnavailableToastOnce } from "./bridge-unavailable-toast";
@@ -98,7 +99,12 @@ export function startGitHubIssueWork(
     projectId: project.id,
     name: issue.title,
     branch,
-    agentPrompt: issuePrompt(`GitHub issue #${issue.number}`, issue.title, issue.body),
+    agentPrompt: issuePrompt(
+      `GitHub issue #${issue.number}`,
+      issue.title,
+      issue.body,
+      savedPromptOverrides(),
+    ),
     linkedIssue,
   });
   assignIssueBestEffort(repo, issue.number);
@@ -136,7 +142,12 @@ export function startLinearIssueWork(
     projectId: project.id,
     name: issue.title,
     branch: issue.branchName,
-    agentPrompt: issuePrompt(`Linear issue ${issue.identifier}`, issue.title, issue.description),
+    agentPrompt: issuePrompt(
+      `Linear issue ${issue.identifier}`,
+      issue.title,
+      issue.description,
+      savedPromptOverrides(),
+    ),
     linkedIssue,
   });
   // Best effort, like the GitHub assign. A host server without Linear turned

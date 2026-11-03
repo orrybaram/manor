@@ -7,7 +7,6 @@ import {
   formatDuration,
   isOpenPicker,
   sameItem,
-  splitPrompt,
   summarizeTools,
   type ChatItem,
   type ToolGroup,
@@ -15,11 +14,12 @@ import {
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
-import { GableMark } from "./GableMark";
+import { DustMark } from "./DustMark";
 import { pastVerb } from "./manor-verbs";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
+import { UserBubble } from "./UserBubble";
 import styles from "./ChatPane.module.css";
 
 type ChatEntryViewProps = {
@@ -41,13 +41,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
 
   switch (entry.kind) {
     case "user":
-      return (
-        <div className={styles.userRow}>
-          <div className={styles.userBubble} data-testid="chat-user">
-            <UserPrompt text={entry.text} />
-          </div>
-        </div>
-      );
+      return <UserBubble text={entry.text} />;
     case "assistant":
       return (
         <div className={styles.assistant} data-testid="chat-assistant">
@@ -83,7 +77,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
             ·
           </span>
           <span>
-            Thought for <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+            Thought for <span className={styles.turnTime}>{formatDuration(entry.durationMs)}</span>
           </span>
         </div>
       );
@@ -122,43 +116,13 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
   sameItem(prev.entry, next.entry),
 );
 
-/**
- * A prompt's text, with each pasted block folded to a "Pasted N lines" row
- * that opens to the paste.
- */
-function UserPrompt({ text }: { text: string }) {
-  const parts = splitPrompt(text);
-  if (parts.length === 1 && parts[0].kind === "typed") return <>{text}</>;
-  return (
-    <div className={styles.userParts}>
-      {parts.map((part, i) =>
-        part.kind === "typed" ? (
-          <div key={i}>{part.text}</div>
-        ) : (
-          <details key={i} className={styles.pasted} data-testid="chat-pasted">
-            <summary className={styles.pastedSummary}>
-              Pasted {lineCount(part.text)}
-            </summary>
-            <div className={styles.pastedText}>{part.text}</div>
-          </details>
-        ),
-      )}
-    </div>
-  );
-}
-
-function lineCount(text: string): string {
-  const lines = text.split("\n").length;
-  return lines === 1 ? "1 line" : `${lines} lines`;
-}
-
 type TurnEndProps = {
   entry: Extract<ChatEntry, { kind: "turn-end" }>;
 };
 
 /**
- * A finished turn, as a centred divider in Manor's voice: "Polished for
- * 2m 14s", and the background agents it left running.
+ * A finished turn, as a still line in Manor's voice: "Polished for 2m 14s",
+ * and the background agents it left running.
  */
 function TurnEnd(props: TurnEndProps) {
   const { entry } = props;
@@ -166,11 +130,11 @@ function TurnEnd(props: TurnEndProps) {
   const agents = entry.backgroundAgents;
   return (
     <div className={styles.turnEnd} data-testid="chat-turn-end">
-      <GableMark />
+      <DustMark />
       <span className={styles.turnEndText}>
         <span className={styles.turnPhrase}>
           <span className={styles.turnVerb}>{pastVerb(entry.id)}</span> for{" "}
-          <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+          <span className={styles.turnTime}>{formatDuration(entry.durationMs)}</span>
         </span>
         {agents > 0 && (
           <>

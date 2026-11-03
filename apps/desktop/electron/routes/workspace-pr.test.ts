@@ -82,6 +82,7 @@ const github = {
 };
 const remove = vi.fn(async () => {});
 const ptyWrite = vi.fn();
+const promptOverrides = { prConflicts: "An edit the user saved. {{pr}}" };
 
 function deps(): ServerRouteDeps {
   return {
@@ -94,6 +95,7 @@ function deps(): ServerRouteDeps {
       input: () => ({ promptWrites: (text: string) => [text, "\r"], interruptKeys: ["\x1b"] }),
     },
     backend: { pty: { write: ptyWrite } },
+    preferencesManager: { get: () => promptOverrides },
   } as unknown as ServerRouteDeps;
 }
 
@@ -213,7 +215,12 @@ describe("POST …/pr/fix-checks and …/pr/address-comments", () => {
   it("with print, only answers the brief", async () => {
     agents = [agent({})];
     const answer = await call("fix-checks", { workspacePath: FEATURE, print: true });
-    expect(github.getPrAgentPrompt).toHaveBeenCalledWith({ path: MAIN, hostId: "local" }, 12, "checks");
+    expect(github.getPrAgentPrompt).toHaveBeenCalledWith(
+      { path: MAIN, hostId: "local" },
+      12,
+      "checks",
+      promptOverrides,
+    );
     expect(answer).toEqual({
       status: 200,
       body: { delivery: "printed", number: 12, prompt: "Fix the failing checks." },
@@ -232,7 +239,12 @@ describe("POST …/pr/fix-checks and …/pr/address-comments", () => {
       agent({ id: "other-host", hostId: "ssh-box", updatedAt: "2026-10-30T12:30:00Z" }),
     ];
     const answer = await call("address-comments", { workspacePath: FEATURE });
-    expect(github.getPrAgentPrompt).toHaveBeenCalledWith(expect.anything(), 12, "comments");
+    expect(github.getPrAgentPrompt).toHaveBeenCalledWith(
+      expect.anything(),
+      12,
+      "comments",
+      promptOverrides,
+    );
     expect(answer.body).toEqual({
       delivery: "sent",
       number: 12,

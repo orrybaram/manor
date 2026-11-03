@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { PromptOverrides } from "../src/lib/prompts/catalog";
 import { manorDataDir } from "./paths";
 
 export interface AppPreferences {
@@ -75,6 +76,12 @@ export interface AppPreferences {
    * from the phone is cleaned up by the desk's poller.
    */
   mergeCleanups: Record<string, string>;
+  /**
+   * The prompts edited in Settings › Prompts; the rest use their defaults.
+   * Written only through `preferences.setPrompt` and, on a host, the owner's
+   * push — see `isSharedPreferenceKey`.
+   */
+  promptOverrides: PromptOverrides;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -108,6 +115,7 @@ const DEFAULTS: AppPreferences = {
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
   mergeCleanups: {},
+  promptOverrides: {},
 };
 
 /**
@@ -129,19 +137,21 @@ export function isPreferenceKey(key: string): key is keyof AppPreferences {
  * A preference the generic setters (`preferences.set`, `POST /preferences`)
  * may write. Not `remoteControlOnLaunch`: a paired device or an agent that
  * could set it would make this machine reachable again after the next
- * restart, which only the user at this computer may decide.
+ * restart, which only the user at this computer may decide. Nor
+ * `promptOverrides`: an agent that could set it could rewrite what every later
+ * agent is told, and those often run with permission prompts off.
  */
 export function isSharedPreferenceKey(
   key: string,
-): key is Exclude<keyof AppPreferences, "remoteControlOnLaunch"> {
-  return isPreferenceKey(key) && key !== "remoteControlOnLaunch";
+): key is Exclude<keyof AppPreferences, "remoteControlOnLaunch" | "promptOverrides"> {
+  return isPreferenceKey(key) && key !== "remoteControlOnLaunch" && key !== "promptOverrides";
 }
 
 export class PreferencesManager {
   private dataDir: string;
   private prefs: AppPreferences;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private changeCallbacks = new Set<(prefs: AppPreferences) => void>();
+  private changeListeners = new Set<(prefs: AppPreferences) => void>();
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir ?? manorDataDir();
@@ -220,7 +230,9 @@ export class PreferencesManager {
   set<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]): void {
     this.prefs[key] = value;
     this.saveState();
-    for (const callback of this.changeCallbacks) callback({ ...this.prefs });
+    for (const listener of this.changeListeners) {
+      listener({ ...this.prefs });
+    }
   }
 
   getAll(): AppPreferences {
@@ -228,6 +240,6 @@ export class PreferencesManager {
   }
 
   onChange(callback: (prefs: AppPreferences) => void): void {
-    this.changeCallbacks.add(callback);
+    this.changeListeners.add(callback);
   }
 }

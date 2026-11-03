@@ -140,6 +140,44 @@ afterEach(() => {
   container.remove();
 });
 
+describe("ChatPane — first prompt", () => {
+  const prompt = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: "fix the login bug" });
+  const noEntries: ChatHistory = { ok: true, entries: [], contextTokens: null };
+
+  it("keeps a starting prompt on screen until its line lands, which doesn't animate in", async () => {
+    usePaneChatViewStore.setState({ startingPrompts: { [PANE]: "fix the login bug" } });
+    installChat(noEntries);
+    await renderChat();
+    expect(all("chat-user").map((el) => el.textContent)).toEqual(["fix the login bug"]);
+    expect(container.textContent).not.toContain("Nothing in this conversation");
+
+    await act(async () => listener?.(PANE, prompt("u1")));
+    expect(all("chat-user").map((el) => el.textContent)).toEqual(["fix the login bug"]);
+    expect(container.querySelector("[data-enter]")).toBeNull();
+    expect(usePaneChatViewStore.getState().startingPrompts).toEqual({});
+  });
+
+  it("draws the prompt under no other chat: a later transcript on the pane starts empty", async () => {
+    usePaneChatViewStore.setState({ startingPrompts: { [PANE]: "fix the login bug" } });
+    installChat({ ok: true, entries: [prompt("u1")], contextTokens: null });
+    await renderChat();
+    await act(async () => root.unmount());
+    root = createRoot(container);
+
+    installChat(noEntries);
+    await renderChat();
+    expect(all("chat-user")).toEqual([]);
+    expect(container.textContent).toContain("Nothing in this conversation");
+  });
+
+  it("animates in a first prompt nobody was shown", async () => {
+    installChat(noEntries);
+    await renderChat();
+    await act(async () => listener?.(PANE, prompt("u1")));
+    expect(container.querySelector("[data-enter]")).not.toBeNull();
+  });
+});
+
 describe("ChatPane — entries", () => {
   it("subscribes before fetching, and renders each kind", async () => {
     installChat({
@@ -427,7 +465,8 @@ describe("ChatPane — entries", () => {
       await act(async () => vi.advanceTimersByTime(800));
       const line = () => all("chat-thinking")[0];
       expect(line().textContent).toBe(`${presentVerb(5)}…0s`);
-      expect(line().querySelector("svg[data-breathing]")).not.toBeNull();
+      expect(line().querySelector("svg[data-live]")).not.toBeNull();
+      expect(line().querySelector("[data-longest]")?.getAttribute("data-longest")).toBe("Cataloguing…");
       await act(async () => vi.advanceTimersByTime(2_000));
       expect(line().textContent).toBe(`${presentVerb(6)}…2s`);
       await act(async () => vi.advanceTimersByTime(2_600 * 23 - 2_800 + 4_000));

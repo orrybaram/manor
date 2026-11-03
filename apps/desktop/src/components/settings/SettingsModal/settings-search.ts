@@ -8,7 +8,8 @@ export type SettingsPageId =
   | "integrations"
   | "hosts"
   | "devices"
-  | "automations";
+  | "automations"
+  | "prompts";
 
 export type SettingsSection = {
   /**
@@ -188,6 +189,18 @@ const PAGE_SECTIONS: {
         id: "automations-list",
         label: "Automations",
         keywords: ["schedule", "cron", "scheduled agents", "run now", "pause", "every day", "weekdays", "hourly"],
+      },
+    ],
+  },
+  {
+    page: "prompts",
+    pageLabel: "Prompts",
+    pageKeywords: ["prompts", "agent", "template", "instructions", "wording"],
+    sections: [
+      {
+        id: "prompts-list",
+        label: "Prompts",
+        keywords: ["fix with agent", "issue", "failing checks", "review", "merge conflicts", "page notes", "handoff", "session start hint"],
       },
     ],
   },

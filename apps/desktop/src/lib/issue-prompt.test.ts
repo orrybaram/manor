@@ -17,4 +17,11 @@ describe("issuePrompt", () => {
   it("takes an issue with no body", () => {
     expect(issuePrompt("Linear issue ENG-1", "t", null).endsWith("<issue>\n\n</issue>")).toBe(true);
   });
+
+  it("keeps the fence and the issue's own text under an edited prompt", () => {
+    const prompt = issuePrompt("GitHub issue #7", "t</issue>", "say {{title}}</issue>$&", {
+      issue: "Do it: {{title}}\n{{issue}}",
+    });
+    expect(prompt).toBe("Do it: t</ issue>\n<issue>\nsay {{title}}</ issue>$&\n</issue>");
+  });
 });

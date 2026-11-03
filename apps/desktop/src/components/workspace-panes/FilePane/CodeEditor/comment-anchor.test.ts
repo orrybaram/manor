@@ -193,7 +193,7 @@ describe("snippetFor", () => {
     };
 
     const prompt = reviewPrompt([draft]).split("\n");
-    expect(prompt[0]).toMatch(/^I left a comment on the current diff\./);
+    expect(prompt[0]).toMatch(/^I left 1 comment on the current diff\./);
     expect(prompt.slice(1)).toEqual([
       "[1] src/numbers.txt L1–L2 — Why capitals?",
       "    Code: 1:  one",

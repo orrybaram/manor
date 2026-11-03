@@ -814,6 +814,7 @@ describe("WebviewServer agent orchestration routes", () => {
       linearManager: linearManager as unknown as HostDeps["linearManager"],
       layoutStore,
       workspaceOps: workspaceOpsFor(pm),
+      preferencesManager: { get: () => ({}) } as unknown as HostDeps["preferencesManager"],
     };
     server = serverWith(deps);
     await server.start();

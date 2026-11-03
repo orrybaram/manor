@@ -91,7 +91,7 @@ describe("pageNotesPrompt", () => {
   it("frames one bare pick as something to look at, not an order", () => {
     const prompt = pageNotesPrompt([makeNote()], { p1: "/box/a.png" });
     const [preamble, ...rest] = prompt.split("\n");
-    expect(preamble).toContain("I left a note on the page at http://localhost:3000/settings.");
+    expect(preamble).toContain("I left 1 note on the page at http://localhost:3000/settings.");
     expect(preamble).toContain("may be a question");
     expect(preamble).not.toMatch(/^(Fix|Address)/);
     expect(rest).toEqual([

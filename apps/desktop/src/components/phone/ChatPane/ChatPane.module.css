@@ -393,36 +393,28 @@ button.toolLine:disabled {
   font-variant-numeric: tabular-nums;
 }
 
-/* A finished turn: a centred divider with Manor's mark and verb. */
+/* A finished turn: the live line, stopped where it was and in the past tense. */
 .turnEnd {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 6px 0;
+  min-height: 24px;
   font-size: 13px;
   color: var(--text-dim);
 }
 
-.turnEnd::before,
-.turnEnd::after {
-  content: "";
-  flex: 1;
-  min-width: 16px;
-  height: 1px;
-  background: var(--border);
-}
-
-/* Wraps, centred, rather than cutting off on a phone. */
 .turnEndText {
-  flex: 0 1 auto;
   min-width: 0;
-  text-align: center;
 }
 
 /* Each phrase stays whole; between them the line may wrap. */
 .turnPhrase {
   white-space: nowrap;
+}
+
+.turnTime {
+  font-variant-numeric: tabular-nums;
 }
 
 .turnVerb {
@@ -434,14 +426,43 @@ button.toolLine:disabled {
   color: var(--yellow);
 }
 
-.gable {
+.dust {
   flex-shrink: 0;
   width: 13px;
   height: 13px;
+  overflow: visible;
 }
 
-/* Claude is working with nothing to show yet: Manor's mark breathes beside
-   a verb that changes every few seconds. */
+/* The motes take turns across one verb's 2.6s (VERB_MS in ChatThinking). */
+.dust[data-live] .mote {
+  fill: var(--accent);
+  animation: moteRise 2.6s ease-in-out infinite;
+}
+
+.dust[data-live] .mote:nth-child(2) {
+  animation-delay: calc(2.6s / 3);
+}
+
+.dust[data-live] .mote:nth-child(3) {
+  animation-delay: calc(2.6s * 2 / 3);
+}
+
+@keyframes moteRise {
+  0% {
+    opacity: 0;
+    transform: translate(0, 3px);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(1.2px, -4px);
+  }
+}
+
+/* Claude is working with nothing to show yet: dust rises beside a verb that
+   changes every few seconds, and a light passes over each one. */
 .thinking {
   display: flex;
   align-items: center;
@@ -451,30 +472,63 @@ button.toolLine:disabled {
   color: var(--text-dim);
 }
 
-.thinkingVerb {
-  color: var(--text-primary);
+.thinking .toolElapsed {
+  opacity: 1;
+}
+
+/* Room for the longest verb, so the timer beside it doesn't jump. */
+.thinkingSlot {
+  display: inline-grid;
+  justify-items: start;
   white-space: nowrap;
-  animation: chatFade 350ms ease-out;
 }
 
-.gable[data-breathing] {
-  animation: gableBreathe 1.6s ease-in-out infinite;
+.thinkingSlot::before {
+  content: attr(data-longest);
+  grid-area: 1 / 1;
+  visibility: hidden;
 }
 
-@keyframes gableBreathe {
-  0%,
-  100% {
-    opacity: 0.45;
+.thinkingVerb {
+  grid-area: 1 / 1;
+  /* Not currentColor: the verb's own color is transparent. */
+  background: linear-gradient(
+    90deg,
+    var(--text-primary) 0%,
+    var(--text-primary) 36%,
+    var(--accent) 50%,
+    var(--text-primary) 64%,
+    var(--text-primary) 100%
+  );
+  /* At 250%, 100% → 0% carries the light from off one edge to off the other. */
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation:
+    chatFade 350ms ease-out,
+    verbLight 2.6s linear;
+}
+
+@keyframes verbLight {
+  from {
+    background-position: 100% 0;
   }
-  50% {
-    opacity: 1;
+  to {
+    background-position: 0% 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thinkingVerb,
-  .gable[data-breathing] {
+  .thinkingVerb {
     animation: none;
+    background: none;
+    color: var(--text-primary);
+  }
+
+  .dust[data-live] .mote {
+    animation: none;
+    opacity: 0.8;
   }
 }
 

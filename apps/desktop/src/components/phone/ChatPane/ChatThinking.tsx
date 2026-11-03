@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { formatElapsed } from "./chat-entries";
-import { GableMark } from "./GableMark";
-import { presentVerb } from "./manor-verbs";
+import { DustMark } from "./DustMark";
+import { LONGEST_PRESENT_VERB, presentVerb } from "./manor-verbs";
 import styles from "./ChatPane.module.css";
 
 /** Quiet gaps shorter than this between entries don't show the indicator. */
@@ -13,8 +13,9 @@ const VERB_MS = 2_600;
 
 /**
  * The live line under the conversation while Claude works with nothing to
- * show: Manor's mark breathing, a present-tense Manor verb that changes every
- * few seconds ("Tending…", "Polishing…"), and the time so far. The transcript
+ * show: motes of dust rising, a present-tense Manor verb that changes every
+ * few seconds ("Tending…", "Polishing…") with a light passing over it, and the
+ * time so far, held still by room kept for the longest verb. The transcript
  * drops thinking text, so a busy agent can otherwise leave the chat silent.
  * Not an entry; `ChatPane` keys it by the newest entry, so it remounts when
  * one arrives and the time counts the current silence. The only part of the
@@ -35,9 +36,11 @@ export function ChatThinking() {
   const verb = presentVerb(Math.floor(since / VERB_MS) + Math.floor(elapsed / VERB_MS));
   return (
     <div className={styles.thinking} data-testid="chat-thinking" role="status">
-      <GableMark breathing />
-      <span className={styles.thinkingVerb} key={verb}>
-        {verb}…
+      <DustMark live />
+      <span className={styles.thinkingSlot} data-longest={`${LONGEST_PRESENT_VERB}…`}>
+        <span className={styles.thinkingVerb} key={verb}>
+          {verb}…
+        </span>
       </span>
       <span className={styles.toolElapsed}>{formatElapsed(elapsed / 1000)}</span>
     </div>

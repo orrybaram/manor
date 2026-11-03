@@ -427,7 +427,8 @@ describe("ChatPane — entries", () => {
       await act(async () => vi.advanceTimersByTime(800));
       const line = () => all("chat-thinking")[0];
       expect(line().textContent).toBe(`${presentVerb(5)}…0s`);
-      expect(line().querySelector("svg[data-breathing]")).not.toBeNull();
+      expect(line().querySelector("svg[data-live]")).not.toBeNull();
+      expect(line().querySelector("[data-longest]")?.getAttribute("data-longest")).toBe("Cataloguing…");
       await act(async () => vi.advanceTimersByTime(2_000));
       expect(line().textContent).toBe(`${presentVerb(6)}…2s`);
       await act(async () => vi.advanceTimersByTime(2_600 * 23 - 2_800 + 4_000));

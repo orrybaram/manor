@@ -21,6 +21,12 @@ export const MANOR_VERBS: readonly ManorVerb[] = [
   { present: "Furnishing", past: "Furnished" },
 ];
 
+/** The longest live verb: the live line keeps room for it, so its timer holds still. */
+export const LONGEST_PRESENT_VERB = MANOR_VERBS.reduce(
+  (longest, verb) => (verb.present.length > longest.length ? verb.present : longest),
+  "",
+);
+
 /** FNV-1a over the string's UTF-16 code units: the same on every load. */
 function hash(s: string): number {
   let h = 0x811c9dc5;

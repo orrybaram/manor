@@ -7,6 +7,6 @@ if (view) {
   mountShell(view, {
     label:
       "Manor's sidebar listing workspaces automations, bench-flood, go-to-file and homepage, each on its own branch, beside Claude building the homepage hero.",
-    crop: { x: 0, y: 0, width: 922, height: 505 },
+    crop: { x: 0, y: 0, width: 751, height: 432 },
   });
 }

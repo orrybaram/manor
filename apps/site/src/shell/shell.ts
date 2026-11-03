@@ -1,18 +1,19 @@
 /**
  * The Manor app shell, mounted as many times as the page wants. Each mount
- * lays the app out at 1600×1000 and scales it into its box; a crop shows
- * just one region of that layout, zoomed to fill the box.
+ * lays the app out at 1280×800 and scales it into its box; a crop shows just
+ * one region of that layout, zoomed to fill the box.
  */
 import "./shell.css";
 import { onShellClick, onShellKey, type ShellContext } from "./interactions";
-import { renderLivePanes, renderShell } from "./render";
+import { renderPanes, renderShell } from "./render";
 import { createState, type AgentId } from "./state";
+import { DEFAULT_THEME, applyTheme } from "./tokens";
 
-const WIDTH = 1600;
-const HEIGHT = 1000;
+const WIDTH = 1280;
+const HEIGHT = 800;
 const TICK_MS = 250;
 
-/** A region of the 1600×1000 layout, in its own px. */
+/** A region of the 1280×800 layout, in its own px. */
 export type ShellCrop = { x: number; y: number; width: number; height: number };
 
 export type ShellOptions = {
@@ -33,6 +34,7 @@ export function mountShell(view: HTMLElement, options: ShellOptions): void {
   root.className = "mapp";
   root.setAttribute("role", "img");
   root.setAttribute("aria-label", options.label);
+  applyTheme(root, DEFAULT_THEME);
   view.style.aspectRatio = `${crop.width} / ${crop.height}`;
   view.appendChild(root);
 
@@ -70,7 +72,7 @@ export function mountShell(view: HTMLElement, options: ShellOptions): void {
     state.tick++;
     const hero = state.agents.hero;
     if (hero.status === "working" && state.tick % 4 === 0) hero.secs++;
-    renderLivePanes(root, state);
+    renderPanes(root, state, ["hero", "sweep"]);
   };
   const sync = () => {
     const run = visible && !document.hidden && !reduced.matches;

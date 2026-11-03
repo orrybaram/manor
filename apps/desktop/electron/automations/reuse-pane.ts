@@ -29,8 +29,9 @@ import type { AutomationFireResult } from "./scheduler";
  */
 
 /**
- * What starts a new conversation in each agent's TUI. Only `claude`'s has
- * been run from here; the others are from their CLIs' documentation.
+ * What starts a new conversation in each agent's TUI. None has been run from
+ * here against the real CLI yet, and only `claude`'s is known from this repo.
+ * One that doesn't take fails the run (`clearTook`).
  */
 const CLEAR_COMMAND: Record<AutomationAgentKind, string> = {
   claude: "/clear",

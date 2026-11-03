@@ -1,0 +1,86 @@
+/* The Automations slide: Settings' Automations page, its list and one automation's page. Values copied from the app, no build link; paths under apps/desktop. Settings itself is settings-modal.css. */
+
+/* src/components/settings/AutomationsPage/AutomationsPage.module.css .page, .header, .description, .buttonIcon */
+.ma-au-page { display: flex; flex-direction: column; gap: 22px; }
+.ma-au-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ma-au-header > div:first-child { margin-bottom: 0; }
+.ma-au-description { font-size: 12px; color: var(--text-dim); line-height: 1.4; margin-top: -14px; }
+.ma-au-button-icon { display: inline-flex; margin-right: 2px; }
+
+/* AutomationsPage.module.css .table, .groupTitle, .groupNote, .cards */
+.ma-au-table { display: flex; flex-direction: column; font-size: 13px; }
+.ma-au-group-title { padding: 14px 4px 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: color-mix(in srgb, var(--text-selected) 60%, transparent); }
+.ma-au-group-note { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11.5px; color: var(--text-dim); }
+.ma-au-cards { display: grid; gap: 8px; padding-bottom: 6px; }
+
+/* AutomationsPage.module.css button.row, .badge, .cellName, .cellWhen, .pill, .paused, .name, .sub, .chevron */
+button.ma-au-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto 14px; column-gap: 12px; align-items: center; margin: 0; font: inherit; text-align: left; box-sizing: border-box; width: 100%; cursor: pointer; padding: 12px; border: 1px solid var(--surface); border-radius: 8px; background: color-mix(in srgb, var(--surface) 25%, transparent); color: var(--text-primary); }
+button.ma-au-row:hover { background: var(--hover); border-color: var(--border); }
+.ma-au-badge { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.ma-au-cell-name { display: grid; gap: 3px; min-width: 0; }
+.ma-au-cell-when { display: grid; gap: 5px; justify-items: end; }
+.ma-au-pill { font-size: 11.5px; line-height: 1.5; padding: 0 8px; border-radius: 999px; border: 1px solid var(--control-border); color: var(--text-primary); white-space: nowrap; }
+.ma-au-paused { opacity: 0.55; }
+.ma-au-name { display: block; color: var(--text-selected); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-au-sub { display: block; font-size: 11.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-au-chevron { color: var(--text-dim); display: flex; }
+
+/* AutomationsPage.module.css .status, .dot, .ok, .input, .work, .skip, .fail, .never */
+.ma-au-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; }
+.ma-au-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; box-sizing: border-box; }
+.ma-au-ok .ma-au-dot { background: var(--green); }
+.ma-au-ok { color: var(--text-primary); }
+.ma-au-input .ma-au-dot { background: var(--yellow); }
+.ma-au-input { color: var(--yellow); }
+.ma-au-work .ma-au-dot { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.ma-au-work { color: var(--accent); }
+.ma-au-skip .ma-au-dot { background: transparent; border: 1.5px solid var(--text-dim); }
+.ma-au-skip { color: var(--text-dim); }
+.ma-au-fail .ma-au-dot { background: var(--red); }
+.ma-au-fail { color: var(--red); }
+.ma-au-never { font-size: 12px; color: var(--text-dim); }
+
+/* AutomationsPage.module.css .detail, .detailTop, button.back, .titleRow, input.nameInput, .actions, .switchLabel */
+.ma-au-detail { display: grid; gap: 18px; }
+.ma-au-detail-top { display: grid; gap: 6px; }
+.ma-btn.ma-au-back { justify-self: start; padding-left: 0; color: var(--accent); }
+.ma-btn.ma-au-back:hover:not(:disabled) { background: transparent; color: var(--accent); text-decoration: underline; }
+.ma-au-title-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ma-input.ma-au-name-input { flex: 1; min-width: 0; width: auto; font-size: 16px; font-weight: 600; color: var(--text-selected); background: transparent; border-color: transparent; padding: 2px 4px; margin-left: -4px; height: auto; }
+.ma-input.ma-au-name-input:hover, .ma-input.ma-au-name-input:focus { border-color: var(--control-border); }
+.ma-au-actions { display: flex; gap: 10px; align-items: center; }
+.ma-au-switch-label { display: flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text-dim); cursor: pointer; }
+
+/* AutomationsPage.module.css .card, .sentence, button.chip, .chipStatic, .chipCaret, .note, .mono */
+.ma-au-card { background: var(--bg); border: 1px solid var(--surface); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; }
+.ma-au-card > div:first-child { margin-bottom: 0; }
+.ma-au-sentence { line-height: 2; color: var(--text-primary); font-size: 13px; }
+button.ma-au-chip, .ma-au-chip-static { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--control-border); border-radius: 5px; padding: 0 7px; color: var(--text-selected); background: color-mix(in srgb, var(--text-selected) 4%, transparent); line-height: 1.7; font-size: 12.5px; vertical-align: baseline; }
+button.ma-au-chip { cursor: pointer; }
+button.ma-au-chip:hover { border-color: var(--accent); }
+.ma-au-chip-caret { display: inline-flex; color: var(--text-dim); }
+.ma-au-chip-static { border-style: dashed; background: transparent; }
+.ma-au-note { font-size: 11.5px; color: var(--text-dim); }
+.ma-au-mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; }
+
+/* AutomationsPage.module.css .field, textarea.prompt, .placeholder */
+.ma-au-field { display: grid; gap: 6px; }
+.ma-au-field > div:first-child { margin-bottom: 0; }
+.ma-input.ma-textarea.ma-au-prompt { min-height: 76px; resize: vertical; line-height: 1.45; }
+.ma-au-placeholder { font-size: 13px; color: var(--text-dim); padding: 12px; border: 1px dashed var(--surface); border-radius: 6px; text-align: center; }
+
+/* AutomationsPage.module.css .strip, .hist, .histRow, button.histRow, .histTime, .histWhat */
+.ma-au-strip { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.ma-au-strip .ma-au-dot { width: 10px; height: 10px; border-radius: 3px; box-shadow: none; }
+.ma-au-hist { display: grid; }
+.ma-au-hist-row { display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--surface); align-items: center; font-size: 12px; color: var(--text-primary); }
+.ma-au-hist-row:last-child { border-bottom: 0; }
+button.ma-au-hist-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 7.5em minmax(0, 1fr) auto; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--surface); align-items: center; font-size: 12px; color: var(--text-primary); cursor: pointer; }
+button.ma-au-hist-row:last-child { border-bottom: 0; }
+button.ma-au-hist-row:hover .ma-au-hist-what { color: var(--text-selected); text-decoration: underline; }
+.ma-au-hist-time { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.ma-au-hist-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* AutomationsPage.module.css .footer, button.deleteButton */
+.ma-au-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ma-btn.ma-au-delete, .ma-btn.ma-au-delete:hover:not(:disabled) { color: var(--red); }

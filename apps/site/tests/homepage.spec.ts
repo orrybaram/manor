@@ -1057,6 +1057,105 @@ test.describe("the Browser slide", () => {
   });
 });
 
+test.describe("the Automations slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const card = (page: Page, id: string) => win(page).locator(`[data-au-open="${id}"]`);
+  const runNow = (page: Page) => win(page).locator("[data-run-now]");
+  const firstRun = (page: Page) => win(page).locator(".ma-au-hist-row").first();
+
+  async function openAutomations(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("its caption doesn't overclaim, and the list groups by host with real statuses and no Run now", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await expect(page.locator(".slideshow-text")).toContainText("This Mac runs its own while Manor is open.");
+    await expect(win(page).locator(".ma-au-description")).toHaveText("Agents that start on a schedule. Remote hosts run them with this app closed.");
+    await expect(win(page).locator(".ma-au-group-title").first()).toHaveText("This Mac · runs only while Manor is open");
+    await expect(win(page).locator(".ma-au-group-title").nth(1)).toHaveText("boathouse");
+    await expect(card(page, "morning-pr-triage")).toContainText("Weekdays at 09:00 · harbor · Claude");
+    await expect(card(page, "morning-pr-triage")).toContainText("Responded");
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Paused");
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Never run");
+    await expect(card(page, "nightly-dependency-bump")).toContainText("Needs input");
+    await expect(runNow(page)).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("a card opens its page; Run now goes through Starting… to a run, an agent in the sidebar, and back to the list", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await expect(win(page).locator("[data-au-field=name]")).toHaveValue("Morning PR triage");
+    await expect(win(page).locator("[data-au-next]")).toContainText("0 9 * * 1-5 · next ");
+    await expect(win(page).locator(".ma-au-card")).toContainText("Runs only while Manor is open on this computer");
+    const rows = await win(page).locator(".ma-au-hist-row").count();
+    const agents = await win(page).locator(".ma-agent-item").count();
+
+    await runNow(page).click();
+    await expect(runNow(page)).toHaveText("Starting…");
+    await expect(runNow(page)).toBeDisabled();
+    await expect(runNow(page)).toHaveText("Run now", { timeout: 4000 });
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(rows + 1);
+    await expect(firstRun(page)).toContainText("Run now · Morning PR triage · ");
+    await expect(firstRun(page)).toContainText("Thinking", { timeout: 4000 });
+    await expect(win(page).locator(".ma-agent-item")).toHaveCount(agents + 1);
+    await expect(firstRun(page)).toContainText("Working", { timeout: 4000 });
+    await expect(firstRun(page)).toContainText("Responded", { timeout: 6000 });
+
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "morning-pr-triage")).toContainText("Responded");
+    expect(errors).toEqual([]);
+  });
+
+  test("a remote automation's page speaks of its host, the switch pauses it, and a run's row opens its agent", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await card(page, "nightly-dependency-bump").click();
+    await expect(win(page).locator(".ma-au-card")).toContainText("If boathouse is asleep at that time, it runs once when it wakes (within 12 h).");
+    await expect(firstRun(page)).toContainText("Caught up · host was asleep");
+    await win(page).locator("[data-au-enabled]").click();
+    await expect(win(page).locator("[data-au-enabled]")).toContainText("Paused");
+    await expect(win(page).locator("[data-au-next]")).toContainText("— paused");
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "nightly-dependency-bump")).toContainText("Paused");
+    await card(page, "nightly-dependency-bump").click();
+    await firstRun(page).click();
+    await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
+    await expect(win(page).locator(".ma-term")).toContainText("Should I open the pull request");
+    expect(errors).toEqual([]);
+  });
+
+  test("the name takes typing, which the list shows, and a run in flight doesn't take the field's focus", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "weekly-changelog-draft").click();
+    await expect(win(page).locator(".ma-au-placeholder")).toHaveText("No runs yet. Use Run now to try it.");
+    await runNow(page).click();
+    const name = win(page).locator("[data-au-field=name]");
+    await name.click();
+    await page.keyboard.type(" v2");
+    await expect(runNow(page)).toHaveText("Run now", { timeout: 4000 });
+    await expect(name).toBeFocused();
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Weekly changelog draft v2");
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await runNow(page).click();
+    await page.locator("#slide-tab-browser").click();
+    await page.locator("#slide-tab-automations").click();
+    await expect(runNow(page)).toHaveCount(0);
+    await card(page, "morning-pr-triage").click();
+    await page.waitForTimeout(1800);
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(3);
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -1112,6 +1211,16 @@ test.describe("slideshow at 390", () => {
     await page.locator("#slide-tab-browser").click();
     await page.locator("#book").click();
     await expect(page.locator("[data-note-input]")).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Automations window fits without sideways scroll, and Run now starts", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await page.locator('[data-au-open="morning-pr-triage"]').click();
+    await page.locator("[data-run-now]").click();
+    await expect(page.locator("[data-run-now]")).toHaveText("Starting…");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(errors).toEqual([]);
   });

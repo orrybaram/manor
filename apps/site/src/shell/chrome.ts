@@ -34,6 +34,10 @@ export type ProjectRow = {
   selected: boolean;
   collapsed?: boolean;
   workspaces: WorkspaceRow[];
+  /** A remote-only project's host, the heading above its workspaces. */
+  host?: string;
+  /** After its workspaces. Expanded: the slides have no way to collapse one. */
+  folders?: { name: string; workspaces: WorkspaceRow[] }[];
 };
 
 export type AgentRow = { id: string; title: string; status: AgentStatus | null; pulse: boolean };
@@ -145,6 +149,21 @@ function workspaceRow(w: WorkspaceRow): string {
   );
 }
 
+/** components/sidebar/ProjectItem's SectionHostLabel, for a host that's up. */
+const hostHeading = (name: string) =>
+  `<div class="ma-host-heading"><span class="ma-host-heading-icon">${icon("cloud", 12)}</span><span class="ma-host-heading-name">${esc(name)}</span></div>`;
+
+/** components/sidebar/FolderItem, expanded. */
+function folderItem(folder: { name: string; workspaces: WorkspaceRow[] }): string {
+  const noun = folder.workspaces.length === 1 ? "workspace" : "workspaces";
+  return (
+    `<div class="ma-folder"><div class="ma-folder-header"><span class="ma-folder-icon">${icon("folder-open", 12)}</span>` +
+    `<span class="ma-folder-label"><span class="ma-folder-name">${esc(folder.name)}</span>` +
+    `<span class="ma-folder-count" title="${folder.workspaces.length} ${noun}">${folder.workspaces.length}</span></span></div>` +
+    `<div class="ma-folder-body"><div class="ma-folder-members">${folder.workspaces.map(workspaceRow).join("")}</div></div></div>`
+  );
+}
+
 /** components/sidebar/ProjectItem, expanded. */
 function projectRow(p: ProjectRow): string {
   const style = p.color ? ` style="--project-color: var(--${esc(p.color)})"` : "";
@@ -162,7 +181,9 @@ function projectRow(p: ProjectRow): string {
     `<div class="ma-project-header"><span class="ma-project-chevron">${icon("chevron-right", 12)}</span>` +
     `<span class="ma-project-swatch" aria-hidden="true"></span><span class="ma-project-name">${esc(p.name)}</span>` +
     `<span class="ma-project-actions">${actions}</span></div>` +
-    (p.collapsed ? "" : `<div class="ma-project-body"><div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}</div></div>`) +
+    (p.collapsed
+      ? ""
+      : `<div class="ma-project-body">${p.host ? hostHeading(p.host) : ""}<div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}${(p.folders ?? []).map(folderItem).join("")}</div></div>`) +
     `</div>`
   );
 }

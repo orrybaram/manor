@@ -2,7 +2,7 @@
 // window, as the project's page does in the app (App.tsx's effectiveThemeName).
 import "./themes.css";
 import { esc, leafPane, tabbedPanel } from "../../shell/chrome";
-import { icon, type IconName } from "../../shell/icons";
+import { icon } from "../../shell/icons";
 import {
   CATPPUCCIN_LATTE,
   DRACULA,
@@ -17,6 +17,7 @@ import {
 } from "../../shell/palettes";
 import { DEFAULT_THEME, MANOR_THEME, applyTheme, type Theme } from "../../shell/tokens";
 import { SLIDE_MS, type Slide } from "../slide";
+import { settingsModal } from "./settings-modal";
 
 const GLOBAL_THEME = "__global__";
 
@@ -114,18 +115,6 @@ function createProjects(): Project[] {
   ];
 }
 
-const NAV: readonly [IconName, string][] = [
-  ["settings", "General"],
-  ["palette", "Appearance"],
-  ["keyboard", "Keybindings"],
-  ["bell", "Notifications"],
-  ["link", "Integrations"],
-  ["server", "Hosts"],
-  ["smartphone", "Devices"],
-  ["calendar-clock", "Automations"],
-  ["message-square-text", "Prompts"],
-];
-
 /** A control in a window that's one image to the keyboard: reached by pointer, or from the select. */
 const input = (attrs: string, value: string, placeholder = "") =>
   `<input class="ma-input" type="text" tabindex="-1" spellcheck="false" ${attrs} value="${esc(value)}"${placeholder ? ` placeholder="${esc(placeholder)}"` : ""}>`;
@@ -206,30 +195,6 @@ function projectPage(p: Project): string {
     `<div class="ma-stack"><div class="ma-section-label">Agent</div><label class="ma-field-label">Agent Command</label>${field(p, "agentCommand", "claude --dangerously-skip-permissions")}</div>` +
     `<div class="ma-stack"><div class="ma-section-label">Commands</div><div class="ma-command-list"><button class="ma-add-command" type="button" tabindex="-1">${icon("plus", 12)}Add Command</button></div></div>` +
     `</div>`
-  );
-}
-
-/** SettingsModal, opened on a project's page. */
-function settingsModal(projects: Project[], page: Project, projectsOpen: boolean): string {
-  const nav = NAV.map(([name, label]) => `<button class="ma-settings-nav-item" type="button" tabindex="-1">${icon(name, 14)}<span>${label}</span></button>`).join("");
-  const rows = projectsOpen
-    ? projects
-        .map((p) => {
-          const active = p === page;
-          return `<button class="ma-settings-nav-item ma-settings-nav-nested${active ? " ma-settings-nav-active" : ""}" type="button" tabindex="-1" data-settings-project="${p.id}"${active ? ' aria-current="page"' : ""}><span class="ma-settings-nav-label">${esc(p.name)}</span></button>`;
-        })
-        .join("")
-    : "";
-  return (
-    `<div class="ma-settings-overlay" data-close-settings></div>` +
-    `<div class="ma-settings-modal">` +
-    `<div class="ma-settings-header"><div class="ma-settings-title">Settings</div>` +
-    `<button class="ma-btn ma-ghost ma-sm" type="button" tabindex="-1" aria-label="Close settings" data-close-settings>${icon("x", 16)}</button></div>` +
-    `<div class="ma-settings-layout"><div class="ma-settings-sidebar">` +
-    `<div class="ma-settings-search">${icon("search", 13)}<input class="ma-input ma-settings-search-input" type="text" tabindex="-1" readonly placeholder="Search settings..."></div>` +
-    `<nav class="ma-settings-nav">${nav}<button class="ma-settings-nav-group" type="button" tabindex="-1" data-nav-projects>${icon(projectsOpen ? "chevron-down" : "chevron-right", 14)}<span>Projects</span></button>${rows}</nav></div>` +
-    `<div class="ma-settings-content">${projectPage(page)}</div></div>` +
-    `</div><div class="ma-select-layer"></div>`
   );
 }
 
@@ -445,7 +410,9 @@ export const themes: Slide = {
             [{ id: w.id, title: w.branch, active: true, status: null, pulse: false }],
             leafPane({ title: open.name, focused: true, hasChat: false, body: prompt }),
           ),
-          overlay: page ? settingsModal(projects, page, projectsOpen) : undefined,
+          overlay: page
+            ? settingsModal({ projects, activeProject: page.id, projectsOpen, content: projectPage(page) }) + `<div class="ma-select-layer"></div>`
+            : undefined,
         };
       },
       drawn: () => {

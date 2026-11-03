@@ -13,6 +13,7 @@ import type {
   PrMergeMethod,
   PrMergeOutcome,
 } from "../../lib/pr-info";
+import { mergeFillAt } from "../../lib/merge-fill";
 import { mergeOffer } from "../../lib/pr-merge-offer";
 import { ghRepoOf } from "../../lib/gh-repo";
 import { ownerOf } from "../../lib/workspace-directory";
@@ -80,6 +81,24 @@ export function PrActions(props: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [briefing, setBriefing] = useState<PrAgentTask | null>(null);
   const burstRef = useRef<HTMLSpanElement>(null);
+  const mainRef = useRef<HTMLButtonElement>(null);
+
+  // The fill creeps for as long as `gh pr merge` takes; its answer finishes it.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    if (phase !== "merging") {
+      main.style.setProperty("--merge-fill", phase === "idle" ? "0" : "1");
+      return;
+    }
+    const start = performance.now();
+    const tick = (now: number) => {
+      main.style.setProperty("--merge-fill", String(mergeFillAt(now - start)));
+      frame = requestAnimationFrame(tick);
+    };
+    let frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [phase]);
 
   const failing = pr.checks?.failing ?? 0;
   const threads = pr.unresolvedThreads ?? 0;
@@ -140,7 +159,7 @@ export function PrActions(props: {
     const deleting = deleteAfter && canDelete && ws;
     if (outcome === "merged") {
       onMerged?.();
-      burst(burstRef.current);
+      burst(burstRef.current, MERGED_BURST);
       toast.success(`Merged #${pr.number}`);
       // Not cancelled if the card closes meanwhile: the workspace must still go.
       setTimeout(() => {
@@ -152,6 +171,7 @@ export function PrActions(props: {
       }, MERGED_HOLD_MS);
       return;
     }
+    burst(burstRef.current, FUSE_BURST);
     if (deleting) deleteWorkspaceWhenMerged(workspaceKey(project.hostId, ws.path), pr.url);
     const then = deleting ? `; "${ws.name || ws.branch}" goes once it merges` : "";
     toast.success(
@@ -169,7 +189,7 @@ export function PrActions(props: {
   const label =
     phase === "merged"
       ? "Merged"
-      : phase === "queued"
+      : phase === "queued" || (phase === "idle" && pr.queuedToMerge)
         ? "Queued to merge"
         : phase === "auto"
           ? "Merges when ready"
@@ -181,7 +201,10 @@ export function PrActions(props: {
                 ? "Merge when ready"
                 : METHOD_LABEL[chosen];
 
-  const settled = phase === "queued" || phase === "auto" || (pr.queuedToMerge && phase === "idle");
+  // Lit by this click, so the fuse catches. Reopening the card later finds it
+  // already burning: `settled` without `lit`.
+  const lit = phase === "queued" || phase === "auto";
+  const settled = lit || (pr.queuedToMerge && phase === "idle");
   const disabled = phase !== "idle" || !offer || offer.kind === "none";
   const tone =
     phase === "merged"
@@ -241,11 +264,13 @@ export function PrActions(props: {
 
   const mergeButton = (offer || pr.queuedToMerge) && (
     <span
-      className={`${styles.split} ${tone}${inviting ? ` ${styles.inviting}` : ""}${phase === "merging" ? ` ${styles.filling}` : ""}`}
+      className={`${styles.split} ${tone}${inviting ? ` ${styles.inviting}` : ""}${phase === "merging" ? ` ${styles.filling}` : ""}${settled ? ` ${styles.settled}` : ""}${lit ? ` ${styles.lit}` : ""}`}
       data-phase={phase}
       data-offer={offer?.kind ?? "queued"}
     >
+      {settled && <span className={styles.fuse} aria-hidden="true" data-testid="pr-merge-fuse" />}
       <button
+        ref={mainRef}
         type="button"
         className={styles.main}
         disabled={disabled}
@@ -374,21 +399,29 @@ function MergeGlyph() {
   );
 }
 
-const BURST_FLECKS = 26;
+interface Burst {
+  count: number;
+  /** Theme colour variables, dealt out in turn. */
+  colours: string[];
+  /** How much of the half circle above the button the flecks fly into, 0 to 1. */
+  spread: number;
+}
+
+const MERGED_BURST: Burst = { count: 26, colours: ["--accent", "--magenta", "--yellow", "--green"], spread: 1 };
+/** Sparks thrown upward as the fuse catches. */
+const FUSE_BURST: Burst = { count: 22, colours: ["--accent", "--yellow", "--text-selected"], spread: 0.6 };
 
 /** Flecks in the theme's colours spray off the button and fall away. */
-function burst(host: HTMLElement | null): void {
+function burst(host: HTMLElement | null, { count, colours: names, spread }: Burst): void {
   if (!host || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const css = getComputedStyle(host);
-  const colours = ["--accent", "--magenta", "--yellow", "--green"].map(
-    (name) => css.getPropertyValue(name).trim() || "currentColor",
-  );
-  for (let i = 0; i < BURST_FLECKS; i++) {
+  const colours = names.map((name) => css.getPropertyValue(name).trim() || "currentColor");
+  for (let i = 0; i < count; i++) {
     const fleck = document.createElement("i");
     fleck.style.background = colours[i % colours.length];
     fleck.style.left = `${20 + Math.random() * 60}%`;
     host.append(fleck);
-    const angle = -Math.PI * Math.random();
+    const angle = -Math.PI * ((1 - spread) / 2 + Math.random() * spread);
     const speed = 50 + Math.random() * 80;
     const dx = Math.cos(angle) * speed;
     const dy = Math.sin(angle) * speed;

@@ -161,6 +161,8 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
         autoMergeAllowed: true,
       },
       mergeQueue: [304],
+      // A merge slow enough to outlast where the fill used to stop.
+      mergeDelayMs: { 304: 6_000 },
       jobLogs: { "22": FAILING_LOG, "23": FAILING_LOG },
     });
     const originalPath = process.env.PATH ?? "";
@@ -216,6 +218,11 @@ async function briefInNewAgent(window: Page, tempHome: string, needle: string): 
   const paneId = await activePaneId(window);
   await expect.poll(() => scrollback(tempHome, paneId), { timeout: 20_000 }).toContain(needle);
   return scrollback(tempHome, paneId);
+}
+
+/** A shot with animations left running: the Filmstrip's freezes the fuse and the flecks. */
+async function liveShot(window: Page, strip: Filmstrip, name: string): Promise<void> {
+  await window.screenshot({ path: path.join(strip.dir, `live-${name}.png`) });
 }
 
 test("a failing PR is fixed by an agent and merged, and the rest of the footer", async ({ window, tempHome }) => {
@@ -319,11 +326,45 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   await expect(card.getByTestId("pr-merge")).toHaveText("Add to merge queue");
   await strip.shot(window, "add-to-merge-queue");
   await card.getByTestId("pr-merge").click();
+  // Slow gh: the fill is still moving well after 1.6 s, and never full.
+  const fill = () =>
+    card.getByTestId("pr-merge").evaluate((el) => Number((el as HTMLElement).style.getPropertyValue("--merge-fill")));
+  await expect(card.locator('[data-phase="merging"]')).toBeVisible();
+  await window.waitForTimeout(2_000);
+  const early = await fill();
+  await window.waitForTimeout(2_500);
+  const late = await fill();
+  expect(late).toBeGreaterThan(early);
+  expect(late).toBeLessThan(1);
+  await liveShot(window, strip, "merge-fill-still-creeping");
   await expect(card.locator('[data-phase="queued"]')).toBeVisible({ timeout: 10_000 });
+  expect(await fill()).toBe(1);
+  await expect(card.getByTestId("pr-merge-fuse")).toBeVisible();
+  await liveShot(window, strip, "queued-fuse-catches");
   expect(fakeGhCalls(tempHome)).toContain("pr merge 304 --squash");
-  await strip.shot(window, "queued-to-merge");
+  await window.waitForTimeout(900);
+  await liveShot(window, strip, "queued-fuse-burning");
   await window.mouse.move(900, 700);
+  await expect(card).not.toBeVisible({ timeout: 10_000 });
   await expect(row(window, "queued")).toHaveCount(1);
+
+  // Reopened once the poll says queued: still burning, without a new flash.
+  await refreshUntil(
+    window,
+    async () => (await row(window, "queued").locator("[data-readiness]").getAttribute("data-readiness")) === "queued",
+  );
+  card = await openCard(window, "queued");
+  await expect(card.locator('[data-offer="queued"]')).toHaveAttribute("data-phase", "idle");
+  await expect(card.getByTestId("pr-merge")).toHaveText("Queued to merge");
+  await expect(card.getByTestId("pr-merge-fuse")).toBeVisible();
+  await window.waitForTimeout(300); // The card's fade-in.
+  await liveShot(window, strip, "queued-card-reopened");
+  await useTheme(window, "Catppuccin Latte");
+  await openCard(window, "queued");
+  await window.waitForTimeout(600); // The button's colours ease to the new theme.
+  await liveShot(window, strip, "queued-card-reopened-light");
+  await useTheme(window, "Catppuccin Mocha");
+  await window.mouse.move(900, 700);
 
   editFakePr(tempHome, 304, (node) => {
     node.state = "MERGED";

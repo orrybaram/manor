@@ -3,12 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ElectronApplication, Page } from "@playwright/test";
 import { expect, importSeededProject, test } from "./fixtures";
+import { setAgentCommand } from "./helpers/settings";
 
 /**
  * The New Workspace dialog as a composer card: the name is its title, with
  * the branch it makes under it; the agent prompt sits in a box whose foot
  * holds the host, project, folder and branch chips. The branch chip chooses
  * between branching off a base and checking out an existing branch.
+ *
+ * The prompt also takes images, shown as thumbnails and sent as paths.
  *
  * Screenshots land in `MANOR_SHOTS` when it is set.
  */
@@ -20,7 +23,11 @@ const PHONE = { width: 400, height: 844 };
 
 type Theme = "dark" | "light";
 
-/** Catppuccin Latte's palette as a Ghostty theme file, where the theme manager looks. */
+/**
+ * Catppuccin Latte's palette as a Ghostty theme file, where the theme manager
+ * looks: Manor's custom themes, and Ghostty's own folders, which an installed
+ * Ghostty.app shadows.
+ */
 function installLightTheme(tempHome: string): void {
   const palette = [
     "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be",
@@ -36,6 +43,7 @@ function installLightTheme(tempHome: string): void {
     "",
   ].join("\n");
   for (const dir of [
+    path.join(tempHome, ".manor", "themes"),
     path.join(tempHome, "Library", "Application Support", "ghostty", "themes"),
     path.join(tempHome, ".config", "ghostty", "themes"),
   ]) {
@@ -50,7 +58,8 @@ async function selectTheme(window: Page, theme: Theme): Promise<void> {
   const before = await bg();
   await window.evaluate(
     (name) => window.electronAPI.theme.setSelected(name),
-    theme === "light" ? LIGHT_THEME : DARK_THEME,
+    // Selected as a custom theme, the copy in ~/.manor/themes.
+    theme === "light" ? `custom:${LIGHT_THEME}` : DARK_THEME,
   );
   if (theme === "light") {
     await expect.poll(bg, { timeout: 10_000 }).toBe("#eff1f5");
@@ -227,6 +236,123 @@ test("a prompt with text starts an agent; an empty one starts none", async ({
   await expect.poll(visiblePanes, { timeout: 15_000 }).toBe(1);
 });
 
+/** A PNG drawn in the page: a diagonal gradient from `from` to `to`, with a dot. */
+async function drawPng(window: Page, from: string, to: string): Promise<string> {
+  return window.evaluate(
+    ([a, b]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 120;
+      const ctx = canvas.getContext("2d")!;
+      const g = ctx.createLinearGradient(0, 0, 120, 120);
+      g.addColorStop(0, a);
+      g.addColorStop(1, b);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 120, 120);
+      ctx.fillStyle = "#ffffffcc";
+      ctx.beginPath();
+      ctx.arc(40, 44, 16, 0, Math.PI * 2);
+      ctx.fill();
+      return canvas.toDataURL("image/png").split(",")[1];
+    },
+    [from, to],
+  );
+}
+
+/** Fires `type` at `selector` carrying the PNG as a file, as a paste or a drop does. */
+async function sendImage(
+  window: Page,
+  selector: string,
+  type: "paste" | "drop",
+  base64: string,
+  name: string,
+): Promise<void> {
+  await window.evaluate(
+    ({ selector, type, base64, name }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const data = new DataTransfer();
+      data.items.add(new File([bytes], name, { type: "image/png" }));
+      const target = document.querySelector(selector)!;
+      if (type === "paste") {
+        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      } else {
+        target.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
+        target.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+      }
+    },
+    { selector, type, base64, name },
+  );
+}
+
+test("images pasted, picked or dropped show as thumbnails and start the agent as paths after the text", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  installLightTheme(tempHome);
+  await importSeededProject(app, window, tempHome);
+  // An agent that records the prompt it was started with, a line per launch
+  // (a launch with no prompt adds an empty one).
+  const promptLog = path.join(tempHome, "agent-prompt.txt");
+  const agent = path.join(tempHome, "record-prompt.sh");
+  fs.writeFileSync(agent, `#!/bin/sh\nprintf '%s\\n' "$1" >> '${promptLog}'\nexec sleep 300\n`, { mode: 0o755 });
+  await setAgentCommand(window, "test-project", `"${agent}"`);
+
+  const prompt = window.getByTestId("new-workspace-agent-prompt");
+  const thumbs = dialog(window).getByTestId("image-attachment");
+  const pink = await drawPng(window, "#f5c2e7", "#74c7ec");
+  const sand = await drawPng(window, "#f9e2af", "#fab387");
+  const leaf = await drawPng(window, "#a6e3a1", "#89b4fa");
+
+  await openDialog(window);
+  await nameInput(window).fill("Fix login redirect");
+  await prompt.fill("The redirect lands on a blank page, see these");
+
+  await sendImage(window, '[data-testid="new-workspace-agent-prompt"]', "paste", pink, "pasted.png");
+  await expect(thumbs).toHaveCount(1);
+  await dialog(window).getByTestId("chat-attach-input").setInputFiles({
+    name: "picked.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(sand, "base64"),
+  });
+  await expect(thumbs).toHaveCount(2);
+  await sendImage(window, '[data-testid="new-workspace-dialog"] [data-testid="image-attachments"]', "drop", leaf, "dropped.png");
+  await expect(thumbs).toHaveCount(3);
+  // The text holds no paths.
+  await expect(prompt).toHaveValue("The redirect lands on a blank page, see these");
+  await expect(dialog(window).locator("[data-uploading]")).toHaveCount(0, { timeout: 10_000 });
+
+  for (const theme of ["dark", "light"] as const) {
+    await selectTheme(window, theme);
+    await shot(window, `images-${theme}`);
+  }
+
+  // × drops the picked image, and its path is not sent.
+  await thumbs.nth(1).getByTestId("image-attachment-remove").click();
+  await expect(thumbs).toHaveCount(2);
+  await shot(window, "images-removed-light");
+
+  await window.getByTestId("new-workspace-submit").click();
+  await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
+  const readPrompt = () => (fs.existsSync(promptLog) ? fs.readFileSync(promptLog, "utf8") : "");
+  const expected = /^The redirect lands on a blank page, see these (\S+\.png) (\S+\.png)$/m;
+  await expect.poll(readPrompt, { timeout: 20_000 }).toMatch(expected);
+  const match = readPrompt().match(expected);
+  // The paste first, then the drop: each is a file on the host the agent runs on.
+  expect(fs.readFileSync(match![1])).toEqual(Buffer.from(pink, "base64"));
+  expect(fs.readFileSync(match![2])).toEqual(Buffer.from(leaf, "base64"));
+
+  // Opened again, the dialog starts with no images; images alone start an agent.
+  fs.rmSync(promptLog);
+  await openDialog(window);
+  await expect(thumbs).toHaveCount(0);
+  await nameInput(window).fill("Images only");
+  await sendImage(window, '[data-testid="new-workspace-agent-prompt"]', "paste", sand, "only.png");
+  await expect(dialog(window).locator("[data-uploading]")).toHaveCount(0, { timeout: 10_000 });
+  await window.getByTestId("new-workspace-agent-prompt").press("ControlOrMeta+Enter");
+  await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
+  await expect.poll(readPrompt, { timeout: 20_000 }).toMatch(/^\S+\.png$/m);
+});
+
 test("the folder chip makes a folder from its search and picks it", async ({
   app,
   window,
@@ -267,9 +393,11 @@ test("long folder and branch names keep the chips on one row, and the folder lis
   await window.keyboard.type("confirm-dialog");
   await window.getByRole("option", { name: longBranch }).last().click();
 
-  // Every chip sits on the same row.
+  // Every chip sits on the same row (the attach button's file input is never drawn).
   const chips = window.getByTestId("new-workspace-chips").locator(":scope > *");
-  const tops = await chips.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+  const tops = await chips.evaluateAll((els) =>
+    els.filter((el) => el.getClientRects().length > 0).map((el) => el.getBoundingClientRect().top),
+  );
   expect(tops.length).toBeGreaterThanOrEqual(2);
   expect(new Set(tops).size).toBe(1);
   await shot(window, "long-names-one-row");
@@ -322,6 +450,14 @@ test("the card fits at phone width", async ({ app, window, tempHome }) => {
     await window.keyboard.press("ControlOrMeta+Shift+n");
     await expect(dialog(window)).toBeVisible({ timeout: 5_000 });
     await nameInput(window).fill("Fix login redirect");
+    // With images attached, the strip above the prompt fits too.
+    const files = [];
+    for (const [i, [from, to]] of [["#f5c2e7", "#74c7ec"], ["#f9e2af", "#fab387"], ["#a6e3a1", "#89b4fa"]].entries()) {
+      files.push({ name: `phone-${i}.png`, mimeType: "image/png", buffer: Buffer.from(await drawPng(window, from, to), "base64") });
+    }
+    await dialog(window).getByTestId("chat-attach-input").setInputFiles(files);
+    await expect(dialog(window).getByTestId("image-attachment")).toHaveCount(3);
+    await expect(dialog(window).locator("[data-uploading]")).toHaveCount(0, { timeout: 10_000 });
     const box = await dialog(window).boundingBox();
     const width = await window.evaluate(() => window.innerWidth);
     expect(box!.x).toBeGreaterThanOrEqual(0);

@@ -2,7 +2,7 @@
 
 .picker {
   display: flex;
-  gap: 12px;
+  gap: 24px;
   min-height: 0;
 }
 
@@ -51,6 +51,7 @@
   composes: railButton;
   margin-top: 8px;
   justify-content: flex-start;
+  align-items: center;
   color: var(--accent);
 }
 
@@ -62,11 +63,31 @@
   gap: 8px;
 }
 
+.searchRow {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.searchRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The Tasks view's Display popover, above the Settings modal. */
+.sortPopover {
+  composes: popover from "../../tasks/TaskDisplayMenu.module.css";
+  z-index: 200;
+}
+
 .wall {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* A tile clips (overflow: hidden), so its min height is 0; auto rows would
+     squash hundreds of tiles into max-height instead of scrolling. */
+  grid-auto-rows: max-content;
   gap: 8px;
-  max-height: 340px;
+  max-height: min(560px, calc(88vh - 220px));
   overflow-y: auto;
   /* Room for the selected tile's outline inside the scroller. */
   padding: 3px;
@@ -269,6 +290,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-top: 12px;
 }
 
 .footerSpacer {

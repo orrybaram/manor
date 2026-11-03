@@ -1,6 +1,11 @@
 {
   "turnState": "interrupted",
   "contextTokens": 68402,
+  "session": {
+    "model": "claude-opus-5-5",
+    "effort": "medium",
+    "gitBranch": "feat/branch"
+  },
   "skills": 45,
   "entries": [
     {
@@ -15,6 +20,12 @@
       "id": "00000000-0000-4000-8000-00000000000a",
       "ts": "2026-01-01T00:00:40.787Z",
       "text": "magna tempor id minim do labore. sit ut incididunt pariatur et irure, sed ad non dolore ex aliqua ea ullamco d duis laboris aliquip qui aute in occaecat"
+    },
+    {
+      "kind": "thought",
+      "id": "msg_186Dk75urcjiM06MOUa0aY80:thought",
+      "ts": "2026-01-01T00:01:20.005Z",
+      "durationMs": 814
     },
     {
       "kind": "assistant",

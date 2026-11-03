@@ -24,6 +24,8 @@ export interface UploadPastedImageOptions {
    * composer's, before its agent starts).
    */
   hostId?: string;
+  /** Stops the upload between chunks; the host drops what it staged. */
+  signal?: AbortSignal;
 }
 
 /** The blob's bytes as base64, without `btoa` on a large string. */
@@ -70,11 +72,13 @@ export async function uploadPastedImage(
     let index = 0;
     let sent = 0;
     for (let off = 0; off < blob.size; off += PASTED_IMAGE_CHUNK_BYTES) {
+      opts?.signal?.throwIfAborted();
       const piece = blob.slice(off, off + PASTED_IMAGE_CHUNK_BYTES);
       await api.chunk(paneId, uploadId, index++, await toBase64(piece), ...target);
       sent += piece.size;
       opts?.onProgress?.(sent, blob.size);
     }
+    opts?.signal?.throwIfAborted();
     const { path } = await api.commit(paneId, uploadId, ...target);
     return path;
   } catch (err) {

@@ -92,3 +92,44 @@ describe("copyName", () => {
     expect(copyName("Manor", ["Manor", "manor COPY"])).toBe("Manor copy 2");
   });
 });
+
+describe("visibleThemes sorted by color", () => {
+  const painted = (name: string, background: string): ThemeListEntry => {
+    const scheme = background === "#eeeeee" ? "light" : "dark";
+    return { ...entry(name, scheme), colors: { ...entry(name, scheme).colors, background } };
+  };
+  const wall: ThemeCatalog = {
+    themes: [
+      painted("Blue", "#1a1b26"),
+      painted("Light grey", "#eeeeee"),
+      painted("Red", "#2a1010"),
+      painted("Black", "#000000"),
+      painted("Green", "#102a10"),
+    ],
+    recent: ["Green", "Black"],
+  };
+
+  it("puts dark themes before light, each greys first then round the hue wheel", () => {
+    expect(names(visibleThemes(wall, "all", "", "color"))).toEqual([
+      "Black",
+      "Red",
+      "Green",
+      "Blue",
+      "Light grey",
+    ]);
+  });
+
+  it("sorts a search too, but leaves Recent newest first", () => {
+    expect(names(visibleThemes(wall, "all", "e", "color"))).toEqual([
+      "Red",
+      "Green",
+      "Blue",
+      "Light grey",
+    ]);
+    expect(names(visibleThemes(wall, "recent", "", "color"))).toEqual(["Green", "Black"]);
+  });
+
+  it("keeps the catalog's order by name", () => {
+    expect(names(visibleThemes(wall, "all", ""))).toEqual(names(wall.themes));
+  });
+});

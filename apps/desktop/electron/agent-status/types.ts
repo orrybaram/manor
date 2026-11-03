@@ -94,6 +94,12 @@ export interface PaneAgentState {
   /** True from the root session's first hook until it ends. */
   readonly hookDriven: boolean;
   /**
+   * The root was restored from its saved Agent after a main restart and has
+   * sent no hook since. Until it does, a prompt from another session is the
+   * pane's new root: main missed the SessionStart of a `/clear` or resume.
+   */
+  readonly rootRestored: boolean;
+  /**
    * Subagents the root has started and not yet stopped. Keys are
    * tagged by what identifies them: `agent:<agent_id>` (exact pairing),
    * `tool:<tool_use_id>`, or `__fallback_N` (paired by count). The held-Stop

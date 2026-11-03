@@ -3,10 +3,20 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { isOpenPicker, sameItem, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import {
+  formatDuration,
+  isOpenPicker,
+  sameItem,
+  splitPrompt,
+  summarizeTools,
+  type ChatItem,
+  type ToolGroup,
+} from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
+import { GableMark } from "./GableMark";
+import { pastVerb } from "./manor-verbs";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
@@ -34,7 +44,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
       return (
         <div className={styles.userRow}>
           <div className={styles.userBubble} data-testid="chat-user">
-            {entry.text}
+            <UserPrompt text={entry.text} />
           </div>
         </div>
       );
@@ -66,8 +76,21 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
       );
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
+    case "thought":
+      return (
+        <div className={styles.thought} data-testid="chat-thought">
+          <span className={styles.thoughtDot} aria-hidden>
+            ·
+          </span>
+          <span>
+            Thought for <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+          </span>
+        </div>
+      );
+    case "turn-end":
+      return <TurnEnd entry={entry} />;
     case "edit":
-      return <EditCard entry={entry} />;
+      return <EditCard paneId={paneId} entry={entry} />;
     case "question":
       return isOpenPicker(entry) ? (
         <QuestionCard
@@ -98,6 +121,70 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
   prev.onShowTerminal === next.onShowTerminal &&
   sameItem(prev.entry, next.entry),
 );
+
+/**
+ * A prompt's text, with each pasted block folded to a "Pasted N lines" row
+ * that opens to the paste.
+ */
+function UserPrompt({ text }: { text: string }) {
+  const parts = splitPrompt(text);
+  if (parts.length === 1 && parts[0].kind === "typed") return <>{text}</>;
+  return (
+    <div className={styles.userParts}>
+      {parts.map((part, i) =>
+        part.kind === "typed" ? (
+          <div key={i}>{part.text}</div>
+        ) : (
+          <details key={i} className={styles.pasted} data-testid="chat-pasted">
+            <summary className={styles.pastedSummary}>
+              Pasted {lineCount(part.text)}
+            </summary>
+            <div className={styles.pastedText}>{part.text}</div>
+          </details>
+        ),
+      )}
+    </div>
+  );
+}
+
+function lineCount(text: string): string {
+  const lines = text.split("\n").length;
+  return lines === 1 ? "1 line" : `${lines} lines`;
+}
+
+type TurnEndProps = {
+  entry: Extract<ChatEntry, { kind: "turn-end" }>;
+};
+
+/**
+ * A finished turn, as a centred divider in Manor's voice: "Polished for
+ * 2m 14s", and the background agents it left running.
+ */
+function TurnEnd(props: TurnEndProps) {
+  const { entry } = props;
+
+  const agents = entry.backgroundAgents;
+  return (
+    <div className={styles.turnEnd} data-testid="chat-turn-end">
+      <GableMark />
+      <span className={styles.turnEndText}>
+        <span className={styles.turnPhrase}>
+          <span className={styles.turnVerb}>{pastVerb(entry.id)}</span> for{" "}
+          <span className={styles.duration}>{formatDuration(entry.durationMs)}</span>
+        </span>
+        {agents > 0 && (
+          <>
+            {" "}
+            <span aria-hidden>·</span>{" "}
+            <span className={styles.turnAgents}>
+              {agents === 1 ? "1 background agent" : `${agents} background agents`} still running
+            </span>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
 
 type ToolGroupViewProps = {
   group: ToolGroup;

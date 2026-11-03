@@ -244,6 +244,9 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "github.proxyImage": "home",
   "github.assignIssue": byGhRepo(0),
   "github.closeIssue": byGhRepo(0),
+  "github.getMergeOptions": byGhRepo(0),
+  "github.mergePr": byGhRepo(0),
+  "github.getPrAgentPrompt": byGhRepo(0),
   "github.createIssue": "home",
   "github.uploadFeedbackImages": "home",
 

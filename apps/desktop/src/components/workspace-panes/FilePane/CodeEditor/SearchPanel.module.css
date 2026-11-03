@@ -1,0 +1,154 @@
+/* The file pane's find widget, floating over the editor's top right like the
+   terminal's search bar (`TerminalPane.module.css`). */
+
+.widget {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* The input with its toggles inside, one bordered field. */
+.field {
+  display: flex;
+  align-items: center;
+  width: 240px;
+  min-width: 0;
+  flex-shrink: 1;
+  height: 24px;
+  padding-right: 2px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+.field[data-invalid] {
+  border-color: var(--red);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.toggles {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.toggle,
+.button,
+.expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-dim);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.toggle {
+  width: 20px;
+  height: 18px;
+}
+
+.button {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+
+.toggle:hover,
+.button:hover:not(:disabled),
+.expand:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.toggle[aria-pressed="true"] {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toggle:focus-visible,
+.button:focus-visible,
+.expand:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* The chevron spans both rows when replace is open. */
+.expand {
+  width: 16px;
+  align-self: stretch;
+  min-height: 24px;
+}
+
+.expandIcon {
+  transition: transform 120ms ease;
+}
+
+.expand[aria-expanded="true"] .expandIcon {
+  transform: rotate(90deg);
+}
+
+.count {
+  min-width: 64px;
+  padding: 0 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.count[data-empty] {
+  color: var(--red);
+}

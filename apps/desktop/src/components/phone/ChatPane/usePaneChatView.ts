@@ -1,14 +1,17 @@
 import { useCallback } from "react";
 import { create } from "zustand";
 import type { ChatEntry } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { readChatView, writeChatView, type ChatView } from "./chat-view";
 import { endsMenuHandoff, liveMenuHandoff, type MenuHandoff } from "./menu-handoff";
 
 /**
  * Each pane's Chat | Terminal choice, shared by the pane itself
- * (`LeafPane`, which shows one or the other) and the phone top bar's overflow
- * menu (which flips it). An entry is filled lazily from this browser's
- * storage the first time a pane is read, chat by default, and every change is
+ * (`LeafPane`, which shows one or the other) and what flips it: the phone top
+ * bar's overflow menu, and on the desk the pane header and its command. The
+ * phone's and the desk's choices are kept apart. An entry is filled lazily
+ * from this browser's storage the first time a pane is read (the phone
+ * defaults to chat, the desk to the caller's default) and every change is
  * written back.
  *
  * A menu handoff lies over that choice: while one is live the
@@ -16,7 +19,10 @@ import { endsMenuHandoff, liveMenuHandoff, type MenuHandoff } from "./menu-hando
  * reload mid-handoff comes back on the chat.
  */
 type PaneChatViewState = {
+  /** The phone's choices. */
   views: Record<string, ChatView>;
+  /** The desk's choices. */
+  deskViews: Record<string, ChatView>;
   /** Panes waiting on a new transcript, mapped to the one they leave behind
    *  (null for an agent the phone just started, the old one after `/clear`).
    *  They show a fresh chat until a different transcript lands. In memory
@@ -29,34 +35,48 @@ type PaneChatViewState = {
    *  until the menu's command lands in the transcript, the transcript
    *  changes, or the user goes back. In memory only. */
   handoffs: Record<string, MenuHandoff>;
+  /** Prompts sent mid-turn that the transcript doesn't hold yet: Claude Code
+   *  writes a queued prompt only when the model can read it. Shown as queued
+   *  until a user entry with the same text lands or the turn ends. In memory
+   *  only. */
+  queued: Record<string, string[]>;
 };
 
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
   views: {},
+  deskViews: {},
   starting: {},
   startingPrompts: {},
   handoffs: {},
+  queued: {},
 }));
 
+const NO_PROMPTS: string[] = [];
+
 /**
- * The view `paneId` shows while on `transcript`: the terminal under a live
- * menu handoff, otherwise the stored choice, or what this browser remembers.
+ * The view `paneId` shows in `layout` while on `transcript`: the terminal
+ * under a live menu handoff, otherwise the stored choice, or what this
+ * browser remembers, or `deskDefault` for a desk pane with neither.
  */
 export function selectPaneChatView(
   state: PaneChatViewState,
   paneId: string,
   transcript: string | null,
+  layout: LayoutMode = "phone",
+  deskDefault: ChatView = "terminal",
 ): ChatView {
   if (liveMenuHandoff(state.handoffs[paneId], transcript)) return "terminal";
+  if (layout === "desk") return state.deskViews[paneId] ?? readChatView(paneId, "desk", deskDefault);
   return state.views[paneId] ?? readChatView(paneId);
 }
 
-/** Store `paneId`'s Chat | Terminal choice, here and in this browser. */
-export function setPaneChatView(paneId: string, view: ChatView): void {
+/** Store `paneId`'s Chat | Terminal choice in `layout`, here and in this browser. */
+export function setPaneChatView(paneId: string, view: ChatView, layout: LayoutMode = "phone"): void {
+  const field = layout === "desk" ? "deskViews" : "views";
   usePaneChatViewStore.setState((s) =>
-    s.views[paneId] === view ? s : { views: { ...s.views, [paneId]: view } },
+    s[field][paneId] === view ? s : { [field]: { ...s[field], [paneId]: view } },
   );
-  writeChatView(paneId, view);
+  writeChatView(paneId, view, layout);
 }
 
 /**
@@ -111,14 +131,16 @@ export function endMenuHandoff(paneId: string): void {
 }
 
 /**
- * Entries the chat of `transcript` just received for `paneId`: a handoff
- * from another transcript is over, and one whose command landed has closed.
+ * Entries the chat of `transcript` just received for `paneId`: a queued
+ * prompt that landed is no longer queued, a handoff from another transcript
+ * is over, and one whose command landed has closed.
  */
 export function noteChatEntries(
   paneId: string,
   transcript: string,
   entries: readonly ChatEntry[],
 ): void {
+  dropLandedPrompts(paneId, entries);
   const handoff = usePaneChatViewStore.getState().handoffs[paneId];
   if (!handoff) return;
   if (handoff.transcript !== transcript || entries.some((e) => endsMenuHandoff(handoff, e))) {
@@ -132,14 +154,64 @@ export function usePaneMenuHandoff(paneId: string, transcript: string | null): M
 }
 
 /**
- * `paneId`'s view while on `transcript`, and a setter for the stored choice
- * (which a live handoff still covers).
+ * `paneId`'s view in `layout` while on `transcript`, and a setter for the
+ * stored choice (which a live handoff still covers).
  */
 export function usePaneChatView(
   paneId: string,
   transcript: string | null,
+  layout: LayoutMode = "phone",
+  deskDefault: ChatView = "terminal",
 ): [ChatView, (view: ChatView) => void] {
-  const view = usePaneChatViewStore((s) => selectPaneChatView(s, paneId, transcript));
-  const setView = useCallback((next: ChatView) => setPaneChatView(paneId, next), [paneId]);
+  const view = usePaneChatViewStore((s) =>
+    selectPaneChatView(s, paneId, transcript, layout, deskDefault),
+  );
+  const setView = useCallback(
+    (next: ChatView) => setPaneChatView(paneId, next, layout),
+    [paneId, layout],
+  );
   return [view, setView];
+}
+
+/**
+ * Note a prompt sent to `paneId`. One sent mid-turn (`queued`) shows as
+ * queued until it lands; one sent between turns starts a turn, which no
+ * earlier queued prompt can still be waiting on.
+ */
+export function noteSentPrompt(paneId: string, text: string, queued: boolean): void {
+  if (!queued) return clearQueuedPrompts(paneId);
+  usePaneChatViewStore.setState((s) => ({
+    queued: { ...s.queued, [paneId]: [...(s.queued[paneId] ?? NO_PROMPTS), text] },
+  }));
+}
+
+/**
+ * Forget `paneId`'s queued prompts: its turn ended or was interrupted, and a
+ * prompt still queued then was either submitted (its line lands as an
+ * ordinary prompt) or handed back to the agent's input.
+ */
+export function clearQueuedPrompts(paneId: string): void {
+  usePaneChatViewStore.setState((s) =>
+    s.queued[paneId]?.length ? { queued: { ...s.queued, [paneId]: NO_PROMPTS } } : s,
+  );
+}
+
+function dropLandedPrompts(paneId: string, entries: readonly ChatEntry[]): void {
+  const prompts = usePaneChatViewStore.getState().queued[paneId];
+  if (!prompts?.length) return;
+  const landed = entries.flatMap((e) => (e.kind === "user" ? [e.text.trim()] : []));
+  if (landed.length === 0) return;
+  const left = prompts.filter((p) => {
+    const i = landed.indexOf(p.trim());
+    if (i === -1) return true;
+    landed.splice(i, 1);
+    return false;
+  });
+  if (left.length === prompts.length) return;
+  usePaneChatViewStore.setState((s) => ({ queued: { ...s.queued, [paneId]: left } }));
+}
+
+/** `paneId`'s prompts sent mid-turn that haven't landed in its transcript. */
+export function useQueuedPrompts(paneId: string): string[] {
+  return usePaneChatViewStore((s) => s.queued[paneId] ?? NO_PROMPTS);
 }

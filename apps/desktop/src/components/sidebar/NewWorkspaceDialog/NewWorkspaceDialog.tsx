@@ -15,6 +15,10 @@ import { Input } from "../../ui/Input";
 import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect";
+import { ImageAttachments } from "../../ui/ImageAttachments/ImageAttachments";
+import { useImageAttachments } from "../../ui/ImageAttachments/useImageAttachments";
+import { uploadPastedImage } from "../../../lib/paste-image-upload";
+import { newPaneId } from "../../../lib/layout/ids";
 import styles from "./NewWorkspaceDialog.module.css";
 import { Row } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
@@ -187,6 +191,18 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const activeHostChoice = hostChoices?.find(
     (c) => c.projectId === activeProjectId,
   );
+
+  // The prompt's images go to the project's host before the agent has a
+  // pane, so they upload under an id no layout holds, routed by host.
+  const [uploadPaneId] = useState(newPaneId);
+  const imageHostId = activeProject?.hostId;
+  const images = useImageAttachments({
+    upload: (file, signal) =>
+      uploadPastedImage(uploadPaneId, file, { hostId: imageHostId, signal }),
+    target: imageHostId,
+    setError,
+    buttonClassName: styles.attach,
+  });
   // Other projects' pods are left out of the targets until asked for.
   const [showAllHosts, setShowAllHosts] = useState(false);
   const cloneTargets = useMemo(
@@ -422,6 +438,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     setFolderTouched(false);
     setSuggestion(null);
     setAgentPrompt(initialAgentPrompt);
+    images.clear();
     scheduleSuggestion({
       projectId: defaultProjectId,
       folderCount:
@@ -456,13 +473,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
         setError(activeHostChoice.disabledReason);
         return;
       }
-      if (waitingForBranches) return;
+      if (waitingForBranches || images.uploading) return;
       if (branchMissingMessage) {
         setError(branchMissingMessage);
         return;
       }
-      // An empty prompt starts no agent.
-      const promptToSend = agentPrompt.trim() || undefined;
+      // An empty prompt, with no images, starts no agent.
+      const promptToSend = images.takeMessage(agentPrompt).message.trim() || undefined;
 
       if (mode === "existing") {
         if (!existingBranch) {
@@ -524,6 +541,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
       activeFolderId,
       activeHostChoice,
       agentPrompt,
+      images,
       waitingForBranches,
       branchMissingMessage,
       onSubmit,
@@ -654,7 +672,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   )}
                 </Row>
               </div>
-              <div className={styles.composer}>
+              <div className={styles.composer} {...images.dropProps}>
+                <ImageAttachments
+                  attachments={images.attachments}
+                  onRemove={images.remove}
+                />
                 <EmojiTextarea
                   value={agentPrompt}
                   className={styles.prompt}
@@ -662,6 +684,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                     setAgentPrompt(e.target.value);
                     scheduleSuggestion({ agentPrompt: e.target.value });
                   }}
+                  onPaste={images.pasteImage}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault();
@@ -674,6 +697,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                   data-testid="new-workspace-agent-prompt"
                 />
                 <div className={styles.chips} data-testid="new-workspace-chips">
+                  {images.attachButton}
                   {pickerChoices && (
                     <HostPicker
                       choices={pickerChoices}
@@ -793,7 +817,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                 <Button
                   type="submit"
                   variant="primary"
-                  disabled={isCreating || waitingForBranches}
+                  disabled={isCreating || waitingForBranches || images.uploading}
                   className={styles.submit}
                   data-testid="new-workspace-submit"
                 >

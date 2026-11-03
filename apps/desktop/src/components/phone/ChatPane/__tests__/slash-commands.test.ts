@@ -2,6 +2,7 @@
  * The phone composer's `/` menu, as pure functions.
  */
 import { describe, expect, it } from "vitest";
+import { agentChat } from "../../../../lib/agent-chat";
 import {
   opensMenu,
   type ChatCommand,
@@ -170,25 +171,30 @@ describe("opensMenu", () => {
 });
 
 describe("commandEffect", () => {
+  const CLEARS = agentChat("claude").clearCommands;
   const lookup = (name: string) =>
     ({ model: cmd("model", "", { menu: "bare-only" }), clear: cmd("clear") })[name];
 
   it("is menu for a bare menu command", () => {
-    expect(commandEffect(splitCommand("/model"), lookup)).toBe("menu");
+    expect(commandEffect(splitCommand("/model"), lookup, CLEARS)).toBe("menu");
   });
 
   it("is null when an argument skips the menu", () => {
-    expect(commandEffect(splitCommand("/model sonnet"), lookup)).toBeNull();
+    expect(commandEffect(splitCommand("/model sonnet"), lookup, CLEARS)).toBeNull();
   });
 
   it("is clear for /clear and its aliases", () => {
-    expect(commandEffect(splitCommand("/clear"), lookup)).toBe("clear");
-    expect(commandEffect(splitCommand("/reset"), lookup)).toBe("clear");
-    expect(commandEffect(splitCommand("/new"), lookup)).toBe("clear");
+    expect(commandEffect(splitCommand("/clear"), lookup, CLEARS)).toBe("clear");
+    expect(commandEffect(splitCommand("/reset"), lookup, CLEARS)).toBe("clear");
+    expect(commandEffect(splitCommand("/new"), lookup, CLEARS)).toBe("clear");
   });
 
   it("is null for plain text and unknown commands", () => {
-    expect(commandEffect(splitCommand("hello"), lookup)).toBeNull();
-    expect(commandEffect(splitCommand("/nonsense"), lookup)).toBeNull();
+    expect(commandEffect(splitCommand("hello"), lookup, CLEARS)).toBeNull();
+    expect(commandEffect(splitCommand("/nonsense"), lookup, CLEARS)).toBeNull();
+  });
+
+  it("starts no fresh chat for an agent without Claude's /clear", () => {
+    expect(commandEffect(splitCommand("/clear"), () => undefined, agentChat("codex").clearCommands)).toBeNull();
   });
 });

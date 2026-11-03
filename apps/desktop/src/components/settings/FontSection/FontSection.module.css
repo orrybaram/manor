@@ -1,0 +1,79 @@
+/* Label and hint on the left, the controls on the right, as `settingMain`. */
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.family {
+  width: 220px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.step:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.step:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.step:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.size {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-selected);
+}
+
+/* Drawn in the chosen font, so a family is judged without leaving Settings. */
+.sample {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--surface);
+  line-height: 1.35;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+@media (max-width: 600px) {
+  .head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+}

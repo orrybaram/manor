@@ -98,6 +98,19 @@ export function GeneralSettingsPage() {
         </SettingRow>
       </Stack>
       <Stack gap="xs">
+        <SectionTitle id="general-chat">Agent Chat</SectionTitle>
+        <SettingRow
+          label="Show agent panes as chat"
+          hint="Agent panes open on the chat instead of the terminal. A pane you switch with its chat button keeps its own choice. The phone always opens on the chat."
+        >
+          <Switch
+            checked={preferences.deskChatByDefault}
+            onCheckedChange={(checked) => set("deskChatByDefault", checked)}
+            data-testid="desk-chat-by-default"
+          />
+        </SettingRow>
+      </Stack>
+      <Stack gap="xs">
         <SectionTitle id="general-stats">Usage Stats</SectionTitle>
         <SettingRow
           label="Collect usage stats"

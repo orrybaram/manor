@@ -163,6 +163,34 @@
   font-weight: 500;
 }
 
+/* Attach image: an icon the chips' height, first in their row. */
+.attach.attach {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+
+.attach.attach svg {
+  width: 14px;
+  height: 14px;
+}
+
+.attach.attach:hover {
+  color: var(--text-selected);
+}
+
+:global(:root[data-layout="phone"]) .attach.attach {
+  width: 26px;
+  height: 26px;
+}
+
 /* A finger needs the bigger target. */
 :global(:root[data-layout="phone"]) .chip.chip {
   height: 26px;

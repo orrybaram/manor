@@ -100,6 +100,12 @@ export type ChatEntry =
       /** The agent's own id for this task, when it has one. */
       taskRef?: string;
       /**
+       * How long a background task ran, set when its notification settles
+       * it: the notification's `<duration_ms>`, else the time from launch to
+       * the notification.
+       */
+      durationMs?: number;
+      /**
        * Set by the mirror (`mirror.ts`), never by the parser: the adapter
        * resolves a transcript for this task.
        */
@@ -115,6 +121,27 @@ export type ChatEntry =
       ts: string;
       text: string;
       status: "ok" | "error";
+    }
+  | {
+      /**
+       * How long the model thought before an assistant message: its thinking
+       * blocks' durations summed. Placed before the message's first text or
+       * tool entry. Drawn as a quiet line; no thinking text is kept.
+       */
+      kind: "thought";
+      /** `${message id}:thought`, else the line's uuid with that suffix. */
+      id: string;
+      ts: string;
+      durationMs: number;
+    }
+  | {
+      /** The main thread's turn ended, after `durationMs`. */
+      kind: "turn-end";
+      id: string;
+      ts: string;
+      durationMs: number;
+      /** Background agents still running when it ended. */
+      backgroundAgents: number;
     };
 
 export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
@@ -161,13 +188,49 @@ export type ChatTurn = {
   state: ChatTurnState;
 };
 
-/** What the `chat.entry` channel carries: an entry, a context-size or a turn-state update. */
-export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
+/**
+ * What the transcript says about the session as of its newest main-thread
+ * line: the model and effort the agent last answered with, and the git
+ * branch it was on. Each is null until a line says, or when the agent's
+ * transcript never does.
+ */
+export type ChatSessionInfo = {
+  /** As written, e.g. `claude-opus-5-5`; the renderer names it for display. */
+  model: string | null;
+  /** e.g. `medium`. */
+  effort: string | null;
+  gitBranch: string | null;
+};
+
+/**
+ * The session info. Published by the mirror when it changes; never a
+ * `ChatEntry`, never drawn.
+ */
+export type ChatSession = { kind: "session"; id: "session"; ts: string } & ChatSessionInfo;
+
+/**
+ * The transcript's history changed in place, not just at its end (opencode
+ * deleted the rows `/undo` reverted): what was pushed before may be gone.
+ * Published once the mirror has read the changed history; a subscriber
+ * fetches the history again and replaces what it shows. Never a `ChatEntry`.
+ */
+export type ChatReset = {
+  kind: "reset";
+  id: "reset";
+  ts: string;
+};
+
+/**
+ * What the `chat.entry` channel carries: an entry, a context-size,
+ * turn-state or session-info update, or word that the history changed.
+ */
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn | ChatSession | ChatReset;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
 
-const MAX_DETAIL = 4000;
+/** The most of a tool's result or a command's output an entry keeps. */
+export const MAX_DETAIL = 4000;
 /** An edit card's caps: hunks, lines per hunk, characters per line. */
 const MAX_HUNKS = 40;
 const MAX_HUNK_LINES = 400;
@@ -356,6 +419,17 @@ function notifiedStatus(status: string | undefined): ChatTaskEntry["status"] {
   return "ok";
 }
 
+/**
+ * How long a notified task ran: the `<duration_ms>` its notification
+ * reports, else from its launch at `launchTs` to the notification at `ts`.
+ */
+function notifiedDuration(text: string, launchTs: string, ts: string): number | undefined {
+  const reported = Number(tagText(text, "duration_ms")?.trim() || NaN);
+  if (Number.isFinite(reported) && reported >= 0) return reported;
+  const elapsed = Date.parse(ts) - Date.parse(launchTs);
+  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined;
+}
+
 /** Flatten a tool_result `content` (string or block array) to plain text. */
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -403,7 +477,7 @@ function editHunks(info: Json): ChatDiffHunk[] {
 }
 
 /** `path` relative to `cwd` when it is inside it. */
-function relativeTo(path: string, cwd: string | undefined): string {
+export function relativeTo(path: string, cwd: string | undefined): string {
   if (!cwd) return path;
   const base = cwd.endsWith("/") ? cwd : `${cwd}/`;
   return path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path;
@@ -418,7 +492,36 @@ function editEntry(
   info: Json,
   cwd?: string,
 ): ChatEntry | null {
-  const all = editHunks(info);
+  return landedEdit(tool, editHunks(info), str(info.filePath) ?? str(info.notebook_path), cwd);
+}
+
+/**
+ * A tool's landed edit as an edit entry in its place. `filePath` is the file
+ * it wrote, else the tool's summary names it. Null when there is no diff to
+ * show.
+ */
+export function landedEdit(
+  tool: Extract<ChatEntry, { kind: "tool" }>,
+  all: ChatDiffHunk[],
+  filePath: string | undefined,
+  cwd?: string,
+): Extract<ChatEntry, { kind: "edit" }> | null {
+  const path = filePath || (tool.summary !== tool.name ? tool.summary : "");
+  return cappedEdit(
+    { id: tool.id, ts: tool.ts, name: tool.name, path: relativeTo(path, cwd) },
+    all,
+  );
+}
+
+/**
+ * An edit entry of `all`'s hunks: added and removed counted over all of
+ * them, then cut to an edit card's caps. Null when there is nothing to show.
+ * Any adapter's landed edit goes through here, so every card fits one frame.
+ */
+export function cappedEdit(
+  base: { id: string; ts: string; name: string; path: string },
+  all: ChatDiffHunk[],
+): Extract<ChatEntry, { kind: "edit" }> | null {
   if (all.length === 0) return null;
   let added = 0;
   let removed = 0;
@@ -454,19 +557,57 @@ function editEntry(
     }
   }
   if (hunks.length === 0) return null;
-  const written = str(info.filePath) ?? str(info.notebook_path);
-  const path = written || (tool.summary !== tool.name ? tool.summary : "");
-  return {
-    kind: "edit",
-    id: tool.id,
-    ts: tool.ts,
-    name: tool.name,
-    path: relativeTo(path, cwd),
-    hunks,
-    added,
-    removed,
-    truncated,
-  };
+  return { kind: "edit", ...base, hunks, added, removed, truncated };
+}
+
+/**
+ * The hunks of a unified patch: pi's edit tool's `details.patch` (jsdiff's
+ * `createTwoFilesPatch`), or a Codex `patch_apply_end` update's
+ * `unified_diff`. File headers before a hunk are skipped. Each hunk is read
+ * for as many lines as its header counts, so a removed line that itself
+ * starts with "--" is not taken for a file header. A "\ No newline at end
+ * of file" marker is kept, as `structuredPatch` keeps it; the card draws it
+ * as a meta row (`edit-diff.ts`) and counts it neither added nor removed.
+ */
+export function parseUnifiedPatch(patch: string): ChatDiffHunk[] {
+  const lines = patch.split("\n");
+  const hunks: ChatDiffHunk[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[i]);
+    i++;
+    if (!m) continue;
+    const oldLines = m[2] === undefined ? 1 : Number(m[2]);
+    const newLines = m[4] === undefined ? 1 : Number(m[4]);
+    let oldLeft = oldLines;
+    let newLeft = newLines;
+    const body: string[] = [];
+    while (i < lines.length) {
+      const l = lines[i];
+      if (l.startsWith("\\")) {
+        body.push(l);
+      } else if (oldLeft <= 0 && newLeft <= 0) {
+        break;
+      } else if (l.startsWith("+")) {
+        newLeft--;
+        body.push(l);
+      } else if (l.startsWith("-")) {
+        oldLeft--;
+        body.push(l);
+      } else if (l.startsWith(" ")) {
+        oldLeft--;
+        newLeft--;
+        body.push(l);
+      } else {
+        break;
+      }
+      i++;
+    }
+    if (body.length > 0) {
+      hunks.push({ oldStart: Number(m[1]), oldLines, newStart: Number(m[3]), newLines, lines: body });
+    }
+  }
+  return hunks;
 }
 
 /** How a `TranscriptParser` reads. */
@@ -495,6 +636,9 @@ export class TranscriptParser {
   private lastCommandId: string | null = null;
   private lastContextTokens: number | null = null;
   private turn: ChatTurnState | null = null;
+  private model: string | null = null;
+  private effort: string | null = null;
+  private gitBranch: string | null = null;
   /** The line being read is the main thread's, so it may move the turn. */
   private mainThread = true;
   /**
@@ -505,6 +649,10 @@ export class TranscriptParser {
   private turnBeforeCommand: ChatTurnState | null | undefined = undefined;
   /** Notifications already turned into a notice; one may arrive in two forms. */
   private seenNotices = new Set<string>();
+  /** Each assistant message's first text or tool entry, by message id. */
+  private messageFirst = new Map<string, string>();
+  /** The lines already counted into each thought, by thought id. */
+  private thoughtLines = new Map<string, Set<string>>();
 
   constructor(opts: TranscriptParserOptions = {}) {
     this.sidechain = opts.sidechain === true;
@@ -525,6 +673,15 @@ export class TranscriptParser {
    */
   turnState(): ChatTurnState | null {
     return this.turn;
+  }
+
+  /**
+   * The newest main-thread model, effort and git branch. Claude Code's own
+   * synthetic lines (an API error, an interrupt) name no real model, so
+   * they move neither model nor effort; sidechain lines move nothing.
+   */
+  sessionInfo(): ChatSessionInfo {
+    return { model: this.model, effort: this.effort, gitBranch: this.gitBranch };
   }
 
   /** Skills from the transcript's skill listings, sorted by name. */
@@ -592,8 +749,10 @@ export class TranscriptParser {
   private add(entry: ChatEntry): ChatEntry | null {
     if (this.byId.has(entry.id)) return null;
     // A command's output follows it directly; once anything else lands, a
-    // late stdout belongs to no command.
-    if (entry.kind !== "command") this.lastCommandId = null;
+    // late stdout belongs to no command. A turn's timing lines aren't content.
+    if (entry.kind !== "command" && entry.kind !== "thought" && entry.kind !== "turn-end") {
+      this.lastCommandId = null;
+    }
     this.byId.set(entry.id, entry);
     this.order.push(entry.id);
     return entry;
@@ -610,6 +769,8 @@ export class TranscriptParser {
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true && !this.sidechain) return [];
     this.mainThread = parsed.isSidechain !== true;
+    const branch = str(parsed.gitBranch);
+    if (this.mainThread && branch) this.gitBranch = branch;
     const type = parsed.type;
     const ts = str(parsed.timestamp) ?? "";
     const uuid =
@@ -660,6 +821,22 @@ export class TranscriptParser {
       const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
       return e ? [e] : [];
     }
+    // The main thread's turn ended: how long it took, and what it left running.
+    if (type === "system" && parsed.subtype === "turn_duration") {
+      const ms = parsed.durationMs;
+      if (!this.mainThread || typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return [];
+      // An interrupted turn already says so; it gets no "Polished for 5s".
+      if (this.turn === "interrupted") return [];
+      const agents = parsed.pendingBackgroundAgentCount;
+      const e = this.add({
+        kind: "turn-end",
+        id: uuid,
+        ts,
+        durationMs: ms,
+        backgroundAgents: isCount(agents) ? agents : 0,
+      });
+      return e ? [e] : [];
+    }
     if (type !== "user" && type !== "assistant") return [];
     const message = parsed.message;
     if (!isObject(message)) return [];
@@ -699,10 +876,21 @@ export class TranscriptParser {
     if (message.model !== "<synthetic>") {
       const size = contextSize(message.usage);
       if (size !== null) this.lastContextTokens = size;
+      if (this.mainThread) {
+        this.model = str(message.model) || this.model;
+        this.effort = str(parsed.effort) || str(parsed.perTurnEffort) || this.effort;
+      }
     }
     const stop = str(message.stop_reason);
     this.setTurn(stop !== undefined && TURN_ENDS.has(stop) ? "done" : "working");
-    if (!Array.isArray(content)) return [];
+    // Claude Code writes one line per content block, all of one message.
+    const messageKey = str(message.id) || uuid;
+    const thought = this.thought(messageKey, uuid, ts, parsed.thinkingDurationMs);
+    if (thought) out.push(thought);
+    if (!Array.isArray(content)) return out;
+    const first = (e: ChatEntry | null) => {
+      if (e && !this.messageFirst.has(messageKey)) this.messageFirst.set(messageKey, e.id);
+    };
     content.forEach((block, i) => {
       if (!isObject(block)) return;
       if (block.type === "text") {
@@ -714,6 +902,7 @@ export class TranscriptParser {
           ts,
           text,
         });
+        first(e);
         if (e) out.push(e);
       } else if (block.type === "tool_use") {
         const id = str(block.id);
@@ -721,11 +910,40 @@ export class TranscriptParser {
         if (!id || !name) return;
         const input = isObject(block.input) ? block.input : {};
         const e = this.add(toolUseEntry(id, ts, name, input));
+        first(e);
         if (e) out.push(e);
       }
       // thinking and unknown block types: dropped
     });
     return out;
+  }
+
+  /**
+   * Count a line's `thinkingDurationMs` into its message's thought: one
+   * entry per message, each thinking block's line adding its own duration
+   * once. A new thought goes before the message's first text or tool entry.
+   */
+  private thought(messageKey: string, lineId: string, ts: string, ms: unknown): ChatEntry | null {
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return null;
+    const id = `${messageKey}:thought`;
+    const counted = this.thoughtLines.get(id) ?? new Set<string>();
+    if (counted.has(lineId)) return null;
+    counted.add(lineId);
+    this.thoughtLines.set(id, counted);
+    const existing = this.byId.get(id);
+    if (existing?.kind === "thought") {
+      const next: ChatEntry = { ...existing, durationMs: existing.durationMs + ms };
+      this.byId.set(id, next);
+      return next;
+    }
+    if (existing) return null;
+    const entry: ChatEntry = { kind: "thought", id, ts, durationMs: ms };
+    this.byId.set(id, entry);
+    const firstId = this.messageFirst.get(messageKey);
+    const at = firstId === undefined ? -1 : this.order.indexOf(firstId);
+    if (at === -1) this.order.push(id);
+    else this.order.splice(at, 0, id);
+    return entry;
   }
 
   /** Move the main thread's turn; a sidechain line leaves it be. */
@@ -840,6 +1058,9 @@ export class TranscriptParser {
         status: notifiedStatus(status),
         result: summary.slice(0, MAX_DETAIL),
       };
+      // The first notification's time stands: the same one again is later.
+      const durationMs = task.durationMs ?? notifiedDuration(text, task.ts, ts);
+      if (durationMs !== undefined) next.durationMs = durationMs;
       this.byId.set(task.id, next);
       return next;
     }

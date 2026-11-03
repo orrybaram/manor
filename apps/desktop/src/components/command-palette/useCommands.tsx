@@ -279,6 +279,11 @@ export function useCommands({
       { command: "next-pane" },
       { command: "prev-pane" },
       {
+        command: "toggle-pane-chat",
+        icon: <MessageSquare size={14} />,
+        keywords: ["chat", "conversation", "terminal", "transcript", "view", "agent"],
+      },
+      {
         command: "open-file",
         icon: <FileCode size={14} />,
         keywords: ["file", "open", "editor", "code", "tree", "browse"],

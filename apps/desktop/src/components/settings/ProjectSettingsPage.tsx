@@ -53,7 +53,6 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
       const themeValue = name === "__global__" ? null : name;
       updateProject(project.id, { themeName: themeValue });
       applyProjectTheme(themeValue);
-      if (themeValue) void window.electronAPI.theme.addRecent(themeValue);
     },
     [project.id, updateProject, applyProjectTheme],
   );

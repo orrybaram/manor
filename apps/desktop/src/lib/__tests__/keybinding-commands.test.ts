@@ -40,6 +40,12 @@ import {
 
 import { workspaceKey } from "../workspace-key";
 import { recordHello } from "../../bridge/connection";
+import {
+  markChatStarting,
+  selectPaneChatView,
+  setPaneChatView,
+  usePaneChatViewStore,
+} from "../../components/phone/ChatPane/usePaneChatView";
 
 const WS_PATH = "/test/workspace";
 
@@ -383,6 +389,65 @@ describe("startNewAgent", () => {
       },
     ]);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("startNewAgent from a pane showing its chat", () => {
+  beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {}, deskViews: {}, starting: {}, startingPrompts: {} });
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { ...window.electronAPI, pty: { consumePrewarmed: vi.fn() } },
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function newPaneId(): string {
+    const tabs = useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"].tabs;
+    return allPaneIds(tabs[1].rootNode)[0];
+  }
+
+  function deskView(paneId: string) {
+    return selectPaneChatView(usePaneChatViewStore.getState(), paneId, null, "desk");
+  }
+
+  it("opens a new Claude agent on a fresh chat", async () => {
+    useProjectStore.setState({ projects: [makeProject("claude")] });
+    markChatStarting("pane-1");
+    setPaneChatView("pane-1", "chat", "desk");
+
+    await startNewAgent({ prewarm: false });
+    await settled();
+
+    const paneId = newPaneId();
+    expect(deskView(paneId)).toBe("chat");
+    expect(usePaneChatViewStore.getState().starting).toHaveProperty(paneId, null);
+  });
+
+  it("opens another kind on its chat once its transcript lands, not before", async () => {
+    useProjectStore.setState({ projects: [makeProject("codex")] });
+    markChatStarting("pane-1");
+    setPaneChatView("pane-1", "chat", "desk");
+
+    await startNewAgent({ prewarm: false });
+    await settled();
+
+    const paneId = newPaneId();
+    expect(deskView(paneId)).toBe("chat");
+    expect(usePaneChatViewStore.getState().starting).not.toHaveProperty(paneId);
+  });
+
+  it("leaves the new agent on the terminal when the pane showed its terminal", async () => {
+    useProjectStore.setState({ projects: [makeProject("claude")] });
+    markChatStarting("pane-1");
+    setPaneChatView("pane-1", "terminal", "desk");
+
+    await startNewAgent({ prewarm: false });
+    await settled();
+
+    const paneId = newPaneId();
+    expect(usePaneChatViewStore.getState().deskViews).not.toHaveProperty(paneId);
+    expect(usePaneChatViewStore.getState().starting).not.toHaveProperty(paneId);
   });
 });
 

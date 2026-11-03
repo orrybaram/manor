@@ -33,7 +33,8 @@
  *      in progress its activity shows on the pane — thinking / working, and
  *      requires_input so a subagent's permission prompt is visible. A child
  *      lowers only a prompt it raised itself. Never persists and never ends
- *      a turn.
+ *      a turn. Except: while a root restored after a restart has sent no
+ *      hook, a child's prompt replaces it (main missed a `/clear`).
  *  H5  Root session: first hook makes the pane hook-driven. SubagentStart /
  *      SubagentStop bookkeeping without an `agent_id` (key `tool:<id>`, else
  *      `__fallback_N`); active hook → create or update the Agent.
@@ -190,6 +191,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     children: new Set(),
     phase: "none",
     hookDriven: false,
+    rootRestored: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
     openToolCalls: 0,
@@ -233,6 +235,7 @@ export function stateFromSavedAgent(
     ...initial,
     rootSessionId: sessionId,
     hookDriven: true,
+    rootRestored: true,
     kind: agent.agentKind,
     lastHookAt: nowMs,
   };
@@ -260,6 +263,7 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
     children: new Set(),
     phase: "none",
     hookDriven: false,
+    rootRestored: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
     openToolCalls: 0,
@@ -411,11 +415,16 @@ export function reconcile(
 // ── Hooks ──
 
 function reconcileHook(
-  state: PaneAgentState,
+  saved: PaneAgentState,
   event: AgentHookEvent,
   ctx: ReconcileContext,
 ): ReconcileResult {
   const { sessionId, type } = event;
+  // Any hook from a restored root, a subagent's included, shows it is alive.
+  const state =
+    saved.rootRestored && sessionId === saved.rootSessionId
+      ? { ...saved, rootRestored: false }
+      : saved;
   const { existingAgent, nowMs } = ctx;
   const hookLabel = `${type} hook`;
 
@@ -492,6 +501,19 @@ function reconcileHook(
 
   // H4 — child session. A root exists and this is a different session.
   if (state.rootSessionId !== null && state.rootSessionId !== sessionId) {
+    // A root restored after a restart that has not spoken since may be gone:
+    // main missed the SessionStart of a `/clear` or resume. A child prompts
+    // only inside the root's turn, so this prompt is the pane's new root.
+    if (state.rootRestored && type === "UserPromptSubmit") {
+      const replaced: PaneAgentState = {
+        ...withoutRoot(state),
+        rootSessionId: sessionId,
+        hookDriven: true,
+        kind: event.agentKind,
+      };
+      const next = reconcileRootHook(replaced, event, sessionId, ctx);
+      return { ...next, reason: `${next.reason} (replaces the restored root)` };
+    }
     return reconcileChildHook(state, event, sessionId);
   }
 

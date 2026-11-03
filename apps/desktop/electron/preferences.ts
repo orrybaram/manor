@@ -24,6 +24,11 @@ export interface AppPreferences {
   /** Open Source Control in a panel of its own rather than a tab of the current one. */
   diffOpensInNewPanel: boolean;
   /**
+   * Desk panes with an agent open on its chat rather than its terminal, unless
+   * the pane has a choice of its own. The phone always opens on the chat.
+   */
+  deskChatByDefault: boolean;
+  /**
    * Number of days to retain non-active agents. Agents with `status !== "active"`
    * whose `completedAt` is older than this are pruned on AgentManager construction.
    * Set to 0 (or any non-positive number) to disable pruning.
@@ -44,12 +49,28 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Terminal font family; empty means the bundled Nerd Font. */
+  terminalFontFamily: string;
+  /** Terminal font size in px. */
+  terminalFontSize: number;
+  /** File and diff editor font family; empty means the system monospace. */
+  editorFontFamily: string;
+  /** File and diff editor font size in px. */
+  editorFontSize: number;
   /**
    * Turn remote control on, relay and all, every time Manor opens. Written
    * only through `remoteControl.setStartOnLaunch`, which is local-only — see
    * `isSharedPreferenceKey`.
    */
   remoteControlOnLaunch: boolean;
+  /** The PR card's "Delete workspace after merge" tick box, as last left. */
+  deleteWorkspaceAfterMerge: boolean;
+  /**
+   * Workspaces to remove once their queued or auto-merging PR merges: PR URL
+   * by workspace key. Here, not in one renderer's storage, so a merge queued
+   * from the phone is cleaned up by the desk's poller.
+   */
+  mergeCleanups: Record<string, string>;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -66,6 +87,7 @@ const DEFAULTS: AppPreferences = {
   defaultEditor: "",
   editorIsTerminal: false,
   diffOpensInNewPanel: false,
+  deskChatByDefault: false,
   agentRetentionDays: 90,
   agentPruneNoticeShown: false,
   statsEnabled: true,
@@ -73,7 +95,13 @@ const DEFAULTS: AppPreferences = {
   achievementTitle: null,
   revealedBadges: [],
   halloweenEffects: true,
+  terminalFontFamily: "",
+  terminalFontSize: 13,
+  editorFontFamily: "",
+  editorFontSize: 12,
   remoteControlOnLaunch: false,
+  deleteWorkspaceAfterMerge: true,
+  mergeCleanups: {},
 };
 
 /**

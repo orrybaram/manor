@@ -5,6 +5,7 @@ import {
 } from "../../../../electron/chat-mirror/builtin-commands";
 import { onBridgeResync } from "../../../bridge/resync";
 import { useMountEffect } from "../../../hooks/useMountEffect";
+import type { AgentChat } from "../../../lib/agent-chat";
 import { applyCommand, findSlashQuery, matchCommands } from "./slash-commands";
 
 /** A cached list older than this is refetched the next time the menu opens. */
@@ -66,12 +67,16 @@ function wrap(index: number, n: number): number {
  * a list already fetched is marked stale, since skills may
  * have changed while the socket was down, so the next open refetches it.
  * One never fetched stays lazy.
+ *
+ * `offered` is the `/` menu the agent's kind has (`AgentChat.commands`): with
+ * none, nothing is fetched, the menu never opens and no name is a built-in.
  */
 export function useSlashCommands(
   paneId: string,
   text: string,
   caret: number,
   actions: SlashActions,
+  offered: AgentChat["commands"],
 ) {
   const listboxId = `${useId()}-slash-listbox`;
   const [cache, setCache] = useState<CommandCache | null>(null);
@@ -123,7 +128,7 @@ export function useSlashCommands(
     const hasQuery = findSlashQuery(nextText, nextCaret) !== null;
     const opening = hasQuery && !hadQueryRef.current;
     hadQueryRef.current = hasQuery;
-    if (!opening) return;
+    if (!opening || offered === "none") return;
     if (!cache || Date.now() - cache.at > STALE_MS) fetchCommands();
   };
 
@@ -213,7 +218,9 @@ export function useSlashCommands(
   /** The entry for `/name`: the fetched one, else the built-in (a skill of the
    *  same name replaces a built-in). */
   const lookup = (name: string): ChatCommand | undefined =>
-    cache?.commands.find((c) => c.name === name) ?? findBuiltin(name);
+    offered === "claude"
+      ? (cache?.commands.find((c) => c.name === name) ?? findBuiltin(name))
+      : undefined;
 
   return {
     level,

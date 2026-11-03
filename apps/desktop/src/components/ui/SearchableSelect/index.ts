@@ -1,2 +1,5 @@
 export { SearchableSelect } from "./SearchableSelect";
-export type { SearchableSelectAction } from "./SearchableSelect";
+export type {
+  SearchableSelectAction,
+  SearchableSelectOption,
+} from "./SearchableSelect";

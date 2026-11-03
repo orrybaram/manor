@@ -9,7 +9,7 @@
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,7 +44,7 @@ async function open(entries: ChatEntry[]): Promise<void> {
   (window as unknown as { electronAPI: unknown }).electronAPI = { claim: null, chat };
   await act(async () => {
     root.render(
-      createElement(ChatPane, { paneId: PANE, transcript: "/t/w.jsonl", hidden: false, onShowTerminal: () => {} }),
+      createElement(ChatPane, { paneId: PANE, agentKind: "claude", transcript: "/t/w.jsonl", hidden: false, onShowTerminal: () => {} }),
     );
   });  // The chat opens at the bottom, which is a scroll like any other.
   await scrollTo(Number.MAX_SAFE_INTEGER);
@@ -210,5 +210,40 @@ describe("the chat's window", { timeout: 30_000 }, () => {
     await scrollTo(0);
     expect(mounted()).toContain("live");
     expect(entryOf("live")?.hasAttribute("data-enter")).toBe(false);
+  });
+});
+
+describe("ChatPane — revealing a task above the window", () => {
+  it("mounts from a background agent picked in the agents list and scrolls to its card", async () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    onTestFinished(() => {
+      Element.prototype.scrollIntoView = original;
+    });
+    const agent: ChatEntry = {
+      kind: "task",
+      id: "agent-1",
+      ts: new Date().toISOString(),
+      taskKind: "agent",
+      title: "Map the sheets",
+      agentType: "Explore",
+      background: true,
+      status: "running",
+    };
+    await open([agent, ...history(WINDOW_ITEMS + 20)]);
+    expect(container.querySelector('[data-task-id="agent-1"]')).toBeNull();
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="chat-agents-chip"]')?.click();
+    });
+    await act(async () => {
+      document.body.querySelector<HTMLElement>('[data-agent-id="agent-1"]')?.click();
+    });
+
+    const card = container.querySelector('[data-task-id="agent-1"]');
+    expect(card).not.toBeNull();
+    expect(scrollIntoView.mock.contexts).toContain(card);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "auto" });
   });
 });

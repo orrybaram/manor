@@ -8,8 +8,12 @@ import type {
   ChecksSummary,
   PrCheckRun,
   PrCheckStatus,
+  PrAgentTask,
   PrComment,
   PrInfo,
+  PrMergeMethod,
+  PrMergeOptions,
+  PrMergeOutcome,
 } from "../src/lib/pr-info";
 import { normalizeHostId } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
@@ -23,8 +27,43 @@ import {
   type RawStatusCheck,
   type RepoPrNumbers,
 } from "./github-pr-query";
+import {
+  actionsJobId,
+  failedLogArgs,
+  failingChecksPrompt,
+  mergeArgs,
+  mergeOptionsQueryArgs,
+  mergeOutcomeQueryArgs,
+  parseMergeOptions,
+  parseMergeOutcome,
+  parsePrContext,
+  prContextQueryArgs,
+  reviewThreadsPrompt,
+  tailFailedLog,
+} from "./github-pr-actions";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * `gh` for one of the PR card's actions, its failure carrying `gh`'s own
+ * stderr ("Pull request is not mergeable: …") rather than "Command failed",
+ * since that is what the toast shows.
+ */
+async function runGh(args: string[], cwd: string | undefined, timeout = 20_000): Promise<{ stdout: string }> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd,
+      encoding: "utf-8",
+      timeout,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    return { stdout };
+  } catch (err) {
+    const stderr = (err as { stderr?: unknown }).stderr;
+    const reason = typeof stderr === "string" && stderr.trim() ? stderr.trim() : null;
+    throw reason ? new Error(reason) : err;
+  }
+}
 
 export interface GitHubIssue {
   number: number;
@@ -209,6 +248,23 @@ export class GitHubManager {
   }
 
   /**
+   * A branch's newest PR, asked of GitHub now, for an action about to act on
+   * it. Unlike the poller's lookups this throws when `gh` fails, with `gh`'s
+   * own message, so "no PR" means GitHub said so. No conversation.
+   */
+  async findPrForBranch(repo: GhRepo, branch: string): Promise<PrInfo | null> {
+    const { prs, reached, error } = await this.fetchPrsFromGitHub(repo, [branch]);
+    if (!reached) {
+      const stderr = (error as { stderr?: unknown } | undefined)?.stderr;
+      throw new Error(
+        typeof stderr === "string" && stderr.trim() ? stderr.trim() : `gh could not reach GitHub: ${String(error)}`,
+      );
+    }
+    const pr = prs.get(branch) ?? null;
+    return pr ? this.toPrInfo(pr, {}) : null;
+  }
+
+  /**
    * Every branch's PR in one `gh api graphql` call for the repo, however many
    * branches (#303). A branch whose PR has merged or closed is answered from
    * `lastSeenPrs` and never asked about again. Concurrent calls for the same
@@ -268,7 +324,7 @@ export class GitHubManager {
   private async fetchPrsFromGitHub(
     repo: GhRepo,
     branches: string[],
-  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean }> {
+  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean; error?: unknown }> {
     const result = new Map<string, RawPr | null>(branches.map((b) => [b, null]));
     try {
       const { cwd, repoArgs } = await this.ghTarget(repo);
@@ -289,9 +345,9 @@ export class GitHubManager {
         const node = repository?.[`b${i}`]?.nodes?.[0];
         if (node) result.set(branch, normalizeRawPr(node));
       });
-    } catch {
+    } catch (err) {
       // Rate limit, network, no repo: no PRs this time round.
-      return { prs: result, reached: false };
+      return { prs: result, reached: false, error: err };
     }
     return { prs: result, reached: true };
   }
@@ -565,6 +621,67 @@ export class GitHubManager {
       encoding: "utf-8",
       timeout: 10000,
     });
+  }
+
+  /** What the repo allows when merging, its default method first. Throws when `gh` fails. */
+  async getMergeOptions(repo: GhRepo, number: number): Promise<PrMergeOptions> {
+    const { cwd } = await this.ghTarget(repo);
+    const { stdout } = await runGh(["api", "graphql", ...mergeOptionsQueryArgs(number)], cwd);
+    return parseMergeOptions(stdout);
+  }
+
+  /**
+   * Merge a PR, or with `auto` arm auto-merge so it merges itself once its
+   * requirements pass; a base branch with a merge queue queues it either
+   * way. Answers which of the three happened. Throws with `gh`'s own reason
+   * when GitHub refuses.
+   */
+  async mergePr(
+    repo: GhRepo,
+    number: number,
+    method: PrMergeMethod,
+    auto: boolean,
+  ): Promise<PrMergeOutcome> {
+    const { cwd } = await this.ghTarget(repo);
+    await runGh(mergeArgs(number, method, auto), cwd, 60_000);
+    const { stdout } = await runGh(["api", "graphql", ...mergeOutcomeQueryArgs(number)], cwd);
+    return parseMergeOutcome(stdout);
+  }
+
+  /**
+   * The first message for an agent asked to fix a PR's failing checks or
+   * answer its unresolved review threads, fetched fresh rather than from the
+   * poller's capped view. Throws when there is nothing to do, so the caller
+   * says so instead of starting an agent with an empty brief.
+   */
+  async getPrAgentPrompt(repo: GhRepo, number: number, task: PrAgentTask): Promise<string> {
+    const { cwd } = await this.ghTarget(repo);
+    const { stdout } = await runGh(["api", "graphql", ...prContextQueryArgs(number)], cwd);
+    const pr = parsePrContext(stdout);
+    if (task === "comments") {
+      if (pr.threads.length === 0) throw new Error(`PR #${number} has no unresolved review threads`);
+      return reviewThreadsPrompt(pr, pr.threads);
+    }
+    const failing = (parseStatusCheckRollup(pr.rollup).checkRuns ?? []).filter(
+      (run) => run.status === "failing",
+    );
+    if (failing.length === 0) throw new Error(`PR #${number} has no failing checks`);
+    const checks = await Promise.all(
+      failing.map(async (run) => {
+        const jobId = actionsJobId(run.url);
+        let logTail: string | null = null;
+        if (jobId) {
+          try {
+            const { stdout: log } = await runGh(failedLogArgs(jobId), cwd, 30_000);
+            logTail = tailFailedLog(log) || null;
+          } catch {
+            // A log GitHub expired or a job still uploading: the link stays.
+          }
+        }
+        return { name: run.name, workflow: run.workflow ?? null, url: run.url ?? null, logTail };
+      }),
+    );
+    return failingChecksPrompt(pr, checks);
   }
 
   /**

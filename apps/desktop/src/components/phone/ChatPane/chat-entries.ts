@@ -73,9 +73,29 @@ export type TaskItem = ChatTaskEntry & { display: TaskDisplayStatus };
 export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup | TaskItem;
 
 /**
+ * A line about a turn's timing ("Thought for 5s", a finished turn's
+ * divider), not something the agent said or did: never a tool, never the
+ * content the live line or a running tool's line looks at.
+ */
+function isTimingItem(item: ChatItem): boolean {
+  return item.kind === "thought" || item.kind === "turn-end";
+}
+
+/** The newest item that isn't a timing line (`isTimingItem`). */
+export function newestContent(items: readonly ChatItem[]): ChatItem | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (!isTimingItem(items[i])) return items[i];
+  }
+  return undefined;
+}
+
+/**
  * The chat's items: each run of consecutive tool entries folded into one
  * group (anything else ends a run, a landed edit's card too), and each task with the status it shows
- * while the pane's agent is `agentStatus` (`staleTaskIds`).
+ * while the pane's agent is `agentStatus` (`staleTaskIds`). A thought
+ * between two tool calls of a run isn't drawn: the run stays one line. Nor
+ * is one that ends the chat after a run, since its tool call usually lands
+ * next and would fold it away again.
  */
 export function groupEntries(
   entries: readonly ChatEntry[],
@@ -83,7 +103,14 @@ export function groupEntries(
 ): ChatItem[] {
   const stale = staleTaskIds(entries, agentStatus);
   const items: ChatItem[] = [];
-  for (const entry of entries) {
+  for (const [i, entry] of entries.entries()) {
+    if (
+      entry.kind === "thought" &&
+      items[items.length - 1]?.kind === "tool-group" &&
+      (nextKind(entries, i) === "tool" || i === entries.length - 1)
+    ) {
+      continue;
+    }
     if (entry.kind === "task") {
       items.push({ ...entry, display: stale.has(entry.id) ? "unknown" : entry.status });
       continue;
@@ -97,6 +124,14 @@ export function groupEntries(
     else items.push({ kind: "tool-group", id: entry.id, tools: [entry] });
   }
   return items;
+}
+
+/** The kind of the first entry after `i` that isn't a thought. */
+function nextKind(entries: readonly ChatEntry[], i: number): ChatEntry["kind"] | undefined {
+  for (let j = i + 1; j < entries.length; j++) {
+    if (entries[j].kind !== "thought") return entries[j].kind;
+  }
+  return undefined;
 }
 
 /**
@@ -128,14 +163,16 @@ type Phrase = {
 };
 
 const PHRASES: readonly Phrase[] = [
-  { names: ["Bash"], verb: "ran", noun: ["command", "commands"] },
+  // Codex's calls too: every shell tool it has is "shell" (`adapters/codex.ts`).
+  { names: ["Bash", "shell"], verb: "ran", noun: ["command", "commands"] },
   { names: ["Read"], verb: "read", noun: ["file", "files"] },
   // Only edits still running or that failed: a landed one is its own card.
-  { names: ["Edit", "MultiEdit", "Write", "NotebookEdit"], verb: "edited", noun: ["file", "files"] },
+  { names: ["Edit", "MultiEdit", "Write", "NotebookEdit", "apply_patch"], verb: "edited", noun: ["file", "files"] },
   { names: ["Grep", "Glob"], verb: "searched", noun: ["the code", "the code"] },
-  { names: ["WebSearch", "WebFetch"], verb: "searched the web" },
+  { names: ["WebSearch", "WebFetch", "web_search"], verb: "searched the web" },
   { names: ["Agent", "Task"], verb: "ran", noun: ["agent", "agents"] },
   { names: ["TodoWrite"], verb: "updated the todo list" },
+  { names: ["update_plan"], verb: "updated the plan" },
 ];
 const OTHER: Phrase = { names: [], verb: "used", noun: ["tool", "tools"] };
 
@@ -205,9 +242,9 @@ export function staleTaskIds(
   return stale;
 }
 
-/** How many tasks show as running (the stale ones show as unknown). */
-export function runningTaskCount(items: readonly ChatItem[]): number {
-  return items.filter((i) => i.kind === "task" && i.display === "running").length;
+/** The chat's tasks, in chat order, each with the status it shows. */
+export function chatTasks(items: readonly ChatItem[]): TaskItem[] {
+  return items.filter((i): i is TaskItem => i.kind === "task");
 }
 
 /** The dot's `data-status`: the shared dot styles know pending, ok and error. */
@@ -236,8 +273,47 @@ export function formatElapsed(seconds: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
+/**
+ * A finished stretch, to the second: `5s`, `2m 14s`, `3m`, `1h 5m`. Never
+ * under `1s`: a thought that took a few milliseconds still took a moment.
+ */
+export function formatDuration(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return s % 60 === 0 ? `${m}m` : `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
 /** The first line of a result, for the one-line preview. */
 export function resultPreview(result: string | undefined): string | null {
   const line = result?.split("\n").find((l) => l.trim() !== "");
   return line ? line.trim() : null;
+}
+
+/** A piece of a prompt: what was typed, or a block that was pasted in. */
+export type PromptPart = { kind: "typed" | "pasted"; text: string };
+
+const PASTED = /<pasted_content\b[^>]*>([\s\S]*?)<\/pasted_content\b[^>]*>/g;
+
+/**
+ * Split a prompt into what was typed and the `<pasted_content>` blocks the
+ * agent wraps a paste in, so the chat can fold a paste rather than print its
+ * tags. Text around a block is trimmed; an empty piece is dropped.
+ */
+export function splitPrompt(text: string): PromptPart[] {
+  const parts: PromptPart[] = [];
+  const push = (kind: PromptPart["kind"], piece: string) => {
+    const trimmed = kind === "typed" ? piece.trim() : piece.replace(/^\n+|\n+$/g, "");
+    if (trimmed) parts.push({ kind, text: trimmed });
+  };
+  let at = 0;
+  for (const match of text.matchAll(PASTED)) {
+    push("typed", text.slice(at, match.index));
+    push("pasted", match[1]);
+    at = match.index + match[0].length;
+  }
+  if (at === 0) return [{ kind: "typed", text }];
+  push("typed", text.slice(at));
+  return parts;
 }

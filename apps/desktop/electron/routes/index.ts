@@ -27,6 +27,7 @@ import { gitRoutes } from "./git";
 import { integrationRoutes } from "./integrations";
 import { systemRoutes } from "./system";
 import { webviewRoutes } from "./webview";
+import { workspacePrRoutes } from "./workspace-pr";
 
 /**
  * Every route this module serves, in match order. See `router.ts`'s header
@@ -39,6 +40,7 @@ export const routes: readonly Route[] = [
   ...paneRoutes,
   ...folderRoutes,
   ...projectRoutes,
+  ...workspacePrRoutes,
   // Not a host server's: see `workspaceMoveRoutes`.
   ...workspaceMoveRoutes,
   ...issueRoutes,

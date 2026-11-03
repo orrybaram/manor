@@ -1,6 +1,11 @@
 {
   "turnState": "working",
   "contextTokens": null,
+  "session": {
+    "model": null,
+    "effort": null,
+    "gitBranch": "feat/branch"
+  },
   "skills": 0,
   "entries": [
     {

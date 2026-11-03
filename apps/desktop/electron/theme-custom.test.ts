@@ -33,10 +33,10 @@ const settings = () =>
   JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
 
 describe("Manor theme", () => {
-  it("is a dark theme with the site's bile yellow as its accent", () => {
+  it("is a dark theme with the cyan accent", () => {
     const theme = manor();
-    expect(theme.accent).toBe("#ffe800");
-    expect(theme.foreground).toBe("#fffdf2");
+    expect(theme.accent).toBe("#10f9de");
+    expect(theme.foreground).toBe("#dbd3cc");
     expect(themeScheme(theme.background)).toBe("dark");
   });
 });
@@ -61,20 +61,20 @@ describe("accent", () => {
 describe("recent themes", () => {
   it("keeps the last five picks, newest first, without repeats", () => {
     for (const n of ["a", "b", "c", "a", "d", "e", "f"]) {
-      manager.setSelectedThemeName(n);
+      manager.addRecent(n);
     }
     expect(manager.getRecent()).toEqual(["f", "e", "d", "a", "c"]);
   });
 
-  it("counts a project's pick without changing the selection", () => {
+  it("doesn't count a selection by itself (Settings counts on close)", () => {
     manager.setSelectedThemeName("a");
     manager.addRecent("__manor__");
     expect(manager.getSelectedThemeName()).toBe("a");
-    expect(manager.getRecent()).toEqual(["__manor__", "a"]);
+    expect(manager.getRecent()).toEqual(["__manor__"]);
   });
 
   it("survives a new manager (a restart)", () => {
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("__manor__");
     const again = new ThemeManager({
       settingsPath: path.join(dir, "settings.json"),
       customThemesDir: themesDir,
@@ -83,8 +83,8 @@ describe("recent themes", () => {
   });
 
   it("lists only recents that still exist in the catalog", async () => {
-    manager.setSelectedThemeName("Gone Theme");
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("Gone Theme");
+    manager.addRecent("__manor__");
     const { recent } = await manager.catalog();
     expect(recent).toEqual(["__manor__"]);
   });
@@ -95,8 +95,8 @@ describe("custom themes", () => {
     const name = manager.saveCustomTheme("Ink", manor());
     expect(name).toBe("custom:Ink");
     const file = fs.readFileSync(path.join(themesDir, "Ink"), "utf-8");
-    expect(file).toContain("background = #11110a");
-    expect(file).toContain("accent = #ffe800");
+    expect(file).toContain("background = #181616");
+    expect(file).toContain("accent = #10f9de");
     expect(manager.getThemeByName("custom:Ink")).toEqual(manor());
   });
 
@@ -108,6 +108,7 @@ describe("custom themes", () => {
   it("edits in place, and a rename carries the selection and recents along", () => {
     manager.saveCustomTheme("Ink", manor());
     manager.setSelectedThemeName("custom:Ink");
+    manager.addRecent("custom:Ink");
     manager.saveCustomTheme("Ink", { ...manor(), red: "#ff0000" }, "Ink");
     expect(manager.getThemeByName("custom:Ink").red).toBe("#ff0000");
 
@@ -126,8 +127,9 @@ describe("custom themes", () => {
 
   it("deleting the selected theme falls back to the default and drops it from recents", () => {
     manager.saveCustomTheme("Ink", manor());
-    manager.setSelectedThemeName("__manor__");
+    manager.addRecent("__manor__");
     manager.setSelectedThemeName("custom:Ink");
+    manager.addRecent("custom:Ink");
     manager.deleteCustomTheme("Ink");
     expect(fs.existsSync(path.join(themesDir, "Ink"))).toBe(false);
     expect(manager.getSelectedThemeName()).toBe("__ghostty__");
@@ -155,7 +157,7 @@ describe("catalog", () => {
       ["__default__", "Catppuccin Mocha", "Default"],
       ["__manor__", "Manor", "Built-in"],
     ]);
-    expect(builtins.find((t) => t.name === "__manor__")?.colors.accent).toBe("#ffe800");
+    expect(builtins.find((t) => t.name === "__manor__")?.colors.accent).toBe("#10f9de");
   });
 });
 

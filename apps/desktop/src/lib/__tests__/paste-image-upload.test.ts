@@ -137,6 +137,19 @@ describe("uploadPastedImage", () => {
     expect(commit).not.toHaveBeenCalled();
   });
 
+  it("stops between chunks once its signal aborts, and never commits", async () => {
+    const controller = new AbortController();
+    chunk.mockImplementationOnce(async () => controller.abort());
+
+    await expect(
+      uploadPastedImage(PANE_ID, makeBlob(PASTED_IMAGE_CHUNK_BYTES * 2), { signal: controller.signal }),
+    ).rejects.toThrow();
+
+    expect(chunk).toHaveBeenCalledTimes(1);
+    expect(abort).toHaveBeenCalledWith(PANE_ID, "up-1");
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it("rethrows the original error even if abort fails", async () => {
     chunk.mockRejectedValue(new Error("boom"));
     abort.mockRejectedValue(new Error("abort failed"));

@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { MSG, encodeFrame, encodeJsonFrame } from "./pty-subprocess-ipc";
+import {
+  FrameDecoder,
+  MSG,
+  encodeFrame,
+  encodeJsonFrame,
+} from "./pty-subprocess-ipc";
 
 import "./xterm-env-polyfill";
 
@@ -22,8 +27,10 @@ vi.mock("../shell", () => ({
 
 import os from "node:os";
 import {
+  PROMPT_FALLBACK_MS,
   Session,
   buildShellEnv,
+  marksPrompt,
   prependManorBinDir,
   spawnArgsFor,
 } from "./session";
@@ -621,6 +628,68 @@ describe("Session", () => {
     });
   });
 
+  describe("writeAfterReady", () => {
+    /** Text the session typed into its shell. */
+    function typedInto(session: Session): () => string {
+      let text = "";
+      const decoder = new FrameDecoder((type, payload) => {
+        if (type === MSG.WRITE) text += payload.toString("utf-8");
+      });
+      (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+        decoder.push(c),
+      );
+      return () => text;
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("types on the first output from a shell without Manor's rc", () => {
+      session.spawn();
+      const typed = typedInto(session);
+      session.writeAfterReady("claude\r");
+      expect(typed()).toBe("");
+
+      pushDataFrame(session, "$ ");
+      expect(typed()).toBe("claude\r");
+    });
+
+    it("waits past rc output for the first prompt from Manor's rc", async () => {
+      session.spawn();
+      (session as any).marksPrompt = true;
+      const typed = typedInto(session);
+      session.writeAfterReady("claude\r");
+
+      // oh-my-zsh's update check, asked from .zshrc before any prompt.
+      pushDataFrame(session, "[oh-my-zsh] Would you like to update? [Y/n] ");
+      await session.getSnapshot();
+      expect(typed()).toBe("");
+
+      pushDataFrame(session, "\x1b]7;file://host/tmp\x07$ ");
+      await session.getSnapshot();
+      expect(typed()).toBe("claude\r");
+
+      session.writeAfterReady("more");
+      expect(typed()).toBe("claude\rmore");
+    });
+
+    it("types anyway when Manor's rc never reaches a prompt", async () => {
+      vi.useFakeTimers();
+      session.spawn();
+      (session as any).marksPrompt = true;
+      const typed = typedInto(session);
+      session.writeAfterReady("claude\r");
+
+      pushDataFrame(session, "Enter passphrase: ");
+      await vi.advanceTimersByTimeAsync(PROMPT_FALLBACK_MS - 1);
+      expect(typed()).toBe("");
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(typed()).toBe("claude\r");
+    });
+  });
+
   describe("session info", () => {
     it("returns correct info", () => {
       const info = session.info;
@@ -905,5 +974,18 @@ describe("spawnArgsFor", () => {
   it("falls back to plain bash when the rcfile is missing", () => {
     fs.rmSync(bashrc);
     expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual([]);
+  });
+});
+
+describe("marksPrompt", () => {
+  it("is true for an interactive zsh and a bash on Manor's rcfile", () => {
+    expect(marksPrompt("/bin/zsh", [])).toBe(true);
+    expect(marksPrompt("/bin/bash", ["--rcfile", "/x/bashrc"])).toBe(true);
+  });
+
+  it("is false for a command, plain bash, or another shell", () => {
+    expect(marksPrompt("/bin/zsh", ["-c", "make"])).toBe(false);
+    expect(marksPrompt("/bin/bash", [])).toBe(false);
+    expect(marksPrompt("/usr/bin/fish", [])).toBe(false);
   });
 });

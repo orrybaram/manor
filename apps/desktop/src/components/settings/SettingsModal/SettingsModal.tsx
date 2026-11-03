@@ -13,6 +13,7 @@ import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Server from "lucide-react/dist/esm/icons/server";
 import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { useThemeStore } from "../../../store/theme-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -35,6 +36,7 @@ import {
   type SettingsSearchResult,
 } from "./settings-search";
 import { SettingsJumpContext, SettingsNavContext, type GoToSettings } from "./settings-nav";
+import { useRecentThemesOnClose } from "./theme-recents";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -76,6 +78,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const { open, onClose, initialProjectId, initialPage, initialSection, initialAutomation } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
+  useRecentThemesOnClose(open);
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
@@ -276,6 +279,15 @@ export function SettingsModal(props: SettingsModalProps) {
       if (former) setPage({ type: "project", projectId: former.id });
     }
   }
+
+  // Show the open project page's theme; a group's members share one.
+  const themedProjectId = open
+    ? (currentProject?.id ?? currentGroupMembers[0]?.id ?? null)
+    : null;
+  useEffect(() => {
+    useThemeStore.setState({ settingsProjectId: themedProjectId });
+    return () => useThemeStore.setState({ settingsProjectId: null });
+  }, [themedProjectId]);
 
   const isCurrentPage = (target: SettingsPage) =>
     pageKey(target) === pageKey(page);

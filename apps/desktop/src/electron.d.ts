@@ -20,6 +20,8 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   diffOpensInNewPanel: boolean;
+  /** Desk agent panes open on the chat unless they chose otherwise. */
+  deskChatByDefault: boolean;
   /** Days to retain non-active agents. Set to 0 to disable pruning. */
   agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
@@ -34,8 +36,20 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Terminal font family; empty means the bundled Nerd Font. */
+  terminalFontFamily: string;
+  /** Terminal font size in px. */
+  terminalFontSize: number;
+  /** File and diff editor font family; empty means the system monospace. */
+  editorFontFamily: string;
+  /** File and diff editor font size in px. */
+  editorFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
+  /** The PR card's "Delete workspace after merge" tick box, as last left. */
+  deleteWorkspaceAfterMerge: boolean;
+  /** Workspaces to remove once their queued PR merges: PR URL by workspace key. */
+  mergeCleanups: Record<string, string>;
 }
 
 export type AgentLifecycleStatus =
@@ -559,6 +573,7 @@ export type {
   ChatDiffHunk,
   ChatEntry,
   ChatPush,
+  ChatSessionInfo,
   ChatSkill,
   ChatTaskEntry,
   ChatTurnState,

@@ -6,6 +6,7 @@ import { openWebApp, type Client } from "./helpers/phone";
 import { relayTest as test } from "./helpers/relay-fixture";
 import { closeSettings, pairBrowser, setAgentCommand } from "./helpers/settings";
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
+import { useTheme } from "./helpers/theme";
 
 /**
  * The phone's "New agent" composer end to end: it picks where an agent
@@ -17,6 +18,27 @@ import { activePaneId, awaitShellReady } from "./helpers/terminal";
  * agent command is the fake agent (set through Settings), which prints the
  * prompt it was started with, so what the agent saw is what is asserted.
  */
+
+const SHOTS = process.env.MANOR_SHOTS;
+
+/** A 120px PNG: a diagonal gradient from `from` to `to`. */
+async function drawPng(page: Page, from: string, to: string): Promise<Buffer> {
+  const base64 = await page.evaluate(
+    ([a, b]) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 120;
+      const ctx = canvas.getContext("2d")!;
+      const g = ctx.createLinearGradient(0, 0, 120, 120);
+      g.addColorStop(0, a);
+      g.addColorStop(1, b);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 120, 120);
+      return canvas.toDataURL("image/png").split(",")[1];
+    },
+    [from, to],
+  );
+  return Buffer.from(base64, "base64");
+}
 
 const PROJECT_NAME = "test-project";
 const WORKSPACE_A = "newagent-a";
@@ -184,6 +206,43 @@ test.describe("phone new agent target picker", () => {
       await expect
         .poll(() => paneText(page, newPane), { timeout: 60_000 })
         .toContain(prompt);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("images attached on the phone show as thumbnails and start the agent as paths after the text", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const { client, page, paneA } = await openPhone({ app, window, tempHome });
+    try {
+      await openComposer(page);
+      await page.getByTestId("phone-empty-composer-input").fill("what is on screen");
+      const input = page.getByTestId("chat-attach-input");
+      await input.setInputFiles([
+        { name: "one.png", mimeType: "image/png", buffer: await drawPng(page, "#f5c2e7", "#74c7ec") },
+        { name: "two.png", mimeType: "image/png", buffer: await drawPng(page, "#f9e2af", "#fab387") },
+      ]);
+      const thumbs = page.getByTestId("image-attachment");
+      await expect(thumbs).toHaveCount(2);
+      await expect(page.locator("[data-uploading]")).toHaveCount(0, { timeout: 15_000 });
+      await expect(page.getByTestId("phone-empty-composer-input")).toHaveValue("what is on screen");
+      for (const theme of ["Catppuccin Mocha", "Catppuccin Latte"] as const) {
+        await useTheme(page, theme);
+        if (SHOTS) await page.screenshot({ path: `${SHOTS}/phone-new-agent-${theme.endsWith("Latte") ? "light" : "dark"}.png` });
+      }
+
+      await page.getByTestId("phone-empty-send").tap();
+      await expect
+        .poll(() => activePaneId(page), { timeout: 30_000 })
+        .not.toBe(paneA);
+      const newPane = await activePaneId(page);
+      // A long path wraps the phone's grid: read the rows joined.
+      await expect
+        .poll(async () => (await paneText(page, newPane)).replace(/\r?\n/g, ""), { timeout: 30_000 })
+        .toMatch(/what is on screen \/\S+\.png \/\S+\.png/);
     } finally {
       await client.close();
     }

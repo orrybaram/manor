@@ -15,10 +15,21 @@ import {
   gridMove,
   visibleThemes,
   type ThemeFilter,
+  type ThemeSort,
 } from "./ThemePicker/theme-picker";
+import { ThemeSortMenu } from "./ThemePicker/ThemeSortMenu";
 import styles from "./ThemePicker/ThemePicker.module.css";
 
 const EMPTY: ThemeCatalog = { themes: [], recent: [] };
+const SORT_KEY = "manor.themeSort";
+
+function savedSort(): ThemeSort {
+  try {
+    return localStorage.getItem(SORT_KEY) === "color" ? "color" : "name";
+  } catch {
+    return "name";
+  }
+}
 
 type Editing = {
   initial: Theme;
@@ -36,9 +47,12 @@ export function ThemeSection() {
   const [catalog, setCatalog] = useState<ThemeCatalog>(EMPTY);
   const [filter, setFilter] = useState<ThemeFilter>("all");
   const [query, setQuery] = useState("");
+  const [sort, setSortState] = useState<ThemeSort>(savedSort);
   // By name, not index: a reload (recents reorder, a theme saved) moves tiles.
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
+  // A pick here paints over a project's override without clearing it.
+  const [picked, setPicked] = useState<string | null>(null);
   const selectedThemeName = useThemeStore((s) => s.selectedThemeName);
   const projectThemeOverride = useThemeStore((s) => s.projectThemeOverride);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -66,8 +80,8 @@ export function ThemeSection() {
   });
 
   const visible = useMemo(
-    () => visibleThemes(catalog, filter, query),
-    [catalog, filter, query],
+    () => visibleThemes(catalog, filter, query, sort),
+    [catalog, filter, query, sort],
   );
   const counts = useMemo(() => filterCounts(catalog), [catalog]);
   const highlight = visible.findIndex((t) => t.name === highlighted);
@@ -83,15 +97,25 @@ export function ThemeSection() {
   const select = useCallback(
     async (name: string) => {
       await setTheme(name);
+      setPicked(name);
       await reload();
     },
     [setTheme, reload],
   );
 
+  const setSort = (next: ThemeSort) => {
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT_KEY, next);
+    } catch {
+      // Not saved; the choice holds until Settings closes.
+    }
+  };
+
   const startNew = () => {
     const shown = useThemeStore.getState().theme;
     if (!shown) return;
-    const onScreen = projectThemeOverride ?? selectedThemeName;
+    const onScreen = picked ?? projectThemeOverride ?? selectedThemeName;
     const base = catalog.themes.find((t) => t.name === onScreen)?.displayName ?? "Theme";
     setEditing({
       initial: shown,
@@ -118,7 +142,11 @@ export function ThemeSection() {
     const next = gridMove(highlight, key, columns(), visible.length);
     setHighlight(next);
     const name = visible[next]?.name;
-    if (name) tileRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
+    if (!name) return;
+    tileRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
+    // The keyboard picks as it moves (the pointer only hovers); a recent
+    // pick is still only what's on when Settings closes.
+    if (name !== selected) void select(name);
   };
 
   const onWallKeyDown = (e: React.KeyboardEvent) => {
@@ -154,6 +182,7 @@ export function ThemeSection() {
           }}
           onDeleted={() => {
             setEditing(null);
+            setPicked(null);
             // The draft is still painted, and with a project override
             // showing, the delete's broadcast won't repaint it: put back what
             // the surface should show (the override falls back if it was
@@ -204,18 +233,21 @@ export function ThemeSection() {
           </button>
         </nav>
         <div className={styles.wallColumn}>
-          <Input
-            type="text"
-            placeholder="Search all themes…"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setHighlight(-1);
-            }}
-            onKeyDown={onSearchKeyDown}
-            autoFocus
-            aria-label="Search themes"
-          />
+          <div className={styles.searchRow}>
+            <Input
+              type="text"
+              placeholder="Search all themes…"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setHighlight(-1);
+              }}
+              onKeyDown={onSearchKeyDown}
+              autoFocus
+              aria-label="Search themes"
+            />
+            <ThemeSortMenu sort={sort} onChange={setSort} />
+          </div>
           <div
             ref={wallRef}
             className={styles.wall}

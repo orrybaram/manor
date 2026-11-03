@@ -1,5 +1,6 @@
 import type { PrComment } from "./lib/pr-info";
 import type { HostId } from "./lib/hosts";
+import type { PromptOverrides } from "./lib/prompts/catalog";
 import type { BridgeApi } from "../electron/bridge/contract";
 import type { InvokeFrame, ResultFrame } from "../electron/bridge/types";
 import type { NativeApi } from "../electron/preload";
@@ -50,6 +51,8 @@ export interface AppPreferences {
   deleteWorkspaceAfterMerge: boolean;
   /** Workspaces to remove once their queued PR merges: PR URL by workspace key. */
   mergeCleanups: Record<string, string>;
+  /** Read-only here: set through `preferences.setPrompt`. */
+  promptOverrides: PromptOverrides;
 }
 
 export type AgentLifecycleStatus =

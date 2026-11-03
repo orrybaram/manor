@@ -1,6 +1,7 @@
 import type { DraftComment } from "../store/review-store";
 import { sendPromptToAgent, type AgentTarget } from "./agent-send";
 import { renderPrompt, type PromptOverrides } from "./prompts/catalog";
+import { savedPromptOverrides } from "./prompts/saved-overrides";
 
 export { agentLabel } from "./agent-send";
 
@@ -56,7 +57,7 @@ export function submitReview(
   hostId?: string | null,
 ): void {
   if (comments.length === 0) return;
-  sendPromptToAgent(workspacePath, reviewPrompt(comments), target, {
+  sendPromptToAgent(workspacePath, reviewPrompt(comments, savedPromptOverrides()), target, {
     what: commentCount(comments.length),
     toastId: `review-submit-${workspacePath}`,
     hostId,

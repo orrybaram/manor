@@ -230,6 +230,7 @@ export async function projectsTransfer(
 /** What a workspace move reads of the server: all of it the desktop's own. */
 type WorkspaceMoveServer = Pick<
   SharedDeps,
+  | "preferencesManager"
   | "projectManager"
   | "workspaceOps"
   | "backendRegistry"
@@ -252,6 +253,7 @@ export function workspaceMoveDeps(deps: WorkspaceMoveServer): WorkspaceHostMoveD
     setupTimeoutMs: START_SCRIPT_MAX_WAIT_MS,
     ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
     recreator: createWorkspaceRecreator({
+      preferencesManager: deps.preferencesManager,
       layoutStore: deps.layoutStore,
       ...(deps.hostRouting ? { hostRouting: deps.hostRouting } : {}),
       agentManager: deps.agentManager,

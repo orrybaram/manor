@@ -35,6 +35,7 @@ import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
 import { renderPrompt } from "../../lib/prompts/catalog";
+import { savedPromptOverrides } from "../../lib/prompts/saved-overrides";
 import { PrActions } from "./PrActions";
 import styles from "./PrPopover.module.css";
 
@@ -752,5 +753,6 @@ function reviewCommentPrompt(pr: PrInfo, comment: PrComment): string {
       comment: comment.body.trim(),
       url: comment.url,
     },
+    savedPromptOverrides(),
   );
 }

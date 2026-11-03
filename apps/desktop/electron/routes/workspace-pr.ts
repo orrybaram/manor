@@ -233,7 +233,12 @@ function briefPr(task: PrAgentTask): (ctx: Ctx, project: ProjectInfo) => Promise
 
     let prompt: string;
     try {
-      prompt = await deps.githubManager.getPrAgentPrompt(repo, pr.number, task);
+      prompt = await deps.githubManager.getPrAgentPrompt(
+        repo,
+        pr.number,
+        task,
+        deps.preferencesManager.get("promptOverrides"),
+      );
     } catch (err) {
       const message = errorMessage(err);
       json(NOTHING_TO_DO.test(message) ? 409 : 502, { error: message });

@@ -14,6 +14,7 @@ import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { CardContext } from "./CardContext";
+import { savedPromptOverrides } from "../../../lib/prompts/saved-overrides";
 import { fixPrPrompt, isFixable } from "./fix-pr-prompt";
 import { formatAge } from "./format";
 import { needsYouKindLabel, needsYouTitle, cardColor } from "./needs-you-labels";
@@ -166,7 +167,7 @@ function cardActions(
         onClick={() => {
           // Stay on the Dashboard: the agent works in the background, and
           // the toast says so.
-          startAgentInBackground(workspace.path, fixPrPrompt(pr, context), project.hostId);
+          startAgentInBackground(workspace.path, fixPrPrompt(pr, context, savedPromptOverrides()), project.hostId);
           toast.info(`Agent is fixing #${pr.number}`, {
             id: `fix-pr-${card.key}`,
             detail: `Working in ${workspace.name ?? workspace.branch}. It shows up here again if it needs you.`,

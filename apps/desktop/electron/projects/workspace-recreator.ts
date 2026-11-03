@@ -45,6 +45,8 @@ import { shellQuote } from "../terminal-host/ssh-config";
 import type { AgentKind } from "../terminal-host/types";
 import { hostDisplayName } from "./host-records";
 import { buildHandoffPrompt, handoffFromPreview } from "./handoff-prompt";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
+import type { PreferencesManager } from "../preferences";
 import type { ProjectManager } from "./project-manager";
 import type { RecreateContext, RecreateStep, WorkspaceRecreator } from "./workspace-host-move";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
@@ -77,6 +79,8 @@ export interface HostLayout {
 
 /** What a recreator needs of the server, injected so tests fake each host. */
 export interface WorkspaceRecreatorDeps {
+  /** The prompts edited in Settings, for the handoff. */
+  promptOverrides?(): PromptOverrides;
   layout(hostId: string): HostLayout;
   /** Every active Agent this server knows of, on any host. */
   agents(): AgentInfo[];
@@ -210,13 +214,16 @@ export function workspaceRecreator(
     } catch (err) {
       console.warn(`[workspace-move] ${agent.id}'s transcript could not be read:`, errorMessage(err));
     }
-    return buildHandoffPrompt({
-      sourceHostName: deps.hostName(move.sourceHostId),
-      targetHostName: deps.hostName(move.targetHostId),
-      branch: move.branch,
-      session: { title: agent.name, firstPrompt },
-      turns,
-    });
+    return buildHandoffPrompt(
+      {
+        sourceHostName: deps.hostName(move.sourceHostId),
+        targetHostName: deps.hostName(move.targetHostId),
+        branch: move.branch,
+        session: { title: agent.name, firstPrompt },
+        turns,
+      },
+      deps.promptOverrides?.(),
+    );
   };
 
   return {
@@ -343,6 +350,7 @@ function hostLayout(
 
 /** What `createWorkspaceRecreator` reads of the server. */
 interface RecreatorServer {
+  preferencesManager: Pick<PreferencesManager, "get">;
   layoutStore: Pick<LayoutStore, "whenLoaded" | "get" | "apply" | "pendingCommands">;
   hostRouting?: Pick<HostRouting, "proxy" | "agents">;
   agentManager: { getActiveAgents(): AgentInfo[] };
@@ -419,6 +427,7 @@ const replayedMoves = new Map<string, ReplayRecord>();
 export function createWorkspaceRecreator(server: RecreatorServer): WorkspaceRecreator {
   const pm = server.projectManager;
   return workspaceRecreator({
+    promptOverrides: () => server.preferencesManager.get("promptOverrides"),
     layout: (hostId) => hostLayout(server, hostId),
     agents: () => [
       ...server.agentManager.getActiveAgents(),

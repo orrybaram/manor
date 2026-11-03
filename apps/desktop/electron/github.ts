@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
+import type { PromptOverrides } from "../src/lib/prompts/catalog";
 import { tmpdir } from "node:os";
 
 import type {
@@ -654,13 +655,18 @@ export class GitHubManager {
    * poller's capped view. Throws when there is nothing to do, so the caller
    * says so instead of starting an agent with an empty brief.
    */
-  async getPrAgentPrompt(repo: GhRepo, number: number, task: PrAgentTask): Promise<string> {
+  async getPrAgentPrompt(
+    repo: GhRepo,
+    number: number,
+    task: PrAgentTask,
+    overrides?: PromptOverrides | null,
+  ): Promise<string> {
     const { cwd } = await this.ghTarget(repo);
     const { stdout } = await runGh(["api", "graphql", ...prContextQueryArgs(number)], cwd);
     const pr = parsePrContext(stdout);
     if (task === "comments") {
       if (pr.threads.length === 0) throw new Error(`PR #${number} has no unresolved review threads`);
-      return reviewThreadsPrompt(pr, pr.threads);
+      return reviewThreadsPrompt(pr, pr.threads, overrides);
     }
     const failing = (parseStatusCheckRollup(pr.rollup).checkRuns ?? []).filter(
       (run) => run.status === "failing",
@@ -681,7 +687,7 @@ export class GitHubManager {
         return { name: run.name, workflow: run.workflow ?? null, url: run.url ?? null, logTail };
       }),
     );
-    return failingChecksPrompt(pr, checks);
+    return failingChecksPrompt(pr, checks, overrides);
   }
 
   /**

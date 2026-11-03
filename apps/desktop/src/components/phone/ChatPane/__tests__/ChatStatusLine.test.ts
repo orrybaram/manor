@@ -2,7 +2,8 @@
 /**
  * The chat's status line: branch, model and effort chips in each layout's
  * order, none left empty, a branch the agent's transcript disagrees with
- * flagged and explained, and background agents named and listed.
+ * flagged and explained, and background agents counted on a chip that opens
+ * the task view (`TaskView.test.ts`).
  */
 import { createElement } from "react";
 import { act } from "react";
@@ -58,6 +59,9 @@ function render(props: {
   layout?: LayoutMode;
   tasks?: readonly TaskItem[];
   onRevealTask?: (id: string) => void;
+  lastMessageAt?: string | null;
+  onToggleAgents?: () => void;
+  taskViewOpen?: boolean;
   contextTokens?: number | null;
 }): void {
   root.render(createElement(ChatStatusLine, props));
@@ -191,8 +195,14 @@ describe("ChatStatusLine — agents chip", () => {
     vi.useRealTimers();
   });
 
-  it("isn't there without a background agent running", () => {
-    render({ layout: "desk", tasks: [agent("a1", { status: "ok", display: "ok" })] });
+  it("isn't there with no background agent, or one that finished before your last message", () => {
+    render({ layout: "desk", tasks: [] });
+    expect(testId("chat-agents-chip")).toBeNull();
+    render({
+      layout: "desk",
+      tasks: [agent("a1", { status: "ok", display: "ok" })],
+      lastMessageAt: "2026-01-01T00:05:00.000Z",
+    });
     expect(testId("chat-agents-chip")).toBeNull();
     expect(testId("chat-running-chip")).toBeNull();
   });
@@ -201,7 +211,7 @@ describe("ChatStatusLine — agents chip", () => {
     render({ layout: "desk", tasks: [agent("a1")] });
     expect(testId("chat-agents-chip")?.textContent).toBe("1 agent");
     render({ layout: "desk", tasks: [agent("a1"), agent("a2"), agent("a3", { status: "ok", display: "ok" })] });
-    expect(testId("chat-agents-chip")?.textContent).toBe("2 agents");
+    expect(testId("chat-agents-chip")?.textContent).toBe("2 agents · 1 done");
     expect(testId("chat-agents-chip")?.dataset.tone).toBe("pending");
   });
 
@@ -222,102 +232,61 @@ describe("ChatStatusLine — agents chip", () => {
     expect(testId("chat-running-chip")?.textContent).toBe("1 running");
   });
 
-  const LIST = [
-    agent("done", {
-      title: "Map the sheets",
-      status: "ok",
-      display: "ok",
-      durationMs: 123_000,
-    }),
-    agent("old", { title: "Find the readers", ts: "2026-01-01T00:08:48.000Z" }),
-    shell("s1"),
-    agent("failed", { agentType: "general-purpose", status: "error", display: "error", durationMs: 5_000 }),
-    agent("new", { title: "Draft the tests", agentType: "general-purpose", ts: "2026-01-01T00:09:16.000Z" }),
-  ];
+  const done = (id: string, over: Partial<TaskItem> = {}) =>
+    agent(id, { status: "ok", display: "ok", durationMs: 60_000, ...over });
 
-  function rows(): string[][] {
-    return [...document.body.querySelectorAll<HTMLElement>('[data-testid="chat-agent-row"]')].map((row) => [
-      row.dataset.agentId ?? "",
-      row.textContent ?? "",
-    ]);
-  }
-
-  it("lists the background agents in a sheet on a phone, running first", async () => {
-    render({ layout: "phone", tasks: LIST });
-    await act(async () => testId("chat-agents-chip")?.click());
-    const sheet = testId("chat-agents-sheet");
-    expect(sheet?.textContent).toContain("Background agents · 2 running");
-    expect(rows()).toEqual([
-      ["old", "Find the readersExplore · running 1m 12s"],
-      ["new", "Draft the testsgeneral-purpose · running 44s"],
-      ["done", "Map the sheetsExplore · done in 2m 3s"],
-      ["failed", "Task failedgeneral-purpose · failed after 5s"],
-    ]);
+  it("says when they're all done, and stays until your next message lands", () => {
+    const tasks = [done("a1"), done("a2"), done("a3")];
+    render({ layout: "desk", tasks, lastMessageAt: "2026-01-01T00:00:30.000Z" });
+    expect(testId("chat-agents-chip")?.textContent).toBe("3 agents done");
+    expect(testId("chat-agents-chip")?.dataset.tone).toBeUndefined();
+    render({ layout: "desk", tasks, lastMessageAt: "2026-01-01T00:05:00.000Z" });
+    expect(testId("chat-agents-chip")).toBeNull();
   });
 
-  it("ticks the running times while the list is open", async () => {
-    render({ layout: "phone", tasks: LIST });
-    await act(async () => testId("chat-agents-chip")?.click());
-    await act(async () => vi.advanceTimersByTime(3_000));
-    expect(rows()[1][1]).toBe("Draft the testsgeneral-purpose · running 47s");
-  });
-
-  it("lists them in a popover on the desk", async () => {
-    render({ layout: "desk", tasks: LIST });
-    const chip = testId("chat-agents-chip")!;
-    await act(async () => {
-      chip.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-      chip.click();
+  it("counts only the agents that finished since your last message", () => {
+    render({
+      layout: "desk",
+      tasks: [done("older", { durationMs: 1_000 }), done("newer", { durationMs: 120_000 }), agent("a3")],
+      lastMessageAt: "2026-01-01T00:01:00.000Z",
     });
-    expect(testId("chat-agents-popover")?.textContent).toContain("Background agents · 2 running");
-    expect(rows().map(([id]) => id)).toEqual(["old", "new", "done", "failed"]);
+    expect(testId("chat-agents-chip")?.textContent).toBe("1 agent · 1 done");
   });
 
-  it("closes the list and brings a picked agent's card into view", async () => {
-    const onRevealTask = vi.fn();
-    render({ layout: "phone", tasks: LIST, onRevealTask });
+  it("flags a failure once none run", () => {
+    render({ layout: "desk", tasks: [done("a1"), done("a2", { status: "error", display: "error" })] });
+    expect(testId("chat-agents-chip")?.dataset.tone).toBe("failing");
+  });
+
+  it("asks for the task view, and stays while it's open", async () => {
+    const onToggleAgents = vi.fn();
+    render({ layout: "desk", tasks: [agent("a1")], onToggleAgents });
     await act(async () => testId("chat-agents-chip")?.click());
-    const row = document.body.querySelector<HTMLElement>('[data-agent-id="done"]')!;
-    await act(async () => row.click());
-    expect(onRevealTask).toHaveBeenCalledWith("done");
-    expect(testId("chat-agents-sheet")).toBeNull();
+    expect(onToggleAgents).toHaveBeenCalledOnce();
+    const tasks = [done("a1")];
+    render({ layout: "desk", tasks, lastMessageAt: "2026-01-01T00:05:00.000Z", taskViewOpen: true });
+    expect(testId("chat-agents-chip")?.getAttribute("aria-expanded")).toBe("true");
+    render({ layout: "desk", tasks: [], taskViewOpen: true });
+    expect(testId("chat-agents-chip")).toBeNull();
   });
 
-  it("keeps the chip while its list is open and the last agent finishes", async () => {
-    render({ layout: "phone", tasks: [agent("a1")] });
-    await act(async () => testId("chat-agents-chip")?.click());
-    render({ layout: "phone", tasks: [agent("a1", { status: "ok", display: "ok", durationMs: 9_000 })] });
-    expect(testId("chat-agents-sheet")?.textContent).toContain("Background agents · none running");
-    expect(rows()[0][1]).toBe("Task a1Explore · done in 9s");
-  });
-
-  it("scrolls to and flashes the picked agent's card in its chat on its own", async () => {
+  it("scrolls to and flashes the running chip's task in its chat on its own", async () => {
     const pane = document.createElement("div");
     pane.setAttribute("data-chat-pane", "");
     const card = document.createElement("div");
-    card.dataset.taskId = "done";
+    card.dataset.taskId = "s1";
     const scrollIntoView = vi.fn();
     card.scrollIntoView = scrollIntoView;
     pane.append(card, root.container);
     document.body.appendChild(pane);
     try {
-      render({ layout: "phone", tasks: LIST });
-      await act(async () => testId("chat-agents-chip")?.click());
-      await act(async () => document.body.querySelector<HTMLElement>('[data-agent-id="done"]')?.click());
+      render({ layout: "phone", tasks: [shell("s1")] });
+      await act(async () => testId("chat-running-chip")?.click());
       expect(scrollIntoView).toHaveBeenCalledWith({ block: "center", behavior: "smooth" });
       expect(card.className).toMatch(/taskFlash/);
     } finally {
       pane.remove();
     }
-  });
-
-  it("doesn't reopen a list whose agents all went (a /clear) on the next agent's chip", async () => {
-    render({ layout: "phone", tasks: [agent("a1")] });
-    await act(async () => testId("chat-agents-chip")?.click());
-    render({ layout: "phone", tasks: [] });
-    render({ layout: "phone", tasks: [agent("a2")] });
-    expect(testId("chat-agents-chip")?.textContent).toBe("1 agent");
-    expect(testId("chat-agents-sheet")).toBeNull();
   });
 
   it("brings the newest other running task into view from the running chip", async () => {

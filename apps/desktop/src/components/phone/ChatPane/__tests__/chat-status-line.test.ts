@@ -4,6 +4,7 @@ import {
   branchChip,
   formatContextTokens,
   modelDisplayName,
+  agentsChipLabel,
   runningChipLabel,
   shortBranchName,
   statusLineModel,
@@ -110,6 +111,16 @@ describe("formatContextTokens", () => {
     expect(formatContextTokens(8_400)).toBe("8k");
     expect(formatContextTokens(100_200)).toBe("100k");
     expect(formatContextTokens(419_600)).toBe("420k");
+  });
+});
+
+describe("agentsChipLabel", () => {
+  it("counts the running, then what's done", () => {
+    expect(agentsChipLabel(1)).toBe("1 agent");
+    expect(agentsChipLabel(3)).toBe("3 agents");
+    expect(agentsChipLabel(1, 2)).toBe("1 agent · 2 done");
+    expect(agentsChipLabel(0, 1)).toBe("1 agent done");
+    expect(agentsChipLabel(0, 3)).toBe("3 agents done");
   });
 });
 

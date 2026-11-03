@@ -76,6 +76,10 @@ function isBackgroundAgent(task: TaskItem): boolean {
 export type TaskChips = {
   /** The chat's background agents: the running ones first, each in chat order. */
   agents: TaskItem[];
+  /** The same agents in chat order, so finishing doesn't move one. */
+  agentsInOrder: TaskItem[];
+  /** Background agents that finished since the last message you sent. */
+  doneAgents: TaskItem[];
   /** Background agents running. */
   runningAgents: number;
   /** Other tasks running (background shell commands, foreground agents), in chat order. */
@@ -88,19 +92,43 @@ export type TaskChips = {
  * "N running" chip, which scrolls to the newest. A task shown as unknown (a
  * stale one) isn't running.
  */
-export function taskChips(tasks: readonly TaskItem[]): TaskChips {
+export function taskChips(tasks: readonly TaskItem[], lastMessageAt?: string | null): TaskChips {
   const agents = tasks.filter(isBackgroundAgent);
   const running = agents.filter((t) => t.display === "running");
+  const since = lastMessageAt ? Date.parse(lastMessageAt) : Number.NEGATIVE_INFINITY;
   return {
     agents: [...running, ...agents.filter((t) => t.display !== "running")],
+    agentsInOrder: agents,
+    doneAgents: agents.filter((t) => finished(t) && finishedAt(t) >= since),
     runningAgents: running.length,
     runningOthers: tasks.filter((t) => t.display === "running" && !isBackgroundAgent(t)),
   };
 }
 
-/** The agents chip: "1 agent", "3 agents". */
-export function agentsChipLabel(count: number): string {
-  return count === 1 ? "1 agent" : `${count} agents`;
+/** A task that reported how it ended. A stale one's status is unknown, so it hasn't. */
+function finished(task: TaskItem): boolean {
+  return task.display === "ok" || task.display === "error" || task.display === "killed";
+}
+
+/** When a finished task ended: its launch plus how long it ran, if that's known. */
+function finishedAt(task: TaskItem): number {
+  return Date.parse(task.ts) + (task.durationMs ?? 0);
+}
+
+/**
+ * The agents chip: "3 agents" while they run, "1 agent · 2 done" with some
+ * finished since your last message, "3 agents done" once all are.
+ */
+export function agentsChipLabel(running: number, done = 0): string {
+  const count = (n: number) => (n === 1 ? "1 agent" : `${n} agents`);
+  if (running === 0) return `${count(done)} done`;
+  return done > 0 ? `${count(running)} · ${done} done` : count(running);
+}
+
+/** The agent the chip opens: the newest one running, else the newest. */
+export function openingAgent(agentsInOrder: readonly TaskItem[]): TaskItem | undefined {
+  const running = agentsInOrder.filter((t) => t.display === "running");
+  return running[running.length - 1] ?? agentsInOrder[agentsInOrder.length - 1];
 }
 
 /** The agents list's heading: "Background agents · 2 running". */

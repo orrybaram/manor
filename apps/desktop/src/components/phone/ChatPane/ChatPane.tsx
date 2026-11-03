@@ -15,12 +15,16 @@ import {
   mergeHistory,
   newestContent,
   chatTasks,
+  lastMessageAt,
   upsertEntry,
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatLinkMenuContext } from "./ChatLink";
 import { ChatThinking } from "./ChatThinking";
+import { openingAgent, taskChips } from "./chat-status-line";
+import { TaskViewContext, type TaskViewControl } from "./task-view-context";
+import { AgentsSheet, TaskPanel, type TaskViewState } from "./TaskView";
 import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
@@ -324,8 +328,8 @@ export function ChatPane(props: ChatPaneProps) {
     placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
   /**
-   * A task card to bring into view once it mounts: picked from the status
-   * line's agents list while above the window.
+   * A task card to bring into view once it mounts: the status line's running
+   * chip asked for it while above the window.
    */
   const revealing = useRef<string | null>(null);
   const revealTask = (id: string) => {
@@ -354,6 +358,67 @@ export function ChatPane(props: ChatPaneProps) {
       if (!settledIds.has(items[i].id)) retired.current.add(items[i].id);
     }
   });
+  const tasks = chatTasks(items);
+  const messageAt = lastMessageAt(items);
+  const chips = taskChips(tasks, messageAt);
+  const docked = layout === "desk";
+
+  /** The task view: the side panel on a desk, a sheet on a phone. */
+  const [taskView, setTaskView] = useState<TaskViewState | null>(null);
+  const viewedTask =
+    taskView?.kind === "task" ? tasks.find((task) => task.id === taskView.id) : undefined;
+  // Its task went (a history reset), or the list has nothing left to list.
+  if (taskView && (taskView.kind === "task" ? !viewedTask : chips.agents.length === 0)) {
+    setTaskView(null);
+  }
+  /** The row at the top of the chat, kept there when the panel narrows the chat. */
+  const keepRow = useRef<{ id: string; top: number } | null>(null);
+  const changeTaskView = (next: TaskViewState | null) => {
+    const scroller = contentRef.current?.parentElement;
+    if (docked && scroller && !stuck.current) {
+      const edge = scroller.getBoundingClientRect().top;
+      const row = [...contentRef.current!.children].find(
+        (el): el is HTMLElement =>
+          el instanceof HTMLElement &&
+          el.dataset.itemId !== undefined &&
+          el.getBoundingClientRect().bottom > edge,
+      );
+      if (row) keepRow.current = { id: row.dataset.itemId!, top: row.getBoundingClientRect().top };
+    }
+    setTaskView(next);
+  };
+  useLayoutEffect(() => {
+    const keep = keepRow.current;
+    keepRow.current = null;
+    const scroller = contentRef.current?.parentElement;
+    if (!keep || !scroller) return;
+    const row = [...contentRef.current!.children].find(
+      (el) => el instanceof HTMLElement && el.dataset.itemId === keep.id,
+    );
+    if (!row) return;
+    scroller.scrollTop += row.getBoundingClientRect().top - keep.top;
+    lastScrollTop.current = scroller.scrollTop;
+    placed.current = new Map(
+      [...contentRef.current!.children]
+        .filter((el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined)
+        .map((el) => [el.dataset.itemId!, el.offsetTop]),
+    );
+  });
+  const toggleAgents = () => {
+    if (taskView) {
+      changeTaskView(null);
+    } else if (docked || chips.agents.length === 1) {
+      const agent = openingAgent(chips.agentsInOrder);
+      if (agent) changeTaskView({ kind: "task", id: agent.id });
+    } else {
+      changeTaskView({ kind: "list" });
+    }
+  };
+  const taskViewControl: TaskViewControl = {
+    open: (id) => changeTaskView({ kind: "task", id }),
+    viewedId: viewedTask?.id ?? null,
+  };
+
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line. A timing line
@@ -382,72 +447,110 @@ export function ChatPane(props: ChatPaneProps) {
         </div>
       ) : (
         <>
-          {/* Pulling down at the top refreshes the bridge. It moves an
-              overlay and never scrolls, so it can't change what
-              bottom-follow sees. */}
-          <PullToRefresh
-            onRefresh={refreshState}
-            className={styles.scroller}
-            onScroll={onScroll}
-          >
-            <div ref={followBottom} className={styles.entries}>
-              {loaded && entries.length === 0 && (
-                <p className={styles.empty}>Nothing in this conversation yet.</p>
+          <TaskViewContext.Provider value={taskViewControl}>
+            <div
+              className={styles.chatBody}
+              data-task-panel={(docked && viewedTask !== undefined) || undefined}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && !e.defaultPrevented && docked && viewedTask) {
+                  e.preventDefault();
+                  changeTaskView(null);
+                }
+              }}
+            >
+              <div className={styles.chatMain}>
+                {/* Pulling down at the top refreshes the bridge. It moves an
+                    overlay and never scrolls, so it can't change what
+                    bottom-follow sees. */}
+                <PullToRefresh
+                  onRefresh={refreshState}
+                  className={styles.scroller}
+                  onScroll={onScroll}
+                >
+                  <div ref={followBottom} className={styles.entries}>
+                    {loaded && entries.length === 0 && (
+                      <p className={styles.empty}>Nothing in this conversation yet.</p>
+                    )}
+                    {items.slice(start).map((entry) => {
+                      const live =
+                        settledIds !== null &&
+                        !settledIds.has(entry.id) &&
+                        !retired.current.has(entry.id);
+                      return (
+                        <div
+                          key={entry.id}
+                          className={styles.entry}
+                          data-item-id={entry.id}
+                          data-enter={live || undefined}
+                        >
+                          <ChatLinkMenuContext.Provider value={linkMenu}>
+                            <ChatEntryView
+                              paneId={paneId}
+                              entry={entry}
+                              answerableId={answerableId}
+                              live={live}
+                              onShowTerminal={onShowTerminal}
+                            />
+                          </ChatLinkMenuContext.Provider>
+                        </div>
+                      );
+                    })}
+                    {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
+                    {queued.map((text, i) => (
+                      <div key={i} className={styles.userRow} data-testid="chat-queued">
+                        <div className={`${styles.userBubble} ${styles.userQueued}`}>
+                          <span className={styles.queuedLabel}>Queued</span>
+                          {text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PullToRefresh>
+                {needsYou && (
+                  <div className={styles.needsYou} data-testid="chat-needs-you">
+                    <span>{agentName} needs you</span>
+                    <Button size="sm" variant="primary" onClick={onShowTerminal}>
+                      Open terminal
+                    </Button>
+                  </div>
+                )}
+                <ChatComposer
+                  paneId={paneId}
+                  agentKind={agentKind}
+                  busy={busy}
+                  transcript={transcript}
+                  contextTokens={contextTokens}
+                  tasks={tasks}
+                  onRevealTask={revealTask}
+                  lastMessageAt={messageAt}
+                  onToggleAgents={toggleAgents}
+                  taskViewOpen={taskView !== null}
+                  taskViewDocked={docked && viewedTask !== undefined}
+                  session={session}
+                  layout={layout}
+                />
+              </div>
+              {docked && viewedTask && (
+                <TaskPanel
+                  paneId={paneId}
+                  task={viewedTask}
+                  agents={chips.agentsInOrder}
+                  onPick={(id) => setTaskView({ kind: "task", id })}
+                  onClose={() => changeTaskView(null)}
+                />
               )}
-              {items.slice(start).map((entry) => {
-                const live =
-                  settledIds !== null &&
-                  !settledIds.has(entry.id) &&
-                  !retired.current.has(entry.id);
-                return (
-                  <div
-                    key={entry.id}
-                    className={styles.entry}
-                    data-item-id={entry.id}
-                    data-enter={live || undefined}
-                  >
-                    <ChatLinkMenuContext.Provider value={linkMenu}>
-                      <ChatEntryView
-                        paneId={paneId}
-                        entry={entry}
-                        answerableId={answerableId}
-                        live={live}
-                        onShowTerminal={onShowTerminal}
-                      />
-                    </ChatLinkMenuContext.Provider>
-                  </div>
-                );
-              })}
-              {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
-              {queued.map((text, i) => (
-                <div key={i} className={styles.userRow} data-testid="chat-queued">
-                  <div className={`${styles.userBubble} ${styles.userQueued}`}>
-                    <span className={styles.queuedLabel}>Queued</span>
-                    {text}
-                  </div>
-                </div>
-              ))}
             </div>
-          </PullToRefresh>
-          {needsYou && (
-            <div className={styles.needsYou} data-testid="chat-needs-you">
-              <span>{agentName} needs you</span>
-              <Button size="sm" variant="primary" onClick={onShowTerminal}>
-                Open terminal
-              </Button>
-            </div>
-          )}
-          <ChatComposer
-            paneId={paneId}
-            agentKind={agentKind}
-            busy={busy}
-            transcript={transcript}
-            contextTokens={contextTokens}
-            tasks={chatTasks(items)}
-            onRevealTask={revealTask}
-            session={session}
-            layout={layout}
-          />
+            {!docked && (
+              <AgentsSheet
+                paneId={paneId}
+                view={taskView}
+                task={viewedTask}
+                agents={chips.agents}
+                running={chips.runningAgents}
+                onViewChange={setTaskView}
+              />
+            )}
+          </TaskViewContext.Provider>
         </>
       )}
     </div>

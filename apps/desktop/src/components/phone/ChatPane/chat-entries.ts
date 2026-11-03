@@ -247,6 +247,15 @@ export function chatTasks(items: readonly ChatItem[]): TaskItem[] {
   return items.filter((i): i is TaskItem => i.kind === "task");
 }
 
+/** When the newest message you sent landed in the transcript, if there's one. */
+export function lastMessageAt(items: readonly ChatItem[]): string | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.kind === "user") return item.ts;
+  }
+  return null;
+}
+
 /** The dot's `data-status`: the shared dot styles know pending, ok and error. */
 export const TASK_DOT: Record<TaskDisplayStatus, string> = {
   running: "pending",

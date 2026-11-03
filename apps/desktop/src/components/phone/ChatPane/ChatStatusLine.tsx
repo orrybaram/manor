@@ -1,13 +1,10 @@
 import { useRef, useState, type ReactNode } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
 import * as Popover from "@radix-ui/react-popover";
-import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Bars from "lucide-react/dist/esm/icons/chart-no-axes-column-increasing";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
 import GitPullRequestDraft from "lucide-react/dist/esm/icons/git-pull-request-draft";
 import { useShallow } from "zustand/react/shallow";
-import { useMountEffect } from "../../../hooks/useMountEffect";
 import type { ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { find } from "../../../lib/workspace-directory";
@@ -20,8 +17,6 @@ import { PhoneSheet, PhoneSheetClose } from "../PhoneSheet";
 import type { TaskItem } from "./chat-entries";
 import {
   agentsChipLabel,
-  agentsListTitle,
-  agentStatusText,
   branchChip,
   formatContextTokens,
   modelDisplayName,
@@ -33,7 +28,6 @@ import {
 } from "./chat-status-line";
 import { PhonePrSheet } from "./PhonePrSheet";
 import { revealTaskCard } from "./reveal-task";
-import { TaskStatusDot } from "./TaskStatusDot";
 import styles from "./ChatPane.module.css";
 
 /**
@@ -70,10 +64,16 @@ type ChatStatusLineProps = {
   /** The chat's tasks, each with the status it shows. */
   tasks?: readonly TaskItem[];
   /**
-   * Bring a task's card into view, picked from the agents list. Without it,
-   * the card is looked for among what's mounted.
+   * Bring a task's card into view, from the running chip. Without it, the
+   * card is looked for among what's mounted.
    */
   onRevealTask?: (id: string) => void;
+  /** When your last message landed, which the agents chip counts finishes from. */
+  lastMessageAt?: string | null;
+  /** The agents chip was clicked. */
+  onToggleAgents?: () => void;
+  /** The task view is open: the chip stays, and reads as pressed. */
+  taskViewOpen?: boolean;
   /** The session's model, effort and transcript branch, or null if not known. */
   session?: ChatSessionInfo | null;
   /** The pane's layout: it orders the chips, and scrolls them on a phone. */
@@ -88,7 +88,16 @@ const PHONE_ORDER: ChipName[] = ["branch", "agents", "running", "ci", "pr", "dif
 const NO_TASKS: readonly TaskItem[] = [];
 
 export function ChatStatusLine(props: ChatStatusLineProps) {
-  const { contextTokens, tasks = NO_TASKS, onRevealTask, session, layout = "phone" } = props;
+  const {
+    contextTokens,
+    tasks = NO_TASKS,
+    onRevealTask,
+    lastMessageAt,
+    onToggleAgents,
+    taskViewOpen = false,
+    session,
+    layout = "phone",
+  } = props;
   const activeKey = useAppStore(selectActiveWorkspaceKey);
   // Shallow-compared: `find` builds a fresh object per store read, but the
   // fields picked from it are the store's own.
@@ -99,19 +108,16 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
     }),
   );
   const [prOpen, setPrOpen] = useState(false);
-  const [agentsOpen, setAgentsOpen] = useState(false);
   const lineRef = useRef<HTMLDivElement>(null);
   const { pr, ci, diff } = statusLineModel({
     pr: workspace?.pr,
     diffStats: workspace?.diffStats,
   });
   const hasTokens = contextTokens != null;
-  const { agents, runningAgents, runningOthers } = taskChips(tasks);
-  // Kept while its list is open, so the last agent finishing doesn't yank it.
-  // With no agent left to list (a /clear), the list closes for good rather
-  // than open again on the next agent's chip.
-  if (agentsOpen && agents.length === 0) setAgentsOpen(false);
-  const showAgents = runningAgents > 0 || (agentsOpen && agents.length > 0);
+  const { agents, doneAgents, runningAgents, runningOthers } = taskChips(tasks, lastMessageAt);
+  // Stays until your next message once they've finished, and while the view
+  // is open, so a message sent then doesn't yank the chip that closes it.
+  const showAgents = runningAgents > 0 || doneAgents.length > 0 || (taskViewOpen && agents.length > 0);
   const running = runningChipLabel(runningOthers.length);
   const newestOther = runningOthers[runningOthers.length - 1];
   const reveal = (id: string) => {
@@ -196,15 +202,10 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
     agents: showAgents && (
       <AgentsChip
         key="agents"
-        agents={agents}
         running={runningAgents}
-        phone={phone}
-        open={agentsOpen}
-        onOpenChange={setAgentsOpen}
-        onPick={(id) => {
-          setAgentsOpen(false);
-          reveal(id);
-        }}
+        done={doneAgents}
+        open={taskViewOpen}
+        onClick={onToggleAgents}
       />
     ),
     running: running && (
@@ -360,109 +361,31 @@ function SessionDetails(props: { chip: BranchChip; model: string | null; effort:
 }
 
 type AgentsChipProps = {
-  /** The chat's background agents, running first. */
-  agents: TaskItem[];
-  /** How many of them run. */
+  /** How many background agents run. */
   running: number;
-  phone: boolean;
+  /** The agents that finished since your last message. */
+  done: readonly TaskItem[];
   open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** A row was picked: close the list and bring the agent's card into view. */
-  onPick: (id: string) => void;
+  onClick?: () => void;
 };
 
-/**
- * The agents chip, and the list it opens: every background agent in the
- * chat, running first. A bottom sheet on a phone, a popover on the desk.
- */
+/** The agents chip, which opens the task view. */
 function AgentsChip(props: AgentsChipProps) {
-  const { agents, running, phone, open, onOpenChange, onPick } = props;
-  const title = agentsListTitle(running);
-  const button = (
+  const { running, done, open, onClick } = props;
+  const label = agentsChipLabel(running, done.length);
+  const failed = running === 0 && done.some((t) => t.display === "error");
+  return (
     <Button
       variant="ghost"
       className={styles.statusChip}
       data-testid="chat-agents-chip"
-      data-tone={running > 0 ? "pending" : undefined}
-      aria-label={`${agentsChipLabel(running)} running in the background`}
-      onClick={phone ? () => onOpenChange(true) : undefined}
+      data-tone={running > 0 ? "pending" : failed ? "failing" : undefined}
+      aria-label={running > 0 ? `${label}, running in the background` : label}
+      aria-expanded={open}
+      onClick={onClick}
     >
       <span className={styles.statusDot} />
-      {agentsChipLabel(running)}
+      {label}
     </Button>
-  );
-  const list = <AgentsList agents={agents} onPick={onPick} />;
-
-  if (phone) {
-    return (
-      <>
-        {button}
-        <PhoneSheet
-          open={open}
-          onOpenChange={onOpenChange}
-          variant="bottom"
-          data-testid="chat-agents-sheet"
-        >
-          <div className={styles.agentsSheetHeader}>
-            <Dialog.Title className={styles.agentsTitle}>{title}</Dialog.Title>
-            <PhoneSheetClose label="Close" />
-          </div>
-          <div className={styles.agentsSheetBody}>{list}</div>
-        </PhoneSheet>
-      </>
-    );
-  }
-  return (
-    <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger asChild>{button}</Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          className={styles.agentsPopover}
-          side="top"
-          align="start"
-          sideOffset={6}
-          collisionPadding={8}
-          aria-label={title}
-          data-testid="chat-agents-popover"
-        >
-          <h2 className={styles.agentsTitle}>{title}</h2>
-          {list}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
-}
-
-/**
- * The agents, one row each: status dot, title, type and time. Mounted only
- * while the list is open, so only an open list ticks the running times.
- */
-function AgentsList(props: { agents: TaskItem[]; onPick: (id: string) => void }) {
-  const { agents, onPick } = props;
-  const [now, setNow] = useState(() => Date.now());
-  useMountEffect(() => {
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(tick);
-  });
-  return (
-    <div className={styles.agentsList} data-testid="chat-agents-list">
-      {agents.map((task) => (
-        <Button
-          key={task.id}
-          variant="ghost"
-          className={styles.agentRow}
-          data-testid="chat-agent-row"
-          data-agent-id={task.id}
-          onClick={() => onPick(task.id)}
-        >
-          <TaskStatusDot status={task.display} />
-          <span className={styles.agentRowText}>
-            <span className={styles.agentRowTitle}>{task.title}</span>
-            <span className={styles.agentRowStatus}>{agentStatusText(task, now)}</span>
-          </span>
-          <ChevronRight size={14} className={styles.agentRowChevron} aria-hidden />
-        </Button>
-      ))}
-    </div>
   );
 }

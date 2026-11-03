@@ -44,15 +44,15 @@ function agentCwd(transcriptFile: string): string {
   return out.split("\n").find((l) => l.startsWith("n"))!.slice(1);
 }
 
-/** Opens and shoots the agents list, then closes it again. */
+/** Opens and shoots what the agents chip opens, then closes it again. */
 async function shootAgentsList(film: Filmstrip, page: Page, chat: Locator, name: string, phone: boolean) {
   await chat.getByTestId("chat-agents-chip").click();
-  const list = page.getByTestId(phone ? "chat-agents-sheet" : "chat-agents-popover");
-  await expect(list).toBeVisible({ timeout: 10_000 });
-  await expect(list.getByTestId("chat-agent-row")).toHaveCount(2);
+  const view = page.getByTestId(phone ? "chat-agents-sheet" : "chat-task-panel");
+  await expect(view).toBeVisible({ timeout: 10_000 });
+  if (phone) await expect(view.getByTestId("chat-agent-row")).toHaveCount(2);
   await film.shot(page, name);
   await page.keyboard.press("Escape");
-  await expect(list).toBeHidden();
+  await expect(view).toBeHidden();
 }
 
 test.describe("chat session info", () => {
@@ -160,13 +160,7 @@ test.describe("chat session info", () => {
     await film.shot(window, "desk-dark-working-later");
     await shootAgentsList(film, window, chat, "desk-dark-agents-list", false);
 
-    // 2. A row jumps to its card.
-    await chat.getByTestId("chat-agents-chip").click();
-    await window.getByTestId("chat-agent-row").first().click();
-    await expect(chat.locator('[data-task-id="toolu_bg_one"]')).toBeInViewport({ timeout: 10_000 });
-    await film.shot(window, "desk-dark-agent-revealed");
-
-    // 3. The turn ends with both agents still out.
+    // 2. The turn ends with both agents still out.
     assistant("a-end", "msg-4", [{ type: "text", text: "I'll pick their results up when they report." }], { stop_reason: "end_turn" });
     append({ ...base, type: "system", subtype: "turn_duration", uuid: "s-turn-1", timestamp: now(), durationMs: 134_000, messageCount: 12, pendingBackgroundAgentCount: 2 });
     const divider = chat.getByTestId("chat-turn-end");
@@ -175,7 +169,7 @@ test.describe("chat session info", () => {
     await divider.scrollIntoViewIfNeeded();
     await film.shot(window, "desk-dark-turn-ended");
 
-    // 4. The agent's transcript names another branch.
+    // 3. The agent's transcript names another branch.
     assistant("a-elsewhere", "msg-5", [{ type: "text", text: "Switched to look at the old fix." }], { gitBranch: "fix/old-branch", stop_reason: "end_turn" });
     const branchChip = chat.getByTestId("chat-branch-chip");
     await expect(branchChip).toContainText("≠", { timeout: 15_000 });
@@ -184,12 +178,12 @@ test.describe("chat session info", () => {
     await film.shot(window, "desk-dark-branch-mismatch");
     await window.keyboard.press("Escape");
 
-    // 5. Light.
+    // 4. Light.
     await useTheme(window, "Catppuccin Latte");
     await film.shot(window, "desk-light");
     await shootAgentsList(film, window, chat, "desk-light-agents-list", false);
 
-    // 6. The phone.
+    // 5. The phone.
     await useManorTheme(window);
     const device = await pairBrowser(window, { label: "session info phone" });
     await closeSettings(window);

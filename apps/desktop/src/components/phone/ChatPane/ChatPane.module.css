@@ -1292,34 +1292,7 @@ button.editToggle {
   overflow-wrap: anywhere;
 }
 
-/* What the agents chip opens: a popover on the desk, a sheet on a phone. */
-.agentsPopover {
-  composes: popover from "../../tasks/TaskDisplayMenu.module.css";
-  z-index: 200;
-}
-
-/* Doubled: the composed popover sets its own width. */
-.agentsPopover.agentsPopover {
-  width: min(400px, calc(100vw - 16px));
-  max-height: min(420px, calc(100vh - 32px));
-  overflow-y: auto;
-  padding: 10px 12px;
-  gap: 8px;
-}
-
-.agentsSheetHeader {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 8px;
-  padding: 4px 4px 4px 16px;
-}
-
-.agentsSheetHeader .agentsTitle {
-  flex: 1;
-  min-width: 0;
-}
-
+/* The phone's list of agents, in `AgentsSheet`. */
 .agentsSheetBody {
   min-height: 0;
   overflow-y: auto;
@@ -1431,7 +1404,12 @@ button.editToggle {
   border-radius: 8px;
 }
 
-/* Picked from the status line's agents list: a brief tint finds it. */
+/* The task view is showing this card's task. */
+.taskCard[data-viewed] .taskLine {
+  background: var(--hover);
+}
+
+/* Asked for from the status line's running chip: a brief tint finds it. */
 .taskFlash {
   animation: taskFlash 1.4s ease-out;
 }
@@ -1495,37 +1473,107 @@ button.editToggle {
   color: var(--text-dim);
 }
 
-/* `TaskSheet`: the header stays put and the transcript below scrolls. */
-.taskSheetHeader {
+/* The task view's header stays put and the transcript below it scrolls. */
+.taskViewHeader {
   display: flex;
   align-items: center;
   flex-shrink: 0;
   gap: 8px;
-  padding: 4px 4px 4px 16px;
   min-width: 0;
+  min-height: 44px;
+  padding: 4px 8px 4px 12px;
 }
 
-.taskSheetTitle {
+.taskViewHeader > .agentRowText {
+  flex: 1;
+}
+
+.taskViewHeader > .agentsTitle {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-  color: var(--text-selected);
 }
 
-.taskSheetStatus {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.taskSheetBody {
+.taskTranscript {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
   padding-bottom: 16px;
+}
+
+/* ── The desk's task panel ──
+   Beside the chat in a pane with room for both. Below that width it covers
+   the chat, which keeps its layout and scroll position under it. */
+.chatBody {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  container: chat-body / inline-size;
+}
+
+.chatMain {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.taskPanel {
+  display: flex;
+  flex: 0 0 min(46%, 760px);
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--dim);
+  outline: none;
+}
+
+.taskPanel .taskViewHeader {
+  border-bottom: 1px solid var(--border);
+}
+
+button.taskPanelIcon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 0;
+  padding: 0;
+}
+
+.taskPanelCount {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+button.taskPanelBack {
+  display: none;
+}
+
+@container chat-body (max-width: 719px) {
+  .taskPanel {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    border-left: 0;
+  }
+
+  .chatBody[data-task-panel] .chatMain {
+    visibility: hidden;
+  }
+
+  button.taskPanelBack {
+    display: inline-flex;
+  }
+
+  button.taskPanelClose {
+    display: none;
+  }
 }
 
 /* ── Desk: a reading column ──

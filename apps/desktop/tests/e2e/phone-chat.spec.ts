@@ -654,7 +654,7 @@ test.describe("phone chat background tasks", () => {
 
       // Tap: the sheet shows the subagent's own conversation.
       await task.getByRole("button").first().tap();
-      const sheet = client.page.getByTestId("chat-task-sheet");
+      const sheet = client.page.getByTestId("chat-agents-sheet");
       await expect(sheet).toBeVisible({ timeout: 15_000 });
       await expect(sheet.getByTestId("chat-assistant").filter({ hasText: childReply })).toBeVisible({
         timeout: 15_000,
@@ -662,7 +662,8 @@ test.describe("phone chat background tasks", () => {
       await client.page.keyboard.press("Escape");
       await expect(sheet).toHaveCount(0);
 
-      // The notification settles the card; no separate notice, no chip.
+      // The notification settles the card, with no separate notice. The chip
+      // stays until the next message.
       appendTranscript(
         transcriptFile,
         userLine(
@@ -671,7 +672,7 @@ test.describe("phone chat background tasks", () => {
       );
       await expect(task).toHaveAttribute("data-task-status", "ok", { timeout: 20_000 });
       await expect(task).toContainText(summary);
-      await expect(chat.getByTestId("chat-agents-chip")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-agents-chip")).toHaveText("1 agent done");
       await expect(chat.getByTestId("chat-notice")).toHaveCount(0);
     } finally {
       await client.close();

@@ -248,16 +248,21 @@ export function FolderItem(props: FolderItemProps) {
               </>
             ) : (
               <>
-                <span className={styles.folderName} title={folder.name}>
-                  {folder.name}
+                <span className={styles.folderLabel}>
+                  <span className={styles.folderName} title={folder.name}>
+                    {folder.name}
+                  </span>
+                  {workspaces.length > 0 && (
+                    <CountBadge
+                      count={workspaces.length}
+                      size="xs"
+                      title={`${workspaces.length} ${workspaces.length === 1 ? "workspace" : "workspaces"}`}
+                      data-testid="folder-workspace-count"
+                    />
+                  )}
                 </span>
                 {/* Same rule as a collapsed project: idle shows nothing. */}
                 {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
-                <CountBadge
-                  count={workspaces.length}
-                  title={`${workspaces.length} ${workspaces.length === 1 ? "workspace" : "workspaces"}`}
-                  data-testid="folder-workspace-count"
-                />
               </>
             )}
           </div>

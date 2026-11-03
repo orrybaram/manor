@@ -542,6 +542,7 @@ export function ChatPane(props: ChatPaneProps) {
                   paneId={paneId}
                   task={viewedTask}
                   agents={chips.agentsInOrder}
+                  hidden={hidden}
                   onPick={(id) => setTaskView({ kind: "task", id })}
                   onClose={() => changeTaskView(null)}
                 />

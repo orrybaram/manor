@@ -44,11 +44,10 @@ import styles from "./ChatPane.module.css";
  * acts on (branch, agents, CI, PR, diff) and scrolls the chips sideways
  * rather than wrapping, the context size pinned outside the scroll.
  *
- * While background agents run, "2 agents" opens a list of every background
- * agent in the chat (a sheet on a phone, a popover on the desk); picking
- * one brings its card into view. Any other task still running (a background
- * shell command, a foreground agent) keeps "1 running", which scrolls to the
- * newest of them.
+ * While background agents run, and until your next message once they've
+ * finished, the agents chip opens the task view (`TaskView.tsx`). Any other
+ * task still running (a background shell command, a foreground agent) keeps
+ * "1 running", which scrolls to the newest of them.
  *
  * The branch is the workspace's live one. When the transcript's newest line
  * says the agent is on another, the chip is tinted and marked "≠"; tapping

@@ -225,6 +225,17 @@ describe("task view on a desk", () => {
     expect(panel()).toBeNull();
   });
 
+  it("stops watching while the pane shows its terminal, and resumes after", async () => {
+    await open(three(), "desk");
+    await click(chip());
+    expect(onTaskEntry).toHaveBeenCalledOnce();
+    await renderPane("desk", true);
+    expect(unsubscribeTask).toHaveBeenCalledOnce();
+    await renderPane("desk", false);
+    expect(onTaskEntry).toHaveBeenCalledTimes(2);
+    expect(panel()?.textContent).toContain("Reply from two");
+  });
+
   it("stops watching when closed", async () => {
     await open(three(), "desk");
     await click(chip());

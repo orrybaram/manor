@@ -131,6 +131,8 @@ type TaskPanelProps = {
   task: TaskItem;
   /** The chat's background agents, in chat order: what the arrows step through. */
   agents: readonly TaskItem[];
+  /** The pane is showing its terminal: the panel keeps its place but watches nothing. */
+  hidden: boolean;
   onPick: (id: string) => void;
   onClose: () => void;
 };
@@ -143,7 +145,7 @@ type TaskPanelProps = {
  * doesn't hold it.
  */
 export function TaskPanel(props: TaskPanelProps) {
-  const { paneId, task, agents, onPick, onClose } = props;
+  const { paneId, task, agents, hidden, onPick, onClose } = props;
   const panelRef = useRef<HTMLElement>(null);
   const index = agents.findIndex((a) => a.id === task.id);
   const step = (by: number) => {
@@ -211,7 +213,7 @@ export function TaskPanel(props: TaskPanelProps) {
           <X size={16} />
         </IconButton>
       </div>
-      <TaskTranscript key={task.id} paneId={paneId} task={task} />
+      {!hidden && <TaskTranscript key={task.id} paneId={paneId} task={task} />}
     </aside>
   );
 }

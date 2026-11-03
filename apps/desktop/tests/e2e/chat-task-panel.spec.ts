@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import { createWorkspace, importSeededProject, openTerminalTab } from "./fixtures";
 import { FAKE_AGENT_TRANSCRIPT, FAKE_CHAT_PROMPT } from "./helpers/fake-agent";
@@ -34,6 +34,15 @@ function agentCwd(transcriptFile: string): string {
     .split("\n")[0];
   const out = execFileSync("lsof", ["-a", "-p", pid, "-d", "cwd", "-Fn"], { encoding: "utf-8" });
   return out.split("\n").find((l) => l.startsWith("n"))!.slice(1);
+}
+
+/** The scroll offset of the chat around a piece of its text. */
+function chatScrollTop(row: Locator): Promise<number> {
+  return row.evaluate((el) => {
+    let node: HTMLElement | null = el as HTMLElement;
+    while (node && getComputedStyle(node).overflowY !== "auto") node = node.parentElement;
+    return node?.scrollTop ?? -1;
+  });
 }
 
 test.describe("chat task view", () => {
@@ -212,6 +221,23 @@ test.describe("chat task view", () => {
     await window.keyboard.press("Escape");
     await expect(panel).toBeHidden();
 
+    // The chip leaves a scrolled chat in place too.
+    await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    await window.waitForTimeout(300);
+    const beforeChip = await card.boundingBox();
+    await chip.click();
+    await expect(panel).toBeVisible();
+    const afterChip = await card.boundingBox();
+    expect(Math.abs(afterChip!.y - beforeChip!.y)).toBeLessThan(4);
+
+    // Docked beside the chat, in light.
+    await useTheme(window, "Catppuccin Latte");
+    await window.waitForTimeout(500);
+    await film.shot(window, "desk-light-docked");
+    await useManorTheme(window);
+    await window.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+
     // 5. Beside a split: inside the pane, and the neighbour isn't dimmed or blocked.
     const { paneId: neighbourId } = await splitPane(request, tempHome, { paneId, direction: "horizontal" });
     const neighbour = window.locator(`[data-testid="workspace-pane"][data-pane-id="${neighbourId}"]`);
@@ -262,6 +288,11 @@ test.describe("chat task view", () => {
       await expect(phoneChat).toBeVisible({ timeout: 20_000 });
       const phoneChip = phoneChat.getByTestId("chat-agents-chip");
       await expect(phoneChip).toHaveText("3 agents", { timeout: 15_000 });
+      // Scrolled up, the sheet and everything in it leave the chat's place alone.
+      const phoneRow = phoneChat.getByText("here is paragraph 5");
+      await phoneRow.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await page.waitForTimeout(300);
+      const phoneScroll = await chatScrollTop(phoneRow);
       await phoneChip.tap();
       const sheet = page.getByTestId("chat-agents-sheet");
       await expect(sheet.getByTestId("chat-agent-row")).toHaveCount(3);
@@ -273,7 +304,7 @@ test.describe("chat task view", () => {
       await expect(sheet.getByTestId("chat-agent-row")).toHaveCount(3);
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
-      await expect(page.getByText("here is paragraph 11")).toBeInViewport({ timeout: 5_000 });
+      expect(await chatScrollTop(phoneRow)).toBe(phoneScroll);
       // The phone paints the light palette itself, as `useTheme` does where the theme list isn't loaded.
       await useTheme(page, "Catppuccin Latte");
       await phoneChip.tap();
@@ -306,6 +337,15 @@ test.describe("chat task view", () => {
     await chip.click();
     await expect(panel).toBeVisible();
     await film.shot(window, "desk-dark-done-panel");
+    await useTheme(window, "Catppuccin Latte");
+    await window.waitForTimeout(500);
+    await film.shot(window, "desk-light-done-panel");
+    await window.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await film.shot(window, "desk-light-agents-done");
+    await useManorTheme(window);
+    await chip.click();
+    await expect(panel).toBeVisible();
     await window.keyboard.press("Escape");
     await expect(panel).toBeHidden();
     await expect(composer).toBeFocused();

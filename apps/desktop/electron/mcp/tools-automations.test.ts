@@ -125,6 +125,21 @@ describe("automation tools", () => {
     expect(http.calls[1].body).toEqual({ workspace: { pane: "keep" } });
   });
 
+  it("shows what each run of a reused workspace does", async () => {
+    const reused = { ...VIEW, workspace: { mode: "reuse", workspacePath: "/p1/ws", pane: "keep" }, runs: [] };
+    const text = await handlers.get_automation({ id: "a1" }, fakeHttp(reused));
+    expect(JSON.stringify(text)).toContain("reuse /p1/ws workspace, same pane, keeping context");
+  });
+
+  it("refuses nothing itself: a pane on a new workspace reaches the validation", async () => {
+    const http = fakeHttp(VIEW);
+    await handlers.create_automation(
+      { name: "n", cron: "0 9 * * *", timezone: "UTC", prompt: "p", projectId: "p1", pane: "fresh" },
+      http,
+    );
+    expect(http.calls[0].body).toMatchObject({ workspace: { mode: "new", pane: "fresh" } });
+  });
+
   it("says what each run of a reused workspace does", async () => {
     const reused = { ...VIEW, workspace: { mode: "reuse", workspacePath: "/p1/ws", pane: "fresh" } };
     const text = await handlers.list_automations({}, fakeHttp([reused]));

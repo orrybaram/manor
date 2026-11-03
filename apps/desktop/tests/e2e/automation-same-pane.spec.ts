@@ -4,15 +4,22 @@ import path from "path";
 import type { APIRequestContext, Page, TestInfo } from "@playwright/test";
 
 import { expect, importSeededProject, test } from "./fixtures";
-import { FAKE_AGENT, FAKE_AGENT_EXIT, FAKE_AGENT_HUSH, FAKE_AGENT_LOG_ENV } from "./helpers/fake-agent";
+import {
+  FAKE_AGENT,
+  FAKE_AGENT_EXIT,
+  FAKE_AGENT_HUSH,
+  FAKE_AGENT_LOG_ENV,
+  FAKE_AGENT_SLOW_HUSH,
+} from "./helpers/fake-agent";
 import { localApiHeaders, localApiUrl } from "./helpers/local-api";
 import { openSettings } from "./helpers/settings";
 import { useTheme } from "./helpers/theme";
 
 /**
  * A reused workspace's runs in one agent pane, through the app's local API
- * with the suite's fake agent: runs stay in the pane, Needs input skips, and an
- * agent that exited gets a new tab the next run reuses.
+ * with the suite's fake agent: runs stay in the pane, a run skips while the
+ * agent needs input, works or is just sent to, and an agent that exited or a
+ * tab that closed gets a new tab the next run reuses.
  * Then the editor's chip and run history, photographed dark and light.
  *
  * Screenshots go to the test's output dir, and to $SHOT_DIR when it is set.
@@ -28,7 +35,7 @@ interface Run {
 async function api<T>(
   request: APIRequestContext,
   tempHome: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   route: string,
   data?: Record<string, unknown>,
 ): Promise<T> {
@@ -64,7 +71,7 @@ test.describe("Automations: one agent pane across runs", () => {
     await importSeededProject(app, window, tempHome);
     await expect(window.getByTestId("notifications-bell")).toBeVisible({ timeout: 30_000 });
 
-    const call = <T,>(method: "GET" | "POST", route: string, data?: Record<string, unknown>) =>
+    const call = <T,>(method: "GET" | "POST" | "DELETE", route: string, data?: Record<string, unknown>) =>
       api<T>(request, tempHome, method, route, data);
 
     const projects = await call<Array<{ id: string; path: string; workspaces: { path: string }[] }>>("GET", "/projects");
@@ -108,7 +115,12 @@ test.describe("Automations: one agent pane across runs", () => {
 
     await expect.poll(() => status(paneId), { timeout: 30_000 }).toBe("requires_input");
     await settle();
-    expect(await runNow()).toMatchObject({ outcome: "skipped", reason: "waiting-for-input", paneId });
+    expect(await runNow()).toMatchObject({
+      outcome: "skipped",
+      reason: "waiting-for-input",
+      detail: "The agent is waiting for input",
+      paneId,
+    });
     expect(logged()).toEqual([]);
 
     // Answered, it is at its prompt: fresh clears, then sends, in that pane.
@@ -147,12 +159,50 @@ test.describe("Automations: one agent pane across runs", () => {
     await settle();
     expect(await runNow()).toMatchObject({ outcome: "started", sentToPane: true, paneId: newPane });
 
+    // A second click right after: it hasn't reported its turn yet.
+    expect(await runNow()).toMatchObject({
+      outcome: "skipped",
+      reason: "agent-starting",
+      detail: "The agent is still starting",
+      paneId: newPane,
+    });
+
+    // Mid-turn, Run now records a skip and types nothing.
+    await settle();
+    await call("POST", "/sessions/send", { target: newPane, text: FAKE_AGENT_SLOW_HUSH });
+    await expect.poll(() => status(newPane), { timeout: 4_000, intervals: [100] }).toBe("thinking");
+    const before = logged().length;
+    expect(await runNow()).toMatchObject({
+      outcome: "skipped",
+      reason: "still-working",
+      detail: "The previous run is still working",
+      paneId: newPane,
+    });
+    await expect.poll(() => status(newPane), { timeout: 15_000 }).toBe("responded");
+    expect(logged().length).toBe(before);
+
+    // The tab closed: a new one, which the run after uses.
+    await call("DELETE", `/panes/${newPane}`);
+    const reopened = await runNow();
+    expect(reopened.outcome).toBe("started");
+    expect(reopened.sentToPane).toBeUndefined();
+    expect(reopened.paneId).not.toBe(newPane);
+    const thirdPane = reopened.paneId!;
+    await expect.poll(() => status(thirdPane), { timeout: 30_000 }).toBe("requires_input");
+    await call("POST", "/sessions/send", { target: thirdPane, text: FAKE_AGENT_HUSH });
+    await expect.poll(() => status(thirdPane), { timeout: 15_000 }).toBe("responded");
+    await settle();
+    expect(await runNow()).toMatchObject({ outcome: "started", sentToPane: true, paneId: thirdPane });
+
     // The editor: the chip, its menu, and the runs above in its history.
     await openSettings(window);
     await window.getByTestId("settings-nav-automations").click();
     await window.getByText("PR screener").first().click();
     await expect(window.getByTestId("automation-chip-pane")).toHaveText(/same pane, keep context/);
     await shot(window, testInfo, "same-pane-dark");
+    await useTheme(window, "Catppuccin Latte");
+    await shot(window, testInfo, "same-pane-light");
+    await useTheme(window, "Catppuccin Mocha");
     await window.getByTestId("automation-chip-pane").click();
     await expect(window.getByTestId("automation-pane-fresh")).toBeVisible();
     await shot(window, testInfo, "same-pane-menu-dark");

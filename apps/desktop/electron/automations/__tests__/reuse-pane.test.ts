@@ -159,7 +159,12 @@ describe("createPaneSender", () => {
     ["requires_input", "waiting-for-input"],
   ])("skips an agent that is %s, typing nothing", async (now, reason) => {
     status = now;
-    expect(await send()).toMatchObject({ outcome: "skipped", reason, paneId: "pane-1" });
+    expect(await send()).toMatchObject({
+      outcome: "skipped",
+      reason,
+      detail: reason === "still-working" ? "The previous run is still working" : "The agent is waiting for input",
+      paneId: "pane-1",
+    });
     expect(typed).toEqual([]);
   });
 

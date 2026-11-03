@@ -15,9 +15,9 @@ const SPIN = ["✶", "✻", "✽", "✻"];
 const MOON = ["◐", "◓", "◑", "◒"];
 const frameOf = (frames: string[], tick: number) => frames[tick % frames.length]!;
 
-const cursor = (focused: boolean) => `<span class="ma-cursor${focused ? "" : " ma-cursor-outline"}"> </span>`;
+export const cursor = (focused: boolean) => `<span class="ma-cursor${focused ? "" : " ma-cursor-outline"}"> </span>`;
 
-function claudeBox(path: string): string[] {
+export function claudeBox(path: string): string[] {
   const inner = 42;
   const line = "─".repeat(inner);
   const label = ` ✻ Welcome back!   ${path}`;

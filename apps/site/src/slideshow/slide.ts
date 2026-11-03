@@ -29,6 +29,8 @@ export type SlideContext = {
   render: () => void;
   /** Run `fn` after a delay (shortened under reduced motion), then redraw. Dropped if the slide is left first. */
   later: (ms: number, fn: () => void) => void;
+  /** `later` without the redraw, for a slide changing its DOM in place: a redraw restarts every animation and transition in the window. */
+  after: (ms: number, fn: () => void) => void;
   /** The window is at least partly on screen. */
   onScreen: () => boolean;
 };

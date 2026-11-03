@@ -81,6 +81,10 @@
 .ma-ghost { background: transparent; color: var(--text-dim); border: none; border-radius: 4px; }
 .ma-ghost:hover:not(:disabled) { background: var(--surface); color: var(--text-selected); }
 .ma-sm { padding: 4px 8px; font-size: 12px; }
+.ma-primary { background: var(--accent); color: var(--bg); border: none; font-weight: 500; }
+.ma-primary:hover:not(:disabled) { opacity: 0.9; }
+.ma-secondary { background: transparent; color: var(--text-primary); border: 1px solid var(--control-border); }
+.ma-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--text-selected) 8%, transparent); color: var(--text-selected); }
 
 /* components/window-lead/WindowLead/WindowLead.module.css */
 .ma-lead { position: absolute; top: 0; left: 0; width: 220px; height: var(--title-row); z-index: 10; display: flex; align-items: flex-end; padding-right: 3px; background: transparent; }
@@ -142,6 +146,12 @@
 .ma-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; line-height: 16px; }
 .ma-workspace-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); line-height: 1.35; }
 
+/* components/sidebar/ProjectItem.module.css .diffStats, .diffAdded, .diffRemoved */
+.ma-diff-stats { flex-shrink: 0; margin-left: auto; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; display: flex; gap: 3px; padding: 2px; border-radius: 4px; background: var(--surface); cursor: pointer; transform-origin: right center; transition: transform 150ms ease, background 150ms ease; }
+.ma-diff-stats:hover { background: var(--hover); transform: scale(1.08); }
+.ma-diff-added { color: var(--green); }
+.ma-diff-removed { color: var(--red); }
+
 /* components/sidebar/WorkspaceIndicatorDot.module.css */
 .ma-ws-dot { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; width: 8px; height: 8px; }
 .ma-needs-you { background: var(--yellow, #eab308); }
@@ -196,6 +206,7 @@
 .ma-tab:not(.ma-tab-active):hover { background: color-mix(in srgb, var(--surface) 55%, transparent); color: var(--text-selected); }
 .ma-tab-active { background: var(--surface); color: var(--text-selected); box-shadow: inset 1px 0 0 var(--border), inset -1px 0 0 var(--border); z-index: 1; }
 .ma-tab-active:first-child { box-shadow: inset min(1px, var(--window-lead-inset)) 0 0 var(--border), inset -1px 0 0 var(--border); }
+.ma-tab-icon { flex-shrink: 0; opacity: 0.6; }
 .ma-tab-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; position: relative; transition: opacity 0.6s; }
 .ma-btn.ma-tab-close { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 2px; min-width: 0; font-size: 14px; line-height: 1; position: relative; top: 1px; left: 6px; opacity: 0; transition: opacity 0.15s; }
 .ma-tab:hover .ma-tab-close, .ma-tab-active .ma-tab-close { opacity: 0.6; }
@@ -253,6 +264,20 @@
 .ma-choice { display: inline; font: inherit; line-height: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 .ma-choice:hover, .ma-choice.sel { background: var(--fg); color: var(--bg); }
 
+/* components/ui/Toast/Toast.module.css, in the window rather than the viewport */
+.ma-toasts { position: absolute; bottom: 16px; right: 16px; width: 340px; z-index: 9999; pointer-events: none; }
+.ma-toast { position: absolute; left: 0; right: 0; bottom: 0; box-sizing: content-box; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); transition: transform 0.25s ease, opacity 0.25s ease, height 0.25s ease; }
+.ma-toast-in { animation: ma-toast-in 0.22s ease-out; }
+.ma-toast-out { animation: ma-toast-out 0.2s ease-in forwards; }
+.ma-toast-body { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: var(--text-selected); font-size: 12px; font-family: inherit; transition: opacity 0.2s ease; }
+.ma-toast-peeking .ma-toast-body { opacity: 0; }
+.ma-toast-icon { flex-shrink: 0; display: flex; color: var(--green, #a6e3a1); }
+.ma-toast-message { flex: 1; min-width: 0; font-weight: 600; }
+@keyframes ma-toast-in { from { opacity: 0; translate: 0 16px; } }
+@keyframes ma-toast-out { to { opacity: 0; translate: 0 8px; } }
+
 @media (prefers-reduced-motion: reduce) {
+  .ma-toast, .ma-toast-body { transition: none; animation: none; }
+  .ma-toast-out { animation: none; visibility: hidden; }
   .ma-pulse, .ma-pulse::after, .ma-dot-input, .ma-dot-responded, .ma-dot-responded::after, .ma-spinner-working, .ma-spinner-thinking { animation: none; }
 }

@@ -677,6 +677,129 @@ test.describe("the Themes slide", () => {
   });
 });
 
+test.describe("the Review slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const chip = (page: Page) => win(page).locator(".ma-cm-chip");
+  const card = (page: Page) => win(page).locator(".ma-dc[data-comment]");
+  const terminal = (page: Page) => win(page).locator('[data-pane="agent"] .ma-term');
+
+  async function openReview(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens on a diff beside the agent, with Comment on a changed line", async ({ page }) => {
+    const errors = await openReview(page);
+    await expect(chip(page)).toHaveText("+ Comment");
+    await expect(win(page).locator(".ma-tab-title")).toHaveText("TideRow.tsx");
+    await expect(win(page).locator(".ma-fp-diff-tag")).toHaveText("Diff vs HEAD");
+    await expect(win(page).locator(".ma-cm-collapsed-text").first()).toHaveText("4 unchanged lines");
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("a comment goes from the chip through the composer and Send to the agent's terminal", async ({ page }) => {
+    const errors = await openReview(page);
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveAttribute("placeholder", "Leave a comment…");
+    await expect(composer).toHaveValue("Round this to one decimal, like the rest of the table.");
+    await win(page).locator("[data-add]").click();
+
+    await expect(card(page)).toContainText("You · L8");
+    await expect(win(page).locator(".ma-rs-count")).toHaveText("1 comment");
+    await expect(win(page).locator(".ma-sc-review-where")).toHaveText("TideRow.tsx:8");
+    await win(page).locator(".ma-rs-bar [data-send]").click();
+
+    // What sendPromptToAgent and useReviewSend do: delivered, the drafts gone, the agent's pane focused.
+    await expect(terminal(page)).toContainText("I left 1 comment on the current diff.");
+    await expect(terminal(page)).toContainText("[1] src/tides/TideRow.tsx L8 —");
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Sent 1 comment to Tide heights");
+    await expect(card(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+    await expect(win(page).locator(".ma-sc-review")).toHaveCount(0);
+    await expect(win(page).locator(".ma-tab-title")).toHaveText("Tide heights");
+    await expect(win(page).locator(".ma-workspace-active .ma-spinner-thinking")).toBeVisible();
+
+    await expect(terminal(page)).toContainText("Rounded feet to one decimal.", { timeout: 5000 });
+    await expect(win(page).locator(".ma-workspace-active .ma-spinner")).toHaveCount(0);
+    await expect(win(page).locator('[data-line="8"]')).toContainText("toFixed");
+    expect(errors).toEqual([]);
+  });
+
+  test("hovering another changed line moves the chip, and the visitor's own words go as written", async ({ page }) => {
+    await openReview(page);
+    await win(page).locator('[data-line="9"]').hover();
+    await expect(win(page).locator('[data-line="9"] .ma-cm-chip')).toBeVisible();
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await composer.fill("  ");
+    await expect(win(page).locator("[data-add]")).toBeDisabled();
+    await composer.fill("Why feet here?");
+    await composer.press("Control+Enter");
+    await expect(card(page)).toContainText("Why feet here?");
+    await win(page).locator(".ma-rs-bar [data-send]").click();
+    await expect(terminal(page)).toContainText("Why feet here?");
+    await expect(terminal(page)).toContainText("Took your comment on L9", { timeout: 5000 });
+    await expect(win(page).locator('[data-line="8"]')).not.toContainText("toFixed");
+  });
+
+  test("Cancel and Esc drop the composer; Edit, Delete and Discard work on a card", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-cancel]").click();
+    await expect(win(page).locator("[data-composer]")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').click();
+    await chip(page).click();
+    await win(page).locator("[data-composer]").press("Escape");
+    await expect(win(page).locator("[data-composer]")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await card(page).hover();
+    await card(page).getByRole("button", { name: "Edit comment" }).click();
+    await win(page).locator("[data-composer]").fill("Changed my mind");
+    await win(page).locator("[data-add]").click();
+    await expect(card(page)).toContainText("Changed my mind");
+    await card(page).hover();
+    await card(page).getByRole("button", { name: "Delete comment" }).click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    const discard = win(page).locator("[data-discard]");
+    await discard.click();
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await expect(card(page)).toHaveCount(1);
+    await discard.click();
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  test("two comments count up and go together, and leaving resets the slide", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator('[data-line="9"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await expect(win(page).locator(".ma-rs-count")).toHaveText("2 comments");
+
+    await tabs(page).first().click();
+    await page.locator("#slide-tab-review").click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(chip(page)).toBeVisible();
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -711,6 +834,16 @@ test.describe("slideshow at 390", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     await page.keyboard.press("Home");
     await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
+  });
+
+  test("the Review window fits without sideways scroll, and its flow runs", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    await page.locator(".ma-cm-chip").click();
+    await page.locator("[data-add]").click();
+    await expect(page.locator(".ma-rs-bar")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
   });
 
   test("the Themes window fits without sideways scroll, and its list opens", async ({ page }) => {

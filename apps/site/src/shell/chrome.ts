@@ -19,6 +19,10 @@ export type WorkspaceRow = {
   isMain: boolean;
   active: boolean;
   indicator: WorkspaceIndicator;
+  /** The sidebar's count of what the workspace changed. */
+  diffStats?: { added: number; removed: number };
+  /** At the end of the branch row: the PR badge, as HTML. */
+  badge?: string;
 };
 
 export type ProjectRow = {
@@ -36,7 +40,15 @@ export type AgentRow = { id: string; title: string; status: AgentStatus | null; 
 
 export type AgentGroup = { project: string; agents: AgentRow[] };
 
-export type TabData = { id: string; title: string; active: boolean; status: AgentStatus | null; pulse: boolean };
+export type TabData = {
+  id: string;
+  title: string;
+  active: boolean;
+  status: AgentStatus | null;
+  pulse: boolean;
+  /** Before the title: a file pane's icon, as HTML. */
+  icon?: string;
+};
 
 export type PaneData = {
   /** `data-pane`, if clicking the pane should mean anything. */
@@ -47,6 +59,8 @@ export type PaneData = {
   hasChat: boolean;
   /** The terminal's rows, already HTML. */
   body: string;
+  /** Not a terminal: what the pane holds instead of `body`, as HTML. */
+  content?: string;
 };
 
 export type WindowData = {
@@ -117,12 +131,15 @@ const navRow = (name: "layout-dashboard" | "list-todo" | "search", label: string
 
 /** components/sidebar/ProjectItem's WorkspaceItem. */
 function workspaceRow(w: WorkspaceRow): string {
+  const stats = w.diffStats
+    ? `<span class="ma-diff-stats" aria-label="Open Source Control">${w.diffStats.added > 0 ? `<span class="ma-diff-added">+${w.diffStats.added}</span>` : ""}${w.diffStats.removed > 0 ? `<span class="ma-diff-removed">-${w.diffStats.removed}</span>` : ""}</span>`
+    : "";
   const mark = w.indicator ? workspaceIndicatorDot(w.indicator) : icon(w.isMain ? "git-branch" : "folder-git-2", 12);
   return (
     `<div class="ma-workspace${w.active ? " ma-workspace-active" : ""}" data-ws="${esc(w.id)}">` +
     `<span class="ma-workspace-icon">${mark}</span>` +
-    `<div class="ma-workspace-label"><div class="ma-workspace-name-row"><span class="ma-workspace-name">${esc(w.name)}</span></div>` +
-    `<div class="ma-workspace-branch-row"><span class="ma-workspace-branch">${esc(w.branch)}</span></div></div></div>`
+    `<div class="ma-workspace-label"><div class="ma-workspace-name-row"><span class="ma-workspace-name">${esc(w.name)}</span>${stats}</div>` +
+    `<div class="ma-workspace-branch-row"><span class="ma-workspace-branch">${esc(w.branch)}</span>${w.badge ?? ""}</div></div></div>`
   );
 }
 
@@ -198,6 +215,7 @@ function tabButton(tab: TabData): string {
   return (
     `<div class="ma-tab${tab.active ? " ma-tab-active" : ""}" data-tab="${esc(tab.id)}">` +
     agentDot(tab.status, tab.pulse) +
+    (tab.icon ?? "") +
     `<span class="ma-tab-title">${esc(tab.title)}</span>` +
     iconButton("ma-btn ma-ghost ma-sm ma-tab-close", "Close tab", icon("x", 12)) +
     `</div>`
@@ -229,15 +247,17 @@ export function leafPane(pane: PaneData): string {
     `<div class="ma-leaf"${id}>` +
     `<div class="ma-pane-bar${pane.focused ? " ma-pane-bar-focused" : ""}"><span class="ma-pane-title">${esc(pane.title)}</span>` +
     `<div class="ma-pane-actions">${actions}</div></div>` +
-    `<div class="ma-leaf-terminal"><div class="ma-term">${pane.body}</div></div></div>`
+    `<div class="ma-leaf-terminal">${pane.content ?? `<div class="ma-term">${pane.body}</div>`}</div></div>`
   );
 }
 
-/** components/workspace-panes/SplitFrame, at the even ratio. */
-export function splitPanes(direction: "horizontal" | "vertical", first: string, second: string): string {
+/** components/workspace-panes/SplitFrame: even, or at `firstPercent`, as dragging its divider leaves it. */
+export function splitPanes(direction: "horizontal" | "vertical", first: string, second: string, firstPercent?: number): string {
+  const size = (percent: number | undefined) =>
+    percent === undefined ? "" : ` style="${direction === "horizontal" ? "width" : "height"}: ${percent}%"`;
   return (
-    `<div class="ma-split ma-split-${direction}"><div class="ma-split-child">${first}</div>` +
-    `<div class="ma-divider"></div><div class="ma-split-child">${second}</div></div>`
+    `<div class="ma-split ma-split-${direction}"><div class="ma-split-child"${size(firstPercent)}>${first}</div>` +
+    `<div class="ma-divider"></div><div class="ma-split-child"${size(firstPercent === undefined ? undefined : 100 - firstPercent)}>${second}</div></div>`
   );
 }
 

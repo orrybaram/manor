@@ -136,19 +136,35 @@ const script = (p: Project, name: string, label: string, placeholder: string) =>
   `<div class="ma-stack"><label class="ma-field-label">${label}</label>` +
   `<textarea class="ma-input ma-mono ma-textarea" tabindex="-1" spellcheck="false" rows="4" data-field="${name}" placeholder="${placeholder}">${esc(p.fields[name] ?? "")}</textarea></div>`;
 
-/** ProjectHostRow's slug and hostname, for a name that's already lower case. */
-const worktreeDefault = (p: Project) => `~/.manor/worktrees/${p.id}`;
+/** ProjectHostRow's `defaultWorktreePath`. */
+function worktreeDefault(p: Project): string {
+  const slug = p.name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `~/.manor/worktrees/${slug}`;
+}
+
+/** lib/portless-hostname.ts `portlessHostname`, for a project's main checkout on this machine. */
+const previewHostname = (p: Project) =>
+  `${p.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 63)}.localhost`;
 
 function hostsSection(p: Project): string {
   const body =
     `<div class="ma-host-body">` +
     `<div class="ma-stack"><label class="ma-field-label">Default Branch</label><div class="ma-field-static">main</div></div>` +
     `<div class="ma-stack"><label class="ma-field-label">Worktree Path</label>${field(p, "worktreePath", worktreeDefault(p))}` +
-    `<div class="ma-field-hint">Directory where new worktrees are created. Defaults to ${worktreeDefault(p)}</div></div>` +
+    `<div class="ma-field-hint">Directory where new worktrees are created. Defaults to <span data-worktree-default>${esc(worktreeDefault(p))}</span></div></div>` +
     script(p, "worktreeStartScript", "Start Script", "Runs in the terminal when a new worktree is created") +
     script(p, "worktreeTeardownScript", "Teardown Script", "Runs before a worktree is deleted") +
     `<div class="ma-stack"><div class="ma-setting-row"><div class="ma-setting-main" data-preview-urls><span class="ma-setting-text">` +
-    `<span class="ma-setting-label">Named preview URLs</span><span class="ma-setting-hint">Route this project's dev servers through the portless proxy so each workspace gets a stable hostname like <code>${p.id}.localhost</code>. When off, ports open as <code>localhost:&lt;port&gt;</code>.</span></span>` +
+    `<span class="ma-setting-label">Named preview URLs</span><span class="ma-setting-hint">Route this project's dev servers through the portless proxy so each workspace gets a stable hostname like <code data-preview-host>${esc(previewHostname(p))}</code>. When off, ports open as <code>localhost:&lt;port&gt;</code>.</span></span>` +
     `<button class="ma-switch" type="button" tabindex="-1" role="switch" aria-checked="${p.previewUrls}" data-state="${p.previewUrls ? "checked" : "unchecked"}"><span></span></button>` +
     `</div></div></div>` +
     `<div class="ma-host-footer"><button class="ma-btn ma-link" type="button" tabindex="-1">Open This machine in Hosts</button></div>` +
@@ -365,7 +381,28 @@ export const themes: Slide = {
       ctx.render();
     };
 
+    /** NameField's commit. In place, without a redraw: its blur may be a press on its way to a row. */
+    const commitName = (p: Project, value: string) => {
+      const name = value.trim();
+      if (!name || name === p.name) return;
+      p.name = name;
+      const row = root.querySelector(`[data-settings-project="${p.id}"] .ma-settings-nav-label`);
+      const sidebarRow = root.querySelector(`[data-project="${p.id}"] .ma-project-name`);
+      if (row) row.textContent = name;
+      if (sidebarRow) sidebarRow.textContent = name;
+      if (selected() === p) root.querySelector(".ma-status-left .ma-segment")!.textContent = name;
+      if (page !== p) return;
+      root.querySelector('[data-field="worktreePath"]')?.setAttribute("placeholder", worktreeDefault(p));
+      const worktree = root.querySelector("[data-worktree-default]");
+      const host = root.querySelector("[data-preview-host]");
+      if (worktree) worktree.textContent = worktreeDefault(p);
+      if (host) host.textContent = previewHostname(p);
+    };
+
     const closeSettings = () => {
+      // Esc while renaming: the field only blurs once the redraw removes it, too late for the markup.
+      const nameField = root.querySelector<HTMLInputElement>("[data-name]");
+      if (page && nameField) commitName(page, nameField.value);
       closeSelect();
       page = null;
       paint();
@@ -426,16 +463,9 @@ export const themes: Slide = {
           const el = e.target as HTMLInputElement;
           if (el.dataset.field) shown.fields[el.dataset.field] = el.value;
         });
-        // The name commits on blur, as NameField's does, without a redraw: this press may be on its way to a row.
+        // The name commits on blur, as NameField's does.
         content.querySelector<HTMLInputElement>("[data-name]")?.addEventListener("blur", (e) => {
-          const name = (e.target as HTMLInputElement).value.trim();
-          if (!name || name === shown.name) return;
-          shown.name = name;
-          const row = root.querySelector(`[data-settings-project="${shown.id}"] .ma-settings-nav-label`);
-          const sidebarRow = root.querySelector(`[data-project="${shown.id}"] .ma-project-name`);
-          if (row) row.textContent = name;
-          if (sidebarRow) sidebarRow.textContent = name;
-          if (selected() === shown) root.querySelector(".ma-status-left .ma-segment")!.textContent = name;
+          commitName(shown, (e.target as HTMLInputElement).value);
         });
         // SettingsModal's own scaleIn and the overlay's fadeIn, when it comes back; the slide opens with it already there.
         if (justOpened && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
@@ -488,6 +518,8 @@ export const themes: Slide = {
         const row = hit("[data-project]");
         const rowProject = projects.find((p) => p.id === row?.dataset.project);
         if (rowProject && hit('[aria-label="Project Settings"]')) return openSettings(rowProject);
+        // New Workspace and New Folder stop their clicks from reaching the header, as ProjectHeaderActions' do.
+        if (hit(".ma-project-actions")) return;
         const wsId = hit("[data-ws]")?.dataset.ws;
         if (wsId) {
           ws = wsId;

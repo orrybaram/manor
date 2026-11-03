@@ -593,6 +593,32 @@ test.describe("the Themes slide", () => {
     await expect(page.locator('[data-project="harbor"] .ma-project-name')).toHaveText("harbor-two");
   });
 
+  test("a rename moves the worktree default and preview hostname, and Esc mid-rename keeps it", async ({ page }) => {
+    await openThemes(page);
+    const name = page.locator("[data-name]");
+    await name.fill("Salt Marsh!");
+    await name.blur();
+    await expect(page.locator("[data-worktree-default]")).toHaveText("~/.manor/worktrees/salt-marsh");
+    await expect(page.locator('[data-field="worktreePath"]')).toHaveAttribute("placeholder", "~/.manor/worktrees/salt-marsh");
+    await expect(page.locator("[data-preview-host]")).toHaveText("salt-marsh.localhost");
+
+    await name.fill("Brine");
+    await name.press("Escape");
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    await expect(page.locator('[data-project="harbor"] .ma-project-name')).toHaveText("Brine");
+    await expect(page.locator(".ma-status-left .ma-segment").first()).toHaveText("Brine");
+  });
+
+  test("New Workspace and New Folder don't collapse the project", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[aria-label="Close settings"]').click();
+    const project = page.locator('[data-project="harbor"]');
+    await project.locator(".ma-project-header").hover();
+    await project.getByRole("button", { name: "New Workspace" }).click();
+    await project.getByRole("button", { name: "New Folder" }).click();
+    await expect(project.locator(".ma-project-body")).toBeVisible();
+  });
+
   test("Ctrl+K still opens the page's terminal from the search box, which closes the list", async ({ page }) => {
     await openThemes(page);
     await trigger(page).click();

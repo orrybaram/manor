@@ -322,6 +322,35 @@ describe("ProjectManager", () => {
       );
     }
 
+    describe("ensureTopLevelFolder", () => {
+      it("makes the folder once, however many times it is asked for", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+
+        const first = manager.ensureTopLevelFolder(project.id, "PR Screens");
+        const again = manager.ensureTopLevelFolder(project.id, "  PR Screens  ");
+
+        expect(again!.id).toBe(first!.id);
+        expect(readState().projects[0].workspaceFolders).toHaveLength(1);
+      });
+
+      it("doesn't take a nested folder of the same name for the top-level one", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        const parent = manager.createWorkspaceFolder(project.id, "Epic")!;
+        const nested = manager.createWorkspaceFolder(project.id, "PR Screens", parent.id)!;
+
+        const found = manager.ensureTopLevelFolder(project.id, "PR Screens");
+
+        expect(found!.id).not.toBe(nested.id);
+        expect(found!.parentId).toBeNull();
+      });
+
+      it("returns null for a blank name or an unknown project", async () => {
+        const project = await manager.addProject("Proj", "/tmp/proj");
+        expect(manager.ensureTopLevelFolder(project.id, "   ")).toBeNull();
+        expect(manager.ensureTopLevelFolder("nonexistent", "X")).toBeNull();
+      });
+    });
+
     describe("createWorkspaceFolder", () => {
       it("creates a folder and persists it with a trimmed name", async () => {
         const project = await manager.addProject("Proj", "/tmp/proj");

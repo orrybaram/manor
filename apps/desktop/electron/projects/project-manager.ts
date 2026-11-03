@@ -1285,6 +1285,10 @@ export class ProjectManager {
     return folders.createWorkspaceFolder(this.ctx, projectId, name, parentId);
   }
 
+  ensureTopLevelFolder(projectId: string, name: string): WorkspaceFolder | null {
+    return folders.ensureTopLevelFolder(this.ctx, projectId, name);
+  }
+
   renameWorkspaceFolder(projectId: string, folderId: string, name: string): void {
     folders.renameWorkspaceFolder(this.ctx, projectId, folderId, name);
   }

@@ -213,6 +213,19 @@ describe("create_workspace", () => {
     });
     expect(result.content[0].text).toContain('in project "App" (box-app on me@box)');
   });
+
+  it("passes --folder through to the route", async () => {
+    const http = fakeHttp({
+      post: async () => ({ id: "p1", name: "App", hostId: "local", host: "this Mac", workspaces: [] }),
+    });
+
+    await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", folder: "PR Screens" },
+      http,
+    );
+
+    expect(http.calls[0].body).toEqual({ name: "feat", folder: "PR Screens" });
+  });
 });
 
 describe("create_workspace's setup script", () => {

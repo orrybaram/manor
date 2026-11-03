@@ -85,9 +85,8 @@ import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
 
 // Phone only, so it stays out of the desk's bundle path.
-const ChatPane = lazy(() =>
-  import("../phone/ChatPane/ChatPane").then((m) => ({ default: m.ChatPane })),
-);
+const loadChatPane = () => import("../phone/ChatPane/ChatPane");
+const ChatPane = lazy(() => loadChatPane().then((m) => ({ default: m.ChatPane })));
 
 function stripUrlForDisplay(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/^www\./, "");
@@ -142,6 +141,11 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // and a `/clear` sent from the chat shows a fresh one until the new
   // session's transcript is known (its Agent only exists after a prompt).
   const chatStarting = usePaneChatStarting(paneId, chatTranscript);
+  // Loaded ahead of the transcript, so the starting chat's hand-over never
+  // waits on the chunk with nothing on screen.
+  useEffect(() => {
+    if (chatStarting) void loadChatPane();
+  }, [chatStarting]);
   const hasChat = chatTranscript !== null || chatStarting;
   const deskDefault = useDeskChatDefault();
   const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript, layoutMode, deskDefault);

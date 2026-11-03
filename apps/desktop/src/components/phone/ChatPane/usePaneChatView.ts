@@ -28,8 +28,8 @@ type PaneChatViewState = {
    *  They show a fresh chat until a different transcript lands. In memory
    *  only. */
   starting: Record<string, string | null>;
-  /** The prompt a starting pane was launched with, shown until its
-   *  transcript lands. In memory only. */
+  /** The prompt a starting pane was launched with or sent, shown until its
+   *  transcript holds something. In memory only. */
   startingPrompts: Record<string, string>;
   /** Panes showing the terminal for a TUI menu the chat sent,
    *  until the menu's command lands in the transcript, the transcript
@@ -96,7 +96,26 @@ export function markChatStarting(
   });
 }
 
-/** The prompt `paneId` was launched with while it starts, if any. */
+/**
+ * `prompt` was sent from `paneId`'s fresh chat: show it while the transcript
+ * catches up. The first one sent stands for the wait; any others land after it.
+ */
+export function noteStartingPrompt(paneId: string, prompt: string): void {
+  usePaneChatViewStore.setState((s) =>
+    paneId in s.startingPrompts ? s : { startingPrompts: { ...s.startingPrompts, [paneId]: prompt } },
+  );
+}
+
+/** Forget `paneId`'s starting prompt: it landed, or never went. */
+export function clearStartingPrompt(paneId: string): void {
+  usePaneChatViewStore.setState((s) => {
+    if (!(paneId in s.startingPrompts)) return s;
+    const { [paneId]: _gone, ...startingPrompts } = s.startingPrompts;
+    return { startingPrompts };
+  });
+}
+
+/** The prompt `paneId` was launched with or sent while it starts, if any. */
 export function useStartingPrompt(paneId: string): string | null {
   return usePaneChatViewStore((s) => s.startingPrompts[paneId] ?? null);
 }
@@ -131,7 +150,8 @@ export function endMenuHandoff(paneId: string): void {
 }
 
 /**
- * Entries the chat of `transcript` just received for `paneId`: a queued
+ * Entries the chat of `transcript` just received for `paneId`: the wait for a
+ * first prompt is over, a queued
  * prompt that landed is no longer queued, a handoff from another transcript
  * is over, and one whose command landed has closed.
  */
@@ -140,6 +160,7 @@ export function noteChatEntries(
   transcript: string,
   entries: readonly ChatEntry[],
 ): void {
+  if (entries.length > 0) clearStartingPrompt(paneId);
   dropLandedPrompts(paneId, entries);
   const handoff = usePaneChatViewStore.getState().handoffs[paneId];
   if (!handoff) return;

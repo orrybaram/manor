@@ -5,7 +5,7 @@ import { esc, leafPane, splitPanes, tabbedPanel } from "../../shell/chrome";
 import { icon } from "../../shell/icons";
 import { toWorkspaceIndicator, type AgentStatus } from "../../shell/state";
 import { TICK_MS } from "../../shell/render";
-import { claudeBox, cursor } from "../../shell/terminals";
+import { claudeBox, cursor, wrapped } from "../../shell/terminals";
 import { createToasts } from "../../shell/toasts";
 import type { Slide } from "../slide";
 
@@ -95,22 +95,6 @@ function flatPrompt(comments: readonly Comment[], rounded: boolean): string {
     ...lines,
   ].join("\n");
   return prompt.replace(/\s*[\r\n]\s*/g, " ").trim();
-}
-
-/** How the agent's own box wraps what it's sent. */
-function wrapped(text: string, first: string, rest: string, columns: number): string[] {
-  const rows: string[] = [];
-  let row = "";
-  for (const word of text.split(" ")) {
-    if (row && row.length + 1 + word.length > columns) {
-      rows.push(row);
-      row = word;
-    } else {
-      row = row ? `${row} ${word}` : word;
-    }
-  }
-  if (row) rows.push(row);
-  return rows.map((r, i) => (i === 0 ? first : rest) + esc(r));
 }
 
 const toggle = (view: "local" | "branch") =>

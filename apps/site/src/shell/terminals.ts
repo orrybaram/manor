@@ -28,6 +28,22 @@ export function claudeBox(path: string): string[] {
   ];
 }
 
+/** How the agent's own box wraps what it's sent: `text` is plain, `first` and `rest` already HTML. */
+export function wrapped(text: string, first: string, rest: string, columns: number): string[] {
+  const rows: string[] = [];
+  let row = "";
+  for (const word of text.split(" ")) {
+    if (row && row.length + 1 + word.length > columns) {
+      rows.push(row);
+      row = word;
+    } else {
+      row = row ? `${row} ${word}` : word;
+    }
+  }
+  if (row) rows.push(row);
+  return rows.map((r, i) => (i === 0 ? first : rest) + esc(r));
+}
+
 const askRow = (content: string, width: number) => `<span class="y">│</span> ${content}${" ".repeat(Math.max(0, width - content.replace(/<[^>]+>/g, "").length))} <span class="y">│</span>`;
 
 /** Codex's prompt. Its three choices are real buttons. */

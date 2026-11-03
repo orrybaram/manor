@@ -141,6 +141,20 @@
 .ma-host-heading + .ma-workspaces { margin-top: 2px; }
 .ma-host-heading-icon { display: inline-flex; justify-content: center; width: 12px; flex-shrink: 0; }
 .ma-host-heading-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ProjectItem.module.css .groupSections, .section, .sectionHeader, .sectionHost, .sectionHostIcon, .sectionHostName, .sectionHostAsleep, .sectionOffline */
+.ma-group-sections { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 14px 11px; padding-left: 7px; border-left: 1px solid var(--border); }
+.ma-project-selected .ma-group-sections { border-left-color: var(--project-color, var(--accent)); }
+.ma-section { display: block; transition: opacity 120ms ease; }
+.ma-project-header.ma-section-header { height: 20px; margin-top: 4px; padding: 0; gap: 4px; font-size: 10.5px; font-weight: 500; color: var(--text-dim); background: none; }
+.ma-project-header.ma-section-header:hover { background: none; color: var(--text-primary); }
+.ma-section-header + .ma-workspaces { margin-top: 2px; }
+.ma-group-sections > :not(:last-child) .ma-section .ma-workspaces { padding-bottom: 16px; }
+.ma-section-host { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.ma-section-host > svg { width: 12px; flex-shrink: 0; }
+.ma-section-host-icon { display: inline-flex; justify-content: center; width: 12px; flex-shrink: 0; }
+.ma-section-host-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-section-host-asleep { flex-shrink: 0; font-size: 10px; color: var(--blue, #89b4fa); }
+.ma-section-offline .ma-workspaces { opacity: 0.5; }
 /* ProjectItem.module.css .folder, .folderHeader, .folderIcon, .folderLabel, .folderName, .folderBody, .folderMembers; ui/CountBadge .badge .xs .neutral */
 .ma-folder { display: flex; flex-direction: column; }
 .ma-folder-header { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); }
@@ -259,6 +273,12 @@
 .ma-logo-button { display: flex; align-items: center; justify-content: center; width: 12px; height: 12px; background: none; border: none; padding: 0; cursor: pointer; color: var(--text-dim); opacity: 0.5; transition: opacity 150ms; }
 .ma-logo-button svg { width: 100%; height: 100%; }
 .ma-logo-button:hover { opacity: 1; }
+
+/* components/hosts/HostIndicator.module.css .chip, .ok, .target, .clickable; ui/Button .link under it */
+.ma-btn.ma-host-chip { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 1px 6px; border: none; border-radius: 3px; background: color-mix(in srgb, var(--blue, #89b4fa) 12%, transparent); color: color-mix(in srgb, var(--blue, #89b4fa) 70%, var(--text-dim)); font-family: var(--font-mono); font-size: 10px; line-height: 16px; white-space: nowrap; text-decoration: none; }
+.ma-btn.ma-host-chip:hover { filter: brightness(1.35); }
+.ma-host-chip svg { flex-shrink: 0; }
+.ma-host-chip-target { overflow: hidden; text-overflow: ellipsis; }
 
 /* src/terminal/config.ts: FONT_FAMILY, DEFAULT_FONT_SIZE, the block cursor and
    xterm's cell (17px rows, read off the app's screenshots); PaneLayout.module.css

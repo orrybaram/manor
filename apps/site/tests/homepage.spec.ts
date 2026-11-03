@@ -1156,6 +1156,160 @@ test.describe("the Automations slide", () => {
   });
 });
 
+test.describe("the Remote hosts slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const phone = (page: Page) => win(page).locator("[data-phone]");
+  const desk = (page: Page) => win(page).locator('[data-pane="agent"]');
+  const deskTab = (page: Page) => win(page).locator(".ma-tab-bar").first().locator(".ma-tab");
+  const phoneTab = (page: Page) => phone(page).locator(".ma-tab");
+  const sidebarRow = (page: Page) => win(page).locator('[data-ws="tide-import"] .ma-workspace-icon');
+  const bellBadge = (page: Page) => win(page).locator(".ma-bell-badge");
+
+  async function openRemote(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-remote-hosts").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens on one project sectioned by host, the chip naming the host, and the question on both sides", async ({ page }) => {
+    const errors = await openRemote(page);
+    await expect(page.locator(".slideshow-text")).toContainText("Your agents don't live on your laptop.");
+    await expect(page.locator(".slideshow-text")).toContainText("Tap an answer on the phone.");
+    await expect(win(page).locator(".ma-project-name")).toHaveText(["harbor"]);
+    await expect(win(page).locator(".ma-section-host-name")).toHaveText(["This machine", "build-box", "spare-box"]);
+    await expect(win(page).locator('[data-host="spare-box"] .ma-section-host-asleep')).toHaveText("Asleep");
+    await expect(win(page).locator(".ma-section-host-asleep")).toHaveCount(1);
+    await expect(win(page).locator('[data-host="spare-box"] .ma-workspaces')).toHaveCSS("opacity", "0.5");
+    await expect(win(page).locator('[data-host="build-box"] [data-ws="tide-import"]')).toHaveClass(/ma-workspace-active/);
+    await expect(win(page).locator(".ma-host-chip")).toHaveText("build-box");
+    await expect(win(page).locator(".ma-status-left")).toContainText("tide-import");
+    await expect(deskTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(sidebarRow(page).locator(".ma-needs-you")).toHaveCount(1);
+    await expect(desk(page)).toContainText("How should I backfill the old tide records?");
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(phone(page).locator(".ma-ch-card-header")).toHaveText("Backfill");
+    await expect(phone(page).locator("[data-other]")).toHaveText("Other…");
+    await expect(phone(page).locator(".ma-ch-input")).toHaveAttribute("placeholder", "Type / for commands");
+    expect(errors).toEqual([]);
+  });
+
+  test("an answer on the phone goes through the note to the desk, and the marks run from the hand through the spinner to read, with nothing on the desk moving", async ({ page }) => {
+    const errors = await openRemote(page);
+    const box = () => win(page).locator(".ma-term").evaluate((el) => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, el.clientWidth]; });
+    const before = await box();
+    await phone(page).locator('[data-answer="1"]').click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveText("Answer sent, waiting for Claude…");
+    await expect(phone(page).locator('[data-answer="1"]')).toHaveAttribute("data-chosen", "true");
+    await expect(phone(page).locator('[data-answer="0"]')).toBeDisabled();
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+
+    await expect(desk(page)).toContainText("→ All at once");
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(0);
+    await expect(phone(page).locator("[data-answered]")).toHaveText(/Backfill\s*All at once/);
+    await expect(phone(page).locator(".ma-ch-card")).toHaveCount(0);
+    await expect(deskTab(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(sidebarRow(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(phone(page).locator("[data-thinking]")).toBeVisible();
+    await expect(phone(page).locator("[data-stop]")).toBeVisible();
+
+    await expect(deskTab(page).locator(".ma-spinner-working")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-working")).toHaveCount(1);
+    await expect(phone(page).locator(".ma-ch-pending")).toBeVisible();
+
+    await expect(desk(page)).toContainText("The dry run is clean.", { timeout: 6000 });
+    await expect(phone(page).locator(".ma-ch-assistant").last()).toContainText("The dry run is clean.");
+    await expect(phone(page).locator(".ma-ch-turn-end")).toContainText("Polished for");
+    await expect(deskTab(page).locator(".ma-spinner-idle")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-idle")).toHaveCount(1);
+    await expect(sidebarRow(page).locator("svg")).toHaveCount(1);
+    await expect(phone(page).locator("[data-send]")).toBeDisabled();
+
+    // The agent on screen has been seen; the one off screen is what lights the bell.
+    await expect(bellBadge(page)).toHaveCount(1, { timeout: 3000 });
+    await expect(win(page).locator('[data-ws="dock-fees"] .ma-done-unread')).toHaveCount(1);
+    await expect(win(page).locator(".ma-host-chip")).toHaveText("build-box");
+    expect(await box()).toEqual(before);
+    expect(errors).toEqual([]);
+  });
+
+  test("an option clicked in the desk's terminal lands on both sides straight away", async ({ page }) => {
+    const errors = await openRemote(page);
+    await desk(page).locator('[data-answer="2"]').click();
+    await expect(desk(page)).toContainText("→ Only this year's");
+    await expect(phone(page).locator("[data-answered]")).toHaveText(/Only this year's/);
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveCount(0);
+    await expect(desk(page)).toContainText("Older ones stay", { timeout: 6000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Other… opens Your answer, Submit waits for words, and Enter sends them, as written, to the desk", async ({ page }) => {
+    await openRemote(page);
+    await phone(page).locator("[data-other]").click();
+    const input = phone(page).getByPlaceholder("Your answer");
+    await expect(input).toBeFocused();
+    await expect(phone(page).locator("[data-submit]")).toBeDisabled();
+    await page.keyboard.type("Only ports with <gauges>");
+    await expect(phone(page).locator("[data-submit]")).toBeEnabled();
+    await page.keyboard.press("Enter");
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await expect(desk(page)).toContainText("→ Only ports with <gauges>");
+    await expect(phone(page).locator("[data-answered]")).toContainText("Only ports with <gauges>");
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openRemote(page);
+    await phone(page).locator('[data-answer="0"]').click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await page.locator("#slide-tab-automations").click();
+    await page.locator("#slide-tab-remote-hosts").click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveCount(0);
+    await page.waitForTimeout(1300);
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(phone(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(deskTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(bellBadge(page)).toHaveCount(0);
+  });
+
+  test("under reduced motion the note still holds, and the turn still finishes", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openRemote(page);
+    await phone(page).locator('[data-answer="0"]').click();
+    await page.waitForTimeout(500);
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await expect(desk(page)).toContainText("The batches are set up", { timeout: 3000 });
+    await expect(bellBadge(page)).toHaveCount(1);
+  });
+});
+
+test.describe("the whole slideshow", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("seven tabs in order, and it plays through all of them and wraps to the first with no errors", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = await open(page);
+    await expect(tabs(page)).toHaveText(["Side by side", "Themes", "Review", "Pull requests", "Browser", "Automations", "Remote hosts"]);
+    await windowOnScreen(page);
+    const seen = [await openTab(page).innerText()];
+    await expect
+      .poll(
+        async () => {
+          const now = await openTab(page).innerText();
+          if (now !== seen[seen.length - 1]) seen.push(now);
+          return seen.length;
+        },
+        { timeout: 75_000, intervals: [250] },
+      )
+      .toBe(8);
+    expect(seen).toEqual(["Side by side", "Themes", "Review", "Pull requests", "Browser", "Automations", "Remote hosts", "Side by side"]);
+    expect(errors).toEqual([]);
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -1221,6 +1375,17 @@ test.describe("slideshow at 390", () => {
     await page.locator('[data-au-open="morning-pr-triage"]').click();
     await page.locator("[data-run-now]").click();
     await expect(page.locator("[data-run-now]")).toHaveText("Starting…");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Remote hosts window fits without sideways scroll, and an answer on the phone lands", async ({ page }) => {
+    const errors = await open(page);
+    await expect(tabs(page)).toHaveCount(7);
+    await page.locator("#slide-tab-remote-hosts").click();
+    await page.locator('[data-phone] [data-answer="0"]').click();
+    await expect(page.locator(".ma-ch-card-note")).toBeVisible();
+    await expect(page.locator("[data-answered]")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(errors).toEqual([]);
   });

@@ -25,6 +25,14 @@ export type WorkspaceRow = {
   badge?: string;
 };
 
+/** One host's section of a linked group: its heading and the workspaces it keeps. */
+export type HostSection = {
+  /** "This machine", or the remote host's ssh target. */
+  host: string;
+  state: "local" | "connected" | "asleep";
+  workspaces: WorkspaceRow[];
+};
+
 export type ProjectRow = {
   /** `data-project`, if clicking the row should mean anything. */
   id?: string;
@@ -36,6 +44,8 @@ export type ProjectRow = {
   workspaces: WorkspaceRow[];
   /** A remote-only project's host, the heading above its workspaces. */
   host?: string;
+  /** A linked group: one section per host, in place of `workspaces` and `host`. */
+  sections?: HostSection[];
   /** After its workspaces. Expanded: the slides have no way to collapse one. */
   folders?: { name: string; workspaces: WorkspaceRow[] }[];
 };
@@ -72,6 +82,8 @@ export type PaneData = {
 export type WindowData = {
   projects: ProjectRow[];
   agentGroups: AgentGroup[];
+  /** The open workspace's remote host, for the status bar's chip. A workspace on this machine has none. */
+  host?: string;
   /** The bell's unread badge. */
   unread: boolean;
   /** The status bar's trail: project, then workspace. */
@@ -153,6 +165,28 @@ function workspaceRow(w: WorkspaceRow): string {
 const hostHeading = (name: string) =>
   `<div class="ma-host-heading"><span class="ma-host-heading-icon">${icon("cloud", 12)}</span><span class="ma-host-heading-name">${esc(name)}</span></div>`;
 
+/** components/sidebar/ProjectItem's SectionHostLabel: the laptop for this machine, HostStateIcon's glyph for a remote host, and a sleeping host saying so in words. */
+function hostSectionLabel(section: HostSection): string {
+  const { host, state } = section;
+  const glyph = state === "local" ? icon("laptop", 11) : `<span class="ma-section-host-icon">${icon(state === "asleep" ? "moon" : "cloud", 12)}</span>`;
+  return (
+    `<span class="ma-section-host">${glyph}<span class="ma-section-host-name">${esc(host)}</span>` +
+    (state === "asleep" ? `<span class="ma-section-host-asleep">Asleep</span>` : "") +
+    `</span>`
+  );
+}
+
+/** components/sidebar/ProjectGroupItem's sections, each a ProjectItem in `variant="section"`; a host that's away keeps its workspaces, dimmed. */
+const hostSections = (sections: HostSection[]) =>
+  `<div class="ma-group-sections">${sections
+    .map(
+      (s) =>
+        `<div${s.state === "asleep" ? ' class="ma-section-offline"' : ""} data-host="${esc(s.host)}"><div class="ma-section">` +
+        `<div class="ma-project-header ma-section-header">${hostSectionLabel(s)}</div>` +
+        `<div class="ma-workspaces">${s.workspaces.map(workspaceRow).join("")}</div></div></div>`,
+    )
+    .join("")}</div>`;
+
 /** components/sidebar/FolderItem, expanded. */
 function folderItem(folder: { name: string; workspaces: WorkspaceRow[] }): string {
   const noun = folder.workspaces.length === 1 ? "workspace" : "workspaces";
@@ -183,7 +217,9 @@ function projectRow(p: ProjectRow): string {
     `<span class="ma-project-actions">${actions}</span></div>` +
     (p.collapsed
       ? ""
-      : `<div class="ma-project-body">${p.host ? hostHeading(p.host) : ""}<div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}${(p.folders ?? []).map(folderItem).join("")}</div></div>`) +
+      : p.sections
+        ? hostSections(p.sections)
+        : `<div class="ma-project-body">${p.host ? hostHeading(p.host) : ""}<div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}${(p.folders ?? []).map(folderItem).join("")}</div></div>`) +
     `</div>`
   );
 }
@@ -287,12 +323,16 @@ export function splitPanes(direction: "horizontal" | "vertical", first: string, 
 // ---- status bar, window --------------------------------------------------
 
 /** components/statusbar/StatusBar/StatusBar. */
-export function statusBar(crumbs: string[]): string {
+export function statusBar(crumbs: string[], host?: string): string {
   const trail = crumbs
     .map((c) => `<span class="ma-segment">${esc(c)}</span>`)
     .join('<span class="ma-separator">&gt;</span>');
+  // components/hosts/HostIndicator's chip, for a connected host: it names the host, and its glyph and tone carry the state.
+  const chip = host
+    ? `<button class="ma-btn ma-host-chip" type="button" tabindex="-1" aria-label="${esc(host)} · Connected">${icon("cloud", 11)}<span class="ma-host-chip-target">${esc(host)}</span></button>`
+    : "";
   return (
-    `<div class="ma-status-bar"><div class="ma-status-left">${trail}</div><div class="ma-status-right">` +
+    `<div class="ma-status-bar"><div class="ma-status-left">${trail}</div><div class="ma-status-right">${chip}` +
     iconButton("ma-logo-button", "Send feedback", icon("message-square-plus", 12)) +
     iconButton("ma-logo-button", "About Manor", MANOR_LOGO) +
     `</div></div>`
@@ -306,7 +346,7 @@ export function renderWindow(data: WindowData): string {
     `<div class="ma-lights" aria-hidden="true"><span></span><span></span><span></span></div>` +
     `<div class="ma-app-body">${windowLead(data.unread)}` +
     `<div class="ma-sidebar-column">${sidebar(data.projects, data.agentGroups)}</div>` +
-    `<div class="ma-main-content"><div class="ma-workspace-stack">${data.main}</div>${statusBar(data.crumbs)}</div>` +
+    `<div class="ma-main-content"><div class="ma-workspace-stack">${data.main}</div>${statusBar(data.crumbs, data.host)}</div>` +
     `</div>` +
     (data.overlay ?? "")
   );

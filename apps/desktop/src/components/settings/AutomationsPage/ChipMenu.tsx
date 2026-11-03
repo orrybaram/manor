@@ -5,7 +5,7 @@ import { Button } from "../../ui/Button/Button";
 import styles from "./AutomationsPage.module.css";
 
 /** The parts of the sentence a chip can change. */
-export type ChipKind = "schedule" | "agent" | "project" | "host" | "workspace";
+export type ChipKind = "schedule" | "agent" | "project" | "host" | "workspace" | "pane";
 
 type ChipMenuProps = {
   kind: ChipKind;

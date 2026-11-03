@@ -298,6 +298,15 @@ describe("validateAutomationInput", () => {
       /workspace/,
     );
     expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 0 } }))).toMatch(/Keep last/);
+    expect(
+      validateAutomationInput(input({ workspace: { mode: "reuse", workspacePath: "/w", pane: "fresh" } })),
+    ).toBeNull();
+    expect(
+      validateAutomationInput(input({ workspace: { mode: "reuse", workspacePath: "/w", pane: "x" as "fresh" } })),
+    ).toMatch(/Pane must be/);
+    expect(
+      validateAutomationInput(input({ workspace: { mode: "new", pane: "fresh" } as never })),
+    ).toMatch(/only for a reused/);
     expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 20 } }))).toBeNull();
     expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 21 } }))).toBe(
       "Keep at most 20 run workspaces",

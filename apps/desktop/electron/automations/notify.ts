@@ -28,7 +28,7 @@ export interface RunNotification {
 
 export function runNotification(
   automation: Pick<Automation, "id" | "name" | "agentKind">,
-  run: Pick<AutomationRun, "outcome" | "detail">,
+  run: Pick<AutomationRun, "outcome" | "detail" | "sentToPane">,
   /** The run's workspace as the sidebar names it, when it has one. */
   workspaceName: string | null,
 ): RunNotification | null {
@@ -38,7 +38,7 @@ export function runNotification(
     return {
       kind: "automation-ran",
       title: `${automation.name} ran`,
-      body: workspaceName ? `Started ${agent} in ${workspaceName}` : `Started ${agent}`,
+      body: `${run.sentToPane ? "Sent to" : "Started"} ${agent}${workspaceName ? ` in ${workspaceName}` : ""}`,
       target,
     };
   }

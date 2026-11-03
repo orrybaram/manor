@@ -15,12 +15,22 @@ const AGENT_KINDS: readonly AutomationAgentKind[] = ["claude", "codex", "pi", "o
 
 /**
  * Where a run's agent starts: a fresh workspace per run (optionally keeping
- * only the last `keepLast` of them), or a new agent tab in one existing
- * workspace.
+ * only the last `keepLast` of them), or one existing workspace, where `pane`
+ * says what each run does.
  */
 export type AutomationWorkspace =
   | { mode: "new"; keepLast?: number }
-  | { mode: "reuse"; workspacePath: string };
+  | { mode: "reuse"; workspacePath: string; pane?: AutomationPane };
+
+/**
+ * What each run of a reused workspace does there: `new-tab` (the default)
+ * opens another agent tab; `fresh` sends the prompt to the automation's
+ * existing agent pane after clearing its conversation; `keep` sends it to the
+ * same conversation.
+ */
+export type AutomationPane = "new-tab" | "fresh" | "keep";
+
+export const AUTOMATION_PANES: readonly AutomationPane[] = ["new-tab", "fresh", "keep"];
 
 export interface AutomationSchedule {
   /** A 5-field cron expression, read in `timezone`. */
@@ -73,6 +83,8 @@ export type AutomationRunOutcome = "started" | "skipped" | "failed";
 export type AutomationRunReason =
   | "missed"
   | "still-working"
+  | "waiting-for-input"
+  | "agent-starting"
   | "project-missing"
   | "workspace-failed"
   | "agent-command-missing"
@@ -101,6 +113,8 @@ export interface AutomationRun {
   /** The pane the run's agent was launched in. */
   paneId?: string;
   workspacePath?: string;
+  /** The run's prompt went to an agent already in `paneId`, not a new tab. */
+  sentToPane?: boolean;
   /**
    * The name a new-workspace run gave its workspace. Keep last N removes a
    * run's workspace only while it still has this name: a rename is the user
@@ -143,9 +157,15 @@ export function validateAutomationInput(input: AutomationInput): string | null {
     if (workspace.keepLast !== undefined && workspace.keepLast > MAX_KEEP_LAST) {
       return `Keep at most ${MAX_KEEP_LAST} run workspaces`;
     }
+    if ("pane" in workspace && workspace.pane !== undefined) {
+      return "'pane' is only for a reused workspace";
+    }
   } else if (workspace?.mode === "reuse") {
     if (typeof workspace.workspacePath !== "string" || workspace.workspacePath === "") {
       return "Pick a workspace to reuse";
+    }
+    if (workspace.pane !== undefined && !AUTOMATION_PANES.includes(workspace.pane)) {
+      return `Pane must be one of: ${AUTOMATION_PANES.join(", ")}`;
     }
   } else {
     return "Workspace must be new or reuse";

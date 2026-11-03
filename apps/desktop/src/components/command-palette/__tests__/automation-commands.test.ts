@@ -17,7 +17,7 @@ const api = vi.hoisted(() => {
   return automations;
 });
 
-const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("../../../toast", () => ({ toast }));
 
 import type { AutomationView } from "../../../lib/automation-views";
@@ -193,11 +193,17 @@ describe("useAutomationCommands", () => {
   });
 
   it("runs one now on its own host, and says so", async () => {
-    api.runNow.mockResolvedValue(undefined);
+    api.runNow.mockResolvedValue({ outcome: "started" });
     await render();
     await act(async () => row("automation-run-box:a1")?.click());
     expect(api.runNow).toHaveBeenCalledWith("box", "a1");
     expect(toast.success).toHaveBeenCalledWith("Started Morning PR triage");
+
+    api.runNow.mockResolvedValue({ outcome: "skipped", detail: "The agent is waiting for input" });
+    await act(async () => row("automation-run-box:a1")?.click());
+    expect(toast.info).toHaveBeenCalledWith("Skipped Morning PR triage", {
+      detail: "The agent is waiting for input",
+    });
 
     api.runNow.mockRejectedValue(new Error("Project is gone"));
     await act(async () => row("automation-run-local:a2")?.click());

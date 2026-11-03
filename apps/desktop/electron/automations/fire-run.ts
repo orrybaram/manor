@@ -22,6 +22,8 @@ import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler"
  * one the automation reuses), the agent command for its kind, and an agent
  * tab started in it (`startAgentInWorkspace`). Each step that fails returns
  * a failed run with its reason, never a throw the scheduler has to guess at.
+ * A reused workspace can instead send each run to the automation's agent
+ * pane (`./reuse-pane.ts`), which opens a tab only when it has none left.
  *
  * A run is not the user making a workspace: it leaves the New Workspace
  * dialog's default host alone, and waits for the project's setup script to
@@ -51,6 +53,8 @@ export interface FireRunDeps {
       paneContext: { projectId: string; projectName: string; workspacePath: string; agentCommand: string };
     },
   ) => Promise<StartAgentResult>;
+  /** A same-pane run: its outcome, or null when it needs a new tab after all. */
+  sendToPane: (automation: Automation, workspacePath: string) => Promise<AutomationFireResult | null>;
   /** How long to wait for a new workspace's setup script; 10 minutes by default. */
   setupTimeoutMs?: number;
   /** Keep last N, after a new-workspace run starts in `currentPath`. Never rejects. */
@@ -72,6 +76,12 @@ export function createFireRun(deps: FireRunDeps): AutomationSchedulerDeps["fire"
 
     const workspace = await resolveWorkspace(deps, automation, project, scheduledFor);
     if ("failed" in workspace) return workspace.failed;
+
+    const spec = automation.workspace;
+    if (spec.mode === "reuse" && (spec.pane === "fresh" || spec.pane === "keep")) {
+      const sent = await deps.sendToPane(automation, workspace.path);
+      if (sent) return sent;
+    }
 
     const agentCommand = agentCommandFor(automation, project);
     const started = await deps.startAgent(workspace.path, {

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import Play from "lucide-react/dist/esm/icons/play";
 import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import {
+  AUTOMATION_PANES,
   DEFAULT_MISSED_GRACE_MINUTES,
   MAX_KEEP_LAST,
   validateAutomationInput,
@@ -24,6 +25,7 @@ import {
   AGENT_KINDS,
   dayAndTime,
   isProjectMissing,
+  PANE_TEXT,
   scheduleNote,
   workspaceChipText,
   zoneNote,
@@ -317,6 +319,7 @@ function AutomationForm(props: FormProps) {
   };
 
   const setWorkspace = (workspace: AutomationWorkspace) => change({ workspace });
+  const reused = draft.workspace.mode === "reuse" ? draft.workspace : null;
 
   const next = draft.enabled || isNew
     ? nextOccurrences(draft.schedule.cron, draft.schedule.timezone, 3)
@@ -475,6 +478,29 @@ function AutomationForm(props: FormProps) {
               />
             )}
           </ChipMenu>
+          {reused && (
+            <>
+              ,{" "}
+              <ChipMenu kind="pane" label={PANE_TEXT[reused.pane ?? "new-tab"].chip} title="Each run">
+                {(close) =>
+                  AUTOMATION_PANES.map((pane) => (
+                    <MenuItem
+                      key={pane}
+                      selected={(reused.pane ?? "new-tab") === pane}
+                      testId={`automation-pane-${pane}`}
+                      hint={PANE_TEXT[pane].hint}
+                      onSelect={() => {
+                        close();
+                        if (pane !== (reused.pane ?? "new-tab")) setWorkspace({ ...reused, pane });
+                      }}
+                    >
+                      {PANE_TEXT[pane].menu}
+                    </MenuItem>
+                  ))
+                }
+              </ChipMenu>
+            </>
+          )}
         </div>
         <div className={`${styles.note} ${styles.mono}`} data-testid="automation-next-runs">
           {draft.schedule.cron} ·{" "}
@@ -638,7 +664,17 @@ function WorkspaceOptions(props: WorkspaceOptionsProps) {
             key={ws.path}
             selected={workspace.mode === "reuse" && workspace.workspacePath === key}
             testId={`automation-workspace-reuse-${ws.name ?? ws.branch}`}
-            onSelect={() => onChange({ mode: "reuse", workspacePath: key }, true)}
+            // Another workspace keeps what each run does.
+            onSelect={() =>
+              onChange(
+                {
+                  mode: "reuse",
+                  workspacePath: key,
+                  ...(workspace.mode === "reuse" && workspace.pane ? { pane: workspace.pane } : {}),
+                },
+                true,
+              )
+            }
           >
             Reuse “{ws.name ?? ws.branch}”
           </MenuItem>

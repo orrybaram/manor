@@ -96,6 +96,9 @@ import { createWorkspaceOps } from "../workspace-ops";
 import { AutomationStore } from "../automations/automation-store";
 import { AutomationScheduler } from "../automations/scheduler";
 import { createFireRun } from "../automations/fire-run";
+import { createPaneSender } from "../automations/reuse-pane";
+import { chatSend } from "../bridge/handlers/chat";
+import { localCtx } from "../bridge/method";
 import { createRunWorkspacePruner } from "../automations/retention";
 import { automationOfAgent, isRunAgentBusy } from "../automations/run-agent";
 import { runNotification } from "../automations/notify";
@@ -780,6 +783,17 @@ export function createManorServer<D extends BridgeServerDeps>(
       workspaceOps,
       // Read at call time: `core.shared` is built below.
       startAgent: (workspacePath, options) => startAgentInWorkspace(core.shared, workspacePath, options),
+      sendToPane: createPaneSender({
+        agentManager,
+        agentStatus: agentStatusDriver,
+        lastStartedRun: (id) => automationStore.lastStartedRun(id),
+        linkRunAgent: (id, runId, agentId) => automationStore.linkRunAgent(id, runId, agentId),
+        layout: layoutStore,
+        // Read at call time, as above.
+        paneFacts: (paneId) => core.shared.backend.pty.getPaneFacts(paneId),
+        typeIntoPane: (paneId, text) => chatSend(localCtx(core.shared), paneId, text),
+        now: opts.automationClock?.now ?? Date.now,
+      }),
       pruneRunWorkspaces: createRunWorkspacePruner({
         runs: (id) => automationStore.runs(id),
         projectManager,

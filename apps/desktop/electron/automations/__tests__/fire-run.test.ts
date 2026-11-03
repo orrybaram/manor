@@ -68,6 +68,7 @@ describe("createFireRun", () => {
     };
     workspaceOps: { create: ReturnType<typeof vi.fn> };
     startAgent: ReturnType<typeof vi.fn>;
+    sendToPane: ReturnType<typeof vi.fn>;
   };
   let fire: ReturnType<typeof createFireRun>;
 
@@ -99,6 +100,7 @@ describe("createFireRun", () => {
         ok: true,
         data: { tabId: "tab-1", paneId: "pane-1", workspacePath },
       })),
+      sendToPane: vi.fn(async () => null),
     };
     fire = createFireRun(deps as unknown as FireRunDeps);
   });
@@ -240,6 +242,31 @@ describe("createFireRun", () => {
       },
     });
     expect(result).toEqual({ outcome: "started", workspacePath: "/worktrees/inbox", paneId: "pane-1" });
+  });
+
+  describe("a reused workspace's pane", () => {
+    const reuse = (pane?: "new-tab" | "fresh" | "keep") =>
+      automation({ workspace: { mode: "reuse", workspacePath: "/repo", ...(pane ? { pane } : {}) } });
+
+    it.each([undefined, "new-tab"] as const)("opens a new tab with pane %s, never asking the pane", async (pane) => {
+      await fire(reuse(pane), ctx);
+      expect(deps.sendToPane).not.toHaveBeenCalled();
+      expect(deps.startAgent).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["fresh", "keep"] as const)("%s records what the send did, with no new tab", async (pane) => {
+      const sent = { outcome: "skipped", reason: "still-working", paneId: "pane-1" };
+      deps.sendToPane.mockResolvedValue(sent);
+      expect(await fire(reuse(pane), ctx)).toBe(sent);
+      expect(deps.startAgent).not.toHaveBeenCalled();
+    });
+
+    it("opens a new tab when there is no pane left to send to", async () => {
+      const result = await fire(reuse("fresh"), ctx);
+      expect(deps.sendToPane).toHaveBeenCalledWith(expect.anything(), "/repo");
+      expect(result).toMatchObject({ outcome: "started", paneId: "pane-1" });
+      expect(deps.startAgent).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("fails as workspace-failed when the reused workspace is gone", async () => {

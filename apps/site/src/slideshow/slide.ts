@@ -44,6 +44,8 @@ export type SlideFrame = {
 export type OpenSlide = {
   /** The window as it stands now. For a slide that only owns the panel, `{ ...base, main }`. */
   render: () => WindowData;
+  /** Called after each draw of `render`, the one chance to reach the new DOM. */
+  drawn?: () => void;
   /** A click inside the window. The frame has already stopped autoplay. */
   onClick?: (e: MouseEvent) => void;
   /** A key pressed anywhere but the slideshow's own controls. Leave page keys alone; `preventDefault` a key you take, which stops autoplay as a click does. */

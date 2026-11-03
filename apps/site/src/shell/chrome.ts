@@ -22,10 +22,13 @@ export type WorkspaceRow = {
 };
 
 export type ProjectRow = {
+  /** `data-project`, if clicking the row should mean anything. */
+  id?: string;
   name: string;
   /** A palette variable's name, as `project.color` is in the app. */
   color?: string;
   selected: boolean;
+  collapsed?: boolean;
   workspaces: WorkspaceRow[];
 };
 
@@ -55,6 +58,8 @@ export type WindowData = {
   crumbs: string[];
   /** Everything inside the workspace stack: `tabbedPanel(...)`, or a screen of its own. */
   main: string;
+  /** Over the whole window: a dialog and its dim. */
+  overlay?: string;
 };
 
 const iconButton = (className: string, label: string, content: string, disabled = false) =>
@@ -134,11 +139,12 @@ function projectRow(p: ProjectRow): string {
     .map(([label, name]) => iconButton("ma-btn ma-ghost ma-project-action", label, icon(name, 13)))
     .join("");
   return (
-    `<div class="${p.selected ? "ma-project-selected" : ""}"${style}>` +
+    `<div class="${p.selected ? "ma-project-selected" : ""}${p.collapsed ? " ma-project-collapsed" : ""}"${p.id ? ` data-project="${esc(p.id)}"` : ""}${style}>` +
     `<div class="ma-project-header"><span class="ma-project-chevron">${icon("chevron-right", 12)}</span>` +
     `<span class="ma-project-swatch" aria-hidden="true"></span><span class="ma-project-name">${esc(p.name)}</span>` +
     `<span class="ma-project-actions">${actions}</span></div>` +
-    `<div class="ma-project-body"><div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}</div></div></div>`
+    (p.collapsed ? "" : `<div class="ma-project-body"><div class="ma-workspaces">${p.workspaces.map(workspaceRow).join("")}</div></div>`) +
+    `</div>`
   );
 }
 
@@ -258,6 +264,7 @@ export function renderWindow(data: WindowData): string {
     `<div class="ma-app-body">${windowLead(data.unread)}` +
     `<div class="ma-sidebar-column">${sidebar(data.projects, data.agentGroups)}</div>` +
     `<div class="ma-main-content"><div class="ma-workspace-stack">${data.main}</div>${statusBar(data.crumbs)}</div>` +
-    `</div>`
+    `</div>` +
+    (data.overlay ?? "")
   );
 }

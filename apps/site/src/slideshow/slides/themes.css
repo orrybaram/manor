@@ -1,0 +1,129 @@
+/* The Themes slide: the project's page in Settings. Values copied from the app, no build link; paths under apps/desktop. */
+
+/* src/components/settings/SettingsModal/SettingsModal.module.css .overlay, .modal at a 1280×800 window (min(1040px, 92vw) × min(820px, 88vh)) */
+.ma-settings-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 100; }
+.ma-settings-modal { position: absolute; inset: 0; margin: auto; z-index: 101; width: 1040px; height: 704px; background: var(--dim); border: 1px solid var(--surface); border-radius: 10px; overflow: hidden; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; color: var(--fg); }
+
+/* SettingsModal.module.css .header, .title, .layout */
+.ma-settings-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--surface); }
+.ma-settings-title { font-size: 14px; font-weight: 600; color: var(--text-selected); }
+.ma-settings-layout { display: flex; flex: 1; overflow: hidden; min-height: 0; }
+
+/* SettingsModal.module.css .sidebar, .nav, .searchWrap, .searchIcon, .searchInput */
+.ma-settings-sidebar { width: 200px; flex-shrink: 0; border-right: 1px solid var(--surface); padding: 12px 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.ma-settings-nav { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.ma-settings-search { position: relative; margin: 0 12px 10px; flex-shrink: 0; }
+.ma-settings-search > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-dim); pointer-events: none; }
+.ma-input.ma-settings-search-input { padding-left: 28px; }
+
+/* SettingsModal.module.css .navItem, .navItemActive, .navItemNested, .navItemLabel, .navGroupHeader */
+.ma-settings-nav-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 16px; border: none; background: none; color: var(--text-primary); font-size: 13px; font-family: inherit; cursor: pointer; text-align: left; border-radius: 0; }
+.ma-settings-nav-item:hover { background: var(--hover); }
+.ma-settings-nav-item.ma-settings-nav-active { background: var(--surface); color: var(--text-selected); }
+.ma-settings-nav-item.ma-settings-nav-nested { padding-left: 32px; }
+.ma-settings-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-settings-nav-group { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 12px; border: none; background: none; color: var(--text-dim); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; font-family: inherit; cursor: pointer; text-align: left; margin-top: 8px; }
+.ma-settings-nav-group:hover { color: var(--text-primary); }
+
+/* SettingsModal.module.css .content, .pageContent, .sectionTitle, .sectionHeader; ui/Layout Stack's gap-xs */
+.ma-settings-content { flex: 1; overflow-y: auto; padding: 16px 20px; min-width: 0; }
+.ma-settings-page { display: flex; flex-direction: column; gap: 28px; }
+.ma-stack { display: flex; flex-direction: column; gap: 4px; }
+.ma-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: color-mix(in srgb, var(--text-selected) 60%, transparent); margin-bottom: 10px; }
+.ma-section-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ma-section-row .ma-section-label { margin-bottom: 0; }
+
+/* SettingsModal.module.css .fieldLabel, .generalGrid, .fieldHint, .fieldStatic */
+.ma-field-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; margin-top: 10px; }
+.ma-field-label:first-of-type { margin-top: 0; }
+.ma-general-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin-bottom: 8px; }
+.ma-field-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.ma-field-static { font-size: 13px; color: var(--text-primary); padding: 8px 12px; background: var(--bg); border: 1px solid var(--surface); border-radius: 6px; opacity: 0.7; user-select: all; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* src/components/ui/Input/Input.module.css .input, .monospace, .textarea (user-select: Safari won't type into a field under `none`) */
+.ma-input { width: 100%; padding: 8px 12px; border: 1px solid var(--control-border); background: var(--bg); color: var(--text-selected); font-size: 13px; border-radius: 6px; outline: none; font-family: inherit; user-select: text; -webkit-user-select: text; }
+.mapp .ma-input:focus-visible { outline: none; }
+.ma-input:focus { border-color: var(--accent); }
+.ma-input::placeholder { color: var(--text-dim); }
+.ma-input.ma-mono { font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace; }
+.ma-input.ma-textarea { resize: vertical; line-height: 1.5; min-height: 80px; display: block; }
+
+/* SettingsModal.module.css .colorPicker, .colorOption, .colorOptionSelected */
+.ma-color-picker { display: flex; gap: 6px; padding: 4px 0; }
+.ma-color-option { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: transform 100ms ease, border-color 100ms ease; }
+.ma-color-option:hover { transform: scale(1.15); border-color: var(--text-dim); }
+.ma-color-option.ma-color-selected { border-color: var(--text-selected); }
+
+/* src/components/ui/SearchableSelect/SearchableSelect.module.css .trigger, .triggerContent, .triggerText, .optionTrailing, .triggerTrailing, .chevron */
+.ma-select-trigger { font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; justify-content: space-between; background: transparent; color: var(--text-primary); border: 1px solid var(--control-border); border-radius: 6px; padding: 4px 8px; font-size: 12px; transition: background-color 150ms ease, opacity 150ms ease; overflow: hidden; min-width: 0; }
+.ma-select-trigger:hover { background: var(--surface); }
+.ma-select-trigger-content { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; overflow: hidden; }
+.ma-select-trigger-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+.ma-select-trailing { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.ma-select-trigger > svg { flex-shrink: 0; color: var(--text-dim); }
+
+/* SettingsModal.module.css .generalGrid .fullWidthSelect (the trigger's inline maxWidth, 250px, still wins over its max-width: none) */
+.ma-general-grid .ma-select-trigger { width: 100%; max-width: 250px; padding: 8px 12px; font-size: 13px; background: var(--bg); color: var(--text-selected); }
+
+/* SearchableSelect.module.css .content, .searchInput */
+.ma-select-content { position: absolute; z-index: 150; background: var(--bg); border: 1px solid var(--surface); border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); min-width: 200px; max-width: 360px; width: max-content; overflow: hidden; }
+.ma-select-search { display: block; width: 100%; padding: 8px 12px; border: none; border-bottom: 1px solid var(--surface); border-radius: 0; background: var(--bg); color: var(--text-selected); font-size: 13px; outline: none; font-family: inherit; box-sizing: border-box; user-select: text; -webkit-user-select: text; }
+.mapp .ma-select-search:focus-visible { outline: none; }
+.ma-select-search::placeholder { color: var(--text-dim); }
+.ma-select-search:focus { border-bottom-color: var(--accent); }
+
+/* SearchableSelect.module.css .optionsList (ProjectSettingsPage's listMaxHeight, 320), .option, .optionLabel, .optionCheck, .optionSelected, .optionHighlighted, .empty */
+.ma-select-list { position: relative; max-height: 320px; overflow-y: auto; padding: 4px 0; }
+.ma-select-option { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--text-primary); }
+.ma-select-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ma-select-check { flex-shrink: 0; color: var(--accent); }
+.ma-select-pinned { position: relative; margin-bottom: 9px; }
+.ma-select-pinned::after { content: ""; position: absolute; left: 0; right: 0; bottom: -5px; border-bottom: 1px solid var(--surface); pointer-events: none; }
+.ma-select-option.ma-select-active { background: var(--surface); color: var(--text-selected); }
+.ma-select-empty { padding: 6px 12px; font-size: 13px; color: var(--text-dim); }
+
+/* SettingsModal.module.css .themeItemBadge, .colorDot; ProjectSettingsPage's Row gap-xs */
+.ma-theme-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--surface); color: var(--text-dim); }
+.ma-theme-dots { display: flex; flex-direction: row; gap: 4px; flex-shrink: 0; }
+.ma-theme-dots > div { width: 10px; height: 10px; border-radius: 50%; }
+
+/* src/components/settings/HostsPage/HostsPage.module.css .hostList, .rowHeader, .rowToggle, .rowIcon, .rowText, .rowName, .rowStatus, .rowDetail, .statusDot, .chevron, .rowBody, .rowFooter */
+.ma-host-list { display: flex; flex-direction: column; max-width: 520px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--dim) 70%, var(--bg)); overflow: hidden; }
+.ma-host-header { display: flex; align-items: center; gap: 8px; }
+.ma-btn.ma-host-toggle { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: flex-start; gap: 12px; height: auto; padding: 12px 14px; border-radius: 0; text-align: left; font-size: 13px; color: var(--text-primary); }
+.ma-btn.ma-host-toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--surface) 40%, transparent); color: var(--text-primary); }
+.ma-host-icon { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 7px; background: var(--surface); color: var(--text-primary); }
+.ma-host-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ma-host-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text-selected, var(--text-primary)); }
+.ma-host-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--text-dim); }
+.ma-host-status-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; vertical-align: middle; background: var(--text-dim); }
+.ma-host-detail { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-host-chevron { flex-shrink: 0; color: var(--text-dim); display: flex; transition: transform 150ms ease; }
+.ma-host-chevron-open { transform: rotate(90deg); }
+.ma-host-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 12px 56px; border-top: 1px solid var(--border); background: var(--bg); }
+.ma-host-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--surface); }
+
+/* SettingsModal.module.css .settingRow, .settingMain, .settingText, .settingLabel, .settingHint */
+.ma-setting-row { display: flex; flex-direction: column; padding: 12px 0; border-bottom: 1px solid var(--surface); }
+.ma-setting-row:last-child { border-bottom: none; }
+.ma-setting-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; cursor: pointer; }
+.ma-setting-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ma-setting-label { font-size: 13px; color: var(--text-selected); }
+.ma-setting-hint { font-size: 12px; line-height: 1.45; color: color-mix(in srgb, var(--text-selected) 50%, transparent); }
+
+/* src/components/ui/Switch/Switch.module.css .root, .thumb */
+.ma-switch { all: unset; width: 28px; height: 16px; background: var(--surface); border-radius: 8px; position: relative; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; transition: background-color 150ms ease; }
+.ma-switch[data-state="checked"] { background: var(--accent); }
+.ma-switch > span { display: block; width: 12px; height: 12px; background: var(--text-selected); border-radius: 50%; transition: transform 150ms ease; transform: translateX(2px); }
+.ma-switch[data-state="checked"] > span { transform: translateX(14px); }
+
+/* src/components/ui/Button/Button.module.css .link */
+.ma-btn.ma-link { background: transparent; color: var(--accent); border: none; padding: 0; text-decoration: underline; }
+
+/* SettingsModal.module.css .commandList, .addCommandBtn */
+.ma-command-list { max-height: 200px; overflow-y: auto; }
+.ma-add-command { background: var(--dim); border: 1px dashed var(--border); color: var(--text-dim); cursor: pointer; padding: 6px 12px; border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 6px; width: 100%; justify-content: center; font-family: inherit; }
+.ma-add-command:hover { border-color: var(--fg-a50); color: var(--fg-a50); }
+
+/* The main area behind Settings: src/components/sidebar/ProjectItem.module.css's collapsed chevron */
+.ma-project-collapsed .ma-project-chevron { transform: none; }

@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * What on the homepage would quietly cost downloads if it broke, end to end
  * against the production build: the Download button, the phone layout, and the
- * hero's slideshow. Slideshow tests hold for any number of tabs, so slides can
- * be added without touching them.
+ * hero's slideshow. Slideshow frame tests hold for two tabs or more, so slides
+ * can be added without touching them.
  */
 const VERSION = (JSON.parse(fs.readFileSync(new URL("../../desktop/package.json", import.meta.url), "utf8")) as { version: string }).version;
 
@@ -82,6 +82,16 @@ const expectHeld = async (page: Page) => {
 /** Claude's "Composing… (38s" timer, which only a fresh slide puts back to 38. */
 const composingSecs = async (page: Page) =>
   Number((await page.locator('.slideshow [data-pane="hero"] .ma-term').innerText()).match(/\((\d+)s/)?.[1]);
+
+const MOCHA_BG = "#1e1e2e";
+const MANOR_BG = "#181616";
+const LATTE_BG = "#eff1f5";
+const TOKYONIGHT_BG = "#1a1b26";
+const DRACULA_BG = "#282a36";
+
+/** A theme token as the window has it now. */
+const cssVar = (page: Page, name: string) =>
+  page.locator(".slideshow .mapp").evaluate((el, n) => getComputedStyle(el).getPropertyValue(n).trim(), name);
 
 test.describe("slideshow at 1440", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
@@ -211,17 +221,44 @@ test.describe("slideshow at 1440", () => {
     expect(errors).toEqual([]);
   });
 
-  test("after its 8s a slide hands over to the next tab, wrapping round, and keeps its state if it's alone", async ({ page }) => {
+  test("after its 8s a slide hands over to the next tab", async ({ page }) => {
     test.setTimeout(20_000);
     await open(page);
     await windowOnScreen(page);
-    const n = await tabs(page).count();
-    const secs = await composingSecs(page);
-    const nextId = await tabs(page).nth(1 % n).getAttribute("id");
+    await expect(tabs(page).nth(1)).toHaveText("Themes");
     await expect.poll(() => progress(page), { timeout: 9000, intervals: [100] }).toBeGreaterThan(0.9);
     await expect.poll(() => progress(page), { timeout: 3000, intervals: [100] }).toBeLessThan(0.5);
-    await expect(openTab(page)).toHaveAttribute("id", nextId!);
-    if (n === 1) expect(await composingSecs(page)).toBeGreaterThan(secs + 5);
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(page.locator(".slideshow-text b")).toHaveText("A different look for each project.");
+  });
+
+  test("the last slide wraps round to the first, which comes back fresh in its own colours", async ({ page }) => {
+    test.setTimeout(20_000);
+    await open(page);
+    await tabs(page).last().click();
+    await windowOnScreen(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expect(openTab(page)).toHaveAttribute("id", (await tabs(page).first().getAttribute("id"))!, { timeout: 10_000 });
+    expect(await composingSecs(page)).toBeLessThan(40);
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+  });
+
+  test("a slide's state resets on re-entry, and what it left pending never lands", async ({ page }) => {
+    await open(page);
+    const codex = page.locator('.slideshow [data-pane="gtf"] .ma-term');
+    await codex.locator('[data-act="yes"]').click(); // Finishes itself 1.8s later.
+    await expect(codex).toContainText("Ran pnpm vitest run FileTree");
+    await tabs(page).nth(1).click();
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await page.waitForTimeout(2200);
+    // Landing here would have redrawn the old slide over this one.
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await tabs(page).first().click();
+    await expect(codex.locator('[data-act="yes"]')).toBeVisible();
+    await expect(codex).not.toContainText("Ran pnpm vitest run FileTree");
+    await page.waitForTimeout(2200);
+    await expect(codex).not.toContainText("18 passed");
   });
 
   test("no autoplay under reduced motion, and it reacts when that changes", async ({ page }) => {
@@ -383,6 +420,237 @@ test.describe("slideshow at 1440", () => {
   });
 });
 
+test.describe("the Themes slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const trigger = (page: Page) => page.locator("[data-theme-trigger]");
+  const rows = (page: Page) => page.locator(".ma-select-option");
+  const search = (page: Page) => page.locator(".ma-select-search");
+  const project = (page: Page, id: string) => page.locator(`[data-settings-project="${id}"]`);
+  const pick = async (page: Page, label: string) => {
+    await trigger(page).click();
+    await rows(page).filter({ hasText: label }).click();
+    await expect(search(page)).toHaveCount(0);
+  };
+
+  async function openThemes(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await windowOnScreen(page);
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    return errors;
+  }
+
+  test("each project repaints the window in its own theme, and its swatch follows the app's logic", async ({ page }) => {
+    const errors = await openThemes(page);
+    const root = page.locator(".slideshow .mapp");
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+    await expect(root).toHaveCSS("color-scheme", "dark");
+    await expect(page.locator('.ma-settings-page input[data-name]')).toHaveValue("harbor");
+
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await expect(root).toHaveCSS("color-scheme", "light");
+    await expect(page.locator('.ma-settings-page input[data-name]')).toHaveValue("almanac");
+    await expect(trigger(page)).toContainText("Catppuccin Latte");
+    await expect(page.locator('[data-project="almanac"] .ma-project-swatch')).toHaveCSS("background-color", "rgb(234, 118, 203)"); // Latte's magenta
+
+    await project(page, "lantern").click();
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+    await expect(root).toHaveCSS("color-scheme", "dark");
+    // No colour of its own: the swatch is --text-dim, as the app's fallback.
+    const dim = await page.locator('[data-project="lantern"] .ma-project-swatch').evaluate((el) => getComputedStyle(el).backgroundColor);
+    const toDim = await root.evaluate((el) => {
+      const probe = document.createElement("div");
+      probe.style.background = "var(--text-dim)";
+      el.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    expect(dim).toBe(toDim);
+    expect(errors).toEqual([]);
+  });
+
+  test("a picked theme changes only that project, and Global theme is the global one", async ({ page }) => {
+    const errors = await openThemes(page);
+    await pick(page, "Dracula");
+    expect(await cssVar(page, "--bg")).toBe(DRACULA_BG);
+    await expect(trigger(page)).toContainText("Dracula");
+
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await project(page, "lantern").click();
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+    await project(page, "harbor").click();
+    expect(await cssVar(page, "--bg")).toBe(DRACULA_BG);
+
+    await pick(page, "Global theme");
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+    await expect(trigger(page)).toContainText("Global theme");
+    await expect(trigger(page)).toContainText("Default");
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving the slide restores the default colours, and coming back starts over", async ({ page }) => {
+    await openThemes(page);
+    await project(page, "almanac").click();
+    await pick(page, "Dracula");
+    await tabs(page).first().click();
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+    await expect(page.locator(".slideshow .mapp")).toHaveCSS("color-scheme", "dark");
+
+    await page.locator("#slide-tab-themes").click();
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("search filters the list, and typing stays in the box", async ({ page }) => {
+    const errors = await openThemes(page);
+    await trigger(page).click();
+    await expect(search(page)).toBeFocused();
+    await expect(trigger(page)).toHaveAttribute("aria-expanded", "true");
+    await expect(rows(page).first()).toContainText("Manor"); // The current choice, pinned first.
+    await expect(rows(page)).toHaveCount(14);
+
+    await page.keyboard.type("LIGHT");
+    await expect(search(page)).toHaveValue("LIGHT");
+    await expect(rows(page)).toHaveCount(1);
+    await expect(rows(page).first()).toContainText("GitHub Light Default");
+
+    await search(page).fill("zzz");
+    await expect(page.locator(".ma-select-empty")).toHaveText("No results");
+    await page.keyboard.press("Enter"); // Nothing to pick.
+    await expect(search(page)).toBeFocused();
+
+    await search(page).fill("nord");
+    await page.keyboard.press("Enter");
+    await expect(search(page)).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe("#2e3440");
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(page.locator(".term")).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+
+  test("the arrows move the highlight and not the tabs, Esc closes, and the highlight follows the pointer", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    const active = page.locator(".ma-select-active");
+    await expect(active).toContainText("Manor");
+    await page.keyboard.press("ArrowDown");
+    await expect(active).toContainText("Global theme");
+    await expect(active).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp"); // Wraps to the end, which scrolls into view.
+    await expect(active).toContainText("TokyoNight");
+    await expect(active).toBeInViewport();
+    await expect(openTab(page)).toHaveText("Themes");
+
+    await rows(page).nth(3).hover();
+    await expect(rows(page).nth(3)).toHaveClass(/ma-select-active/);
+    await expect(rows(page).nth(3)).toHaveCSS("background-color", "rgb(45, 42, 42)"); // Manor's --surface
+
+    await page.keyboard.press("Escape");
+    await expect(search(page)).toHaveCount(0);
+    await expect(page.locator(".ma-settings-modal")).toBeVisible(); // One Esc, one layer.
+    await expect(trigger(page)).toBeFocused();
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+
+    await page.keyboard.press("ArrowDown"); // From the trigger, as the app's.
+    await expect(search(page)).toBeFocused();
+  });
+
+  test("clicking outside closes the list, in the window or on the page, and clicking its trigger closes it", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    await page.locator(".ma-settings-title").click();
+    await expect(search(page)).toHaveCount(0);
+
+    await trigger(page).click();
+    await expect(search(page)).toHaveCount(1);
+    await trigger(page).click();
+    await expect(search(page)).toHaveCount(0);
+
+    await trigger(page).click();
+    await page.locator(".slideshow-text").click();
+    await expect(search(page)).toHaveCount(0);
+  });
+
+  test("the Name field takes real typing and commits on blur, without a slide key firing", async ({ page }) => {
+    await openThemes(page);
+    const name = page.locator(".ma-settings-page input[data-name]");
+    await name.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("-two");
+    await expect(name).toHaveValue("harbor-two");
+    await expect(openTab(page)).toHaveText("Themes");
+    await project(page, "almanac").click(); // Blur and switch in one press.
+    await expect(project(page, "almanac")).toHaveAttribute("aria-current", "page");
+    await expect(project(page, "harbor")).toHaveText("harbor-two");
+    await expect(page.locator('[data-project="harbor"] .ma-project-name')).toHaveText("harbor-two");
+  });
+
+  test("Ctrl+K still opens the page's terminal from the search box, which closes the list", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    await page.keyboard.press("Control+k");
+    await expect(page.locator(".term")).toBeVisible();
+    await expect(search(page)).toHaveCount(0);
+  });
+
+  test("Settings closes as the app's does, and the sidebar then switches project and reopens it", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[aria-label="Close settings"]').click();
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+
+    await page.locator('[data-project="almanac"] [data-ws="moon-phases"]').click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await expect(page.locator(".slideshow .ma-status-left")).toContainText("almanac");
+
+    const header = page.locator('[data-project="lantern"] .ma-project-header');
+    await header.hover();
+    await header.locator('[aria-label="Project Settings"]').click();
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await expect(page.locator(".ma-settings-page input[data-name]")).toHaveValue("lantern");
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+
+    await page.locator(".ma-settings-overlay").click({ position: { x: 40, y: 400 } }); // The dim: back to the workspace's own theme.
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("untouched it plays through the projects, opening nothing, and a click stops that", async ({ page }) => {
+    test.setTimeout(20_000);
+    await openThemes(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expect.poll(() => cssVar(page, "--bg"), { timeout: 4000, intervals: [100] }).toBe(LATTE_BG);
+    await expect(search(page)).toHaveCount(0);
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(project(page, "almanac")).toHaveAttribute("aria-current", "page");
+
+    await project(page, "almanac").click();
+    await page.mouse.move(0, 0);
+    await expect(toggle(page)).toHaveText("Play");
+    await page.waitForTimeout(3200);
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("under reduced motion, Play moves on from the slide but doesn't play through the projects", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openThemes(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+    await page.waitForTimeout(3200);
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -404,6 +672,27 @@ test.describe("slideshow at 390", () => {
     expect(await page.evaluate(() => window.scrollX)).toBe(0);
     await page.keyboard.press("Home");
     await expect.poll(inRow).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test("with more tabs than fit, moving between them really scrolls the row", async ({ page }) => {
+    await open(page);
+    await page.addStyleTag({ content: ".slideshow-tab { min-width: 300px; }" });
+    const row = page.locator('.slideshow [role="tablist"]');
+    await tabs(page).first().focus();
+    await page.keyboard.press("End");
+    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.keyboard.press("Home");
+    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
+  });
+
+  test("the Themes window fits without sideways scroll, and its list opens", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await page.locator("[data-theme-trigger]").click();
+    await expect(page.locator(".ma-select-search")).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(errors).toEqual([]);
   });
 });

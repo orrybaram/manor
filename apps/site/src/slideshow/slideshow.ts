@@ -101,7 +101,9 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
     // Nothing to draw until `slide.enter` has returned: a slide asking early gets a no-op.
     let entered: OpenSlide | null = null;
     const render = () => {
-      if (current === entry && entered) root.innerHTML = renderWindow(entered.render());
+      if (current !== entry || !entered) return;
+      root.innerHTML = renderWindow(entered.render());
+      entered.drawn?.();
     };
     const ctx: SlideContext = {
       root,

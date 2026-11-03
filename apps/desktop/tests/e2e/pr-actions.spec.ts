@@ -15,7 +15,7 @@ import { useTheme } from "./helpers/theme";
  * handed to an agent, goes green, and the PR merges and takes its workspace
  * with it; unresolved threads are handed over with file and line; a pending
  * PR arms auto-merge; a merge-queue PR is queued and its workspace goes once
- * the queue lands it. The agent is `echo AGENT_PROMPT`, so the brief it was
+ * the queue lands it; merge conflicts are handed over too. The agent is `echo AGENT_PROMPT`, so the brief it was
  * started with is in its pane's scrollback.
  */
 
@@ -52,7 +52,7 @@ function pr(number: number, branch: string, rollup: FakeCheck[], over: Partial<F
   };
 }
 
-const BRANCHES = ["fix-ci", "review-notes", "slow-ci", "queued", "phone-pr"] as const;
+const BRANCHES = ["fix-ci", "review-notes", "slow-ci", "queued", "phone-pr", "conflicted"] as const;
 
 const PRS: Record<string, FakePr> = {
   "fix-ci": pr(301, "fix-ci", [check("typecheck", "FAILURE", 22), check("unit", "SUCCESS")]),
@@ -61,6 +61,10 @@ const PRS: Record<string, FakePr> = {
   queued: pr(304, "queued", [check("unit", "SUCCESS")]),
   // The phone's: a failing check and an open thread, so all three actions show.
   "phone-pr": pr(305, "phone-pr", [check("typecheck", "FAILURE", 23), check("unit", "SUCCESS")]),
+  // Everything at once, so the footer holds its fullest row of actions.
+  conflicted: pr(306, "conflicted", [check("typecheck", "FAILURE", 24), check("unit", "SUCCESS")], {
+    mergeable: "CONFLICTING",
+  }),
 };
 
 const thread = (n: number, path: string, line: number, body: string) => ({
@@ -151,6 +155,17 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
           comments: { totalCount: 0, nodes: [] },
           reviews: { totalCount: 0, nodes: [] },
         },
+        306: {
+          isInMergeQueue: false,
+          reviewThreads: {
+            nodes: [
+              thread(4, "src/merge.ts", 7, "Name this for what it holds."),
+              thread(5, "src/merge.ts", 9, "And this one."),
+            ],
+          },
+          comments: { totalCount: 0, nodes: [] },
+          reviews: { totalCount: 0, nodes: [] },
+        },
       },
       // (conversations above) plus #305's one thread, for the phone.
       repo: {
@@ -163,7 +178,7 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
       mergeQueue: [304],
       // A merge slow enough to outlast where the fill used to stop.
       mergeDelayMs: { 304: 6_000 },
-      jobLogs: { "22": FAILING_LOG, "23": FAILING_LOG },
+      jobLogs: { "22": FAILING_LOG, "23": FAILING_LOG, "24": FAILING_LOG },
     });
     const originalPath = process.env.PATH ?? "";
     process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
@@ -387,6 +402,39 @@ test("a failing PR is fixed by an agent and merged, and the rest of the footer",
   );
   await window.mouse.move(900, 700);
   await strip.shot(window, "kept-workspace-badge-merged");
+});
+
+test("a conflicted PR's card hands the conflicts to an agent", async ({ window, tempHome }) => {
+  test.setTimeout(120_000);
+  const strip = new Filmstrip("pr-actions-conflicts");
+  await expect(window.locator("[data-readiness]")).toHaveCount(BRANCHES.length, { timeout: 60_000 });
+
+  // A PR with no conflicts doesn't offer it.
+  let card = await openCard(window, "slow-ci");
+  await expect(card.getByTestId("pr-merge")).toHaveText("Merge when ready");
+  await expect(card.getByTestId("pr-fix-conflicts")).toHaveCount(0);
+
+  card = await openCard(window, "conflicted");
+  await expect(card.getByTestId("pr-fix-conflicts")).toHaveText("Fix conflicts");
+  await expect(card.getByTestId("pr-fix-checks")).toBeVisible();
+  await expect(card.getByTestId("pr-address-comments")).toHaveText(/Address 2 comments/);
+  await expect(card.getByTestId("pr-merge")).toBeDisabled();
+  await expect(card.getByTestId("pr-merge-reason")).toHaveText("Resolve the merge conflicts first");
+  await window.waitForTimeout(300); // The card's fade-in.
+  await strip.shot(window, "conflicted-card");
+  await useTheme(window, "Catppuccin Latte");
+  await openCard(window, "conflicted");
+  await window.waitForTimeout(600);
+  await strip.shot(window, "conflicted-card-light");
+  await useTheme(window, "Catppuccin Mocha");
+  card = await openCard(window, "conflicted");
+
+  await card.getByTestId("pr-fix-conflicts").click();
+  await expect(card).not.toBeVisible({ timeout: 10_000 });
+  const brief = await briefInNewAgent(window, tempHome, "has merge conflicts with its base branch");
+  expect(brief).toContain("PR #306");
+  expect(brief).toContain("merge it into this branch");
+  await strip.shot(window, "agent-briefed-on-conflicts");
 });
 
 test("the phone's PR sheet carries the same footer", async ({ app, window, tempHome, request }) => {

@@ -15,6 +15,7 @@ import type {
 } from "../../lib/pr-info";
 import { mergeFillAt } from "../../lib/merge-fill";
 import { mergeOffer } from "../../lib/pr-merge-offer";
+import { savedPromptOverrides } from "../../lib/prompts/saved-overrides";
 import { ghRepoOf } from "../../lib/gh-repo";
 import { ownerOf } from "../../lib/workspace-directory";
 import { workspaceKey } from "../../lib/workspace-key";
@@ -26,6 +27,7 @@ import { removeWorktreeWithToast } from "../../store/workspace-actions";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { toast } from "../../toast";
+import { prConflictsPrompt } from "./HomeDashboard/fix-pr-prompt";
 import styles from "./PrActions.module.css";
 
 const METHOD_LABEL: Record<PrMergeMethod, string> = {
@@ -45,9 +47,18 @@ const MERGED_HOLD_MS = 1300;
 
 type Phase = "idle" | "merging" | PrMergeOutcome;
 
+/** What the footer can hand to an agent. */
+type Brief = PrAgentTask | "conflicts";
+
+const BRIEF_SUBJECT: Record<Brief, string> = {
+  conflicts: "the merge conflicts",
+  checks: "the failing checks",
+  comments: "the review comments",
+};
+
 /**
- * The PR card's footer: hand the failing checks or the unresolved review
- * threads to the workspace's agent, and merge. Shared by the desk hover card
+ * The PR card's footer: hand the merge conflicts, the failing checks or the
+ * unresolved review threads to the workspace's agent, and merge. Shared by the desk hover card
  * and the phone's PR sheet through `PrDetails`.
  */
 export function PrActions(props: {
@@ -79,7 +90,7 @@ export function PrActions(props: {
   const [phase, setPhase] = useState<Phase>("idle");
   const [method, setMethod] = useState<PrMergeMethod | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [briefing, setBriefing] = useState<PrAgentTask | null>(null);
+  const [briefing, setBriefing] = useState<Brief | null>(null);
   const burstRef = useRef<HTMLSpanElement>(null);
   const mainRef = useRef<HTMLButtonElement>(null);
 
@@ -100,17 +111,21 @@ export function PrActions(props: {
     return () => cancelAnimationFrame(frame);
   }, [phase]);
 
+  const conflicts = pr.hasConflicts === true;
   const failing = pr.checks?.failing ?? 0;
   const threads = pr.unresolvedThreads ?? 0;
   const chosen = method ?? options.data?.allowed[0] ?? "squash";
 
   const brief = useCallback(
-    async (task: PrAgentTask) => {
+    async (task: Brief) => {
       if (!repo) return;
       setBriefing(task);
-      const what = task === "checks" ? "the failing checks" : "the review comments";
+      const what = BRIEF_SUBJECT[task];
       try {
-        const prompt = await window.electronAPI.github.getPrAgentPrompt(repo, pr.number, task);
+        const prompt =
+          task === "conflicts"
+            ? prConflictsPrompt(pr, savedPromptOverrides())
+            : await window.electronAPI.github.getPrAgentPrompt(repo, pr.number, task);
         onLeave?.();
         // Loaded on click: the agent store it reads is not one the card needs to show.
         const { briefWorkspaceAgent } = await import("../../lib/brief-agent");
@@ -126,7 +141,7 @@ export function PrActions(props: {
         setBriefing(null);
       }
     },
-    [repo, pr.number, workspacePath, hostId, onLeave],
+    [repo, pr, workspacePath, hostId, onLeave],
   );
 
   const optionsError = options.error ? String((options.error as Error).message ?? options.error) : null;
@@ -183,7 +198,7 @@ export function PrActions(props: {
   }, [repo, project, offer, phase, pr.number, pr.url, chosen, deleteAfter, canDelete, ws, onLeave, onMerged]);
 
   if (!repo || !isOpen) return null;
-  const showAgents = failing > 0 || threads > 0;
+  const showAgents = conflicts || failing > 0 || threads > 0;
   if (!showAgents && !offer && !pr.queuedToMerge) return null;
 
   const label =
@@ -221,6 +236,19 @@ export function PrActions(props: {
 
   const agentButtons = showAgents && (
     <span className={styles.agents}>
+      {conflicts && (
+        <Button
+          size="sm"
+          className={styles.agentButton}
+          disabled={briefing !== null}
+          onClick={() => void brief("conflicts")}
+          title="Ask this workspace's agent to merge the base branch and resolve the conflicts"
+          data-testid="pr-fix-conflicts"
+        >
+          {briefing === "conflicts" ? <LoaderCircle size={12} className={styles.spin} /> : <Bot size={12} />}
+          Fix conflicts
+        </Button>
+      )}
       {failing > 0 && (
         <Button
           size="sm"

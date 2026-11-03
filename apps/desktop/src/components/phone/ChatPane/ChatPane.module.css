@@ -71,6 +71,7 @@
   border-radius: 14px 14px 4px 14px;
   background: color-mix(in srgb, var(--accent) 22%, var(--surface));
   color: var(--text-selected);
+  font-family: var(--chat-font-family, inherit);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -116,6 +117,7 @@
 
 .assistant {
   max-width: 100%;
+  font-family: var(--chat-font-family, inherit);
   overflow-wrap: anywhere;
 }
 
@@ -712,6 +714,8 @@ button.more {
   border: none;
   background: transparent;
   resize: none;
+  /* With no choice made, the textarea's own font, as ever. */
+  font-family: var(--chat-font-family, revert);
   font-size: 16px;
   field-sizing: content;
 }
@@ -1647,6 +1651,30 @@ button.taskPanelBack {
 .chatPane[data-layout="desk"] .entries {
   padding: 16px 16px 24px;
   font-size: 14px;
+}
+
+/* The size from Settings, a desk's alone. The steps around it are the ones
+   chat has at the default: headings 1px up, code and tables 1px down, and the
+   composer 2px up. */
+.chatPane[data-layout="desk"] .userBubble,
+.chatPane[data-layout="desk"] .assistant {
+  font-size: var(--chat-font-size, 14px);
+}
+
+.chatPane[data-layout="desk"] .assistant .markdown h1,
+.chatPane[data-layout="desk"] .assistant .markdown h2,
+.chatPane[data-layout="desk"] .assistant .markdown h3,
+.chatPane[data-layout="desk"] .assistant .markdown h4 {
+  font-size: calc(var(--chat-font-size, 14px) + 1px);
+}
+
+.chatPane[data-layout="desk"] .assistant .markdown code,
+.chatPane[data-layout="desk"] .assistant .markdown table {
+  font-size: calc(var(--chat-font-size, 14px) - 1px);
+}
+
+.chatPane[data-layout="desk"] .composerField .composerInput {
+  font-size: calc(var(--chat-font-size, 14px) + 2px);
 }
 
 .chatPane[data-layout="desk"] .needsYou {

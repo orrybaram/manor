@@ -1,6 +1,6 @@
 /**
- * The monospace font families installed on this machine, for the font
- * pickers in Settings.
+ * The font families installed on this machine, for the font pickers in
+ * Settings.
  *
  * Read with the Local Font Access API (`queryLocalFonts`), which Manor's own
  * window is granted and browser panes are not (`electron/permission-policy`).
@@ -36,7 +36,7 @@ export function isMonospace(
 }
 
 /** The distinct families in `fonts`, sorted, keeping the ones `keep` accepts. */
-export function monospaceFamilies(
+export function installedFamilies(
   fonts: readonly LocalFontData[],
   keep: (family: string) => boolean,
 ): string[] {
@@ -55,8 +55,16 @@ async function loadMonospaceFonts(): Promise<string[]> {
     ctx.font = `16px "${family.replace(/["\\]/g, "")}"`;
     return ctx.measureText(text).width;
   };
-  return monospaceFamilies(fonts, (family) => isMonospace(measure, family));
+  return installedFamilies(fonts, (family) => isMonospace(measure, family));
+}
+
+async function loadInstalledFonts(): Promise<string[]> {
+  if (typeof window === "undefined" || !window.queryLocalFonts) return [];
+  return installedFamilies(await window.queryLocalFonts(), () => true);
 }
 
 /** Installed monospace families, read once; empty where the API is missing. */
 export const listMonospaceFonts = loadOnce(loadMonospaceFonts);
+
+/** Every installed family, read once; empty where the API is missing. */
+export const listInstalledFonts = loadOnce(loadInstalledFonts);

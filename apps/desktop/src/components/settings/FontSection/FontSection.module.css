@@ -14,7 +14,7 @@
 }
 
 .family {
-  width: 220px;
+  width: 250px;
 }
 
 .stepper {
@@ -76,4 +76,34 @@
     align-items: stretch;
     gap: 10px;
   }
+}
+
+/* A slice of chat, by the rules of the real thing (`ChatPane.module.css`). */
+.chatSample {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--surface);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-selected);
+  line-height: 1.45;
+}
+
+.chatSampleUser {
+  align-self: flex-end;
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+
+.chatSampleCode {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.93em;
 }

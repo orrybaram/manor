@@ -30,6 +30,8 @@ export type SearchableSelectOption = {
   group?: string;
   /** Why the option can't be picked: it stays listed, dimmed, with this as its hint. */
   disabledReason?: string | null;
+  /** The CSS font stack to draw the option's label in, for a font picker. */
+  fontFamily?: string;
 };
 
 /** A row after the options that does something other than pick a value. */
@@ -91,6 +93,8 @@ type SearchableSelectProps = {
   searchPlaceholder?: string;
   /** Caps the search text, and so the length of what `onCreate` can make. */
   searchMaxLength?: number;
+  /** The option under the highlight as it moves, and null once the list closes. */
+  onHighlight?: (value: string | null) => void;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -115,6 +119,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     actions,
     searchPlaceholder,
     searchMaxLength,
+    onHighlight,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -173,7 +178,17 @@ export function SearchableSelect(props: SearchableSelectProps) {
   const rowCount = rows.length;
   // A disabled first row hands the highlight to the next one that isn't.
   const firstEnabled = rowDisabled(rows[0]) ? nextEnabled(rows, 0, 1) : 0;
-  const active = highlightIndex === -1 ? firstEnabled : highlightIndex;
+  // A list that just opened rests on the current choice, so Enter keeps it.
+  const selectedRow = search
+    ? -1
+    : rows.findIndex(
+        (row) =>
+          row.kind === "option" &&
+          row.option.value === value &&
+          !row.option.disabledReason,
+      );
+  const resting = selectedRow === -1 ? firstEnabled : selectedRow;
+  const active = highlightIndex === -1 ? resting : highlightIndex;
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -251,7 +266,16 @@ export function SearchableSelect(props: SearchableSelectProps) {
       `[data-row="${active}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  }, [active, open]);
+
+  const highlightedRow = rows[active];
+  const highlightedValue =
+    open && !loading && highlightedRow?.kind === "option"
+      ? highlightedRow.option.value
+      : null;
+  useEffect(() => {
+    onHighlight?.(highlightedValue);
+  }, [onHighlight, highlightedValue]);
 
   const highlightedId =
     rowCount > 0 && !loading ? `searchable-select-option-${active}` : undefined;
@@ -335,7 +359,10 @@ export function SearchableSelect(props: SearchableSelectProps) {
           )}
         >
           {option.icon}
-          <span className={styles.optionLabel}>
+          <span
+            className={styles.optionLabel}
+            style={option.fontFamily ? { fontFamily: option.fontFamily } : undefined}
+          >
             {option.label}
             {hint && <span className={styles.optionHint}>{hint}</span>}
           </span>

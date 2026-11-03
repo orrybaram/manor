@@ -97,6 +97,7 @@ import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { useEditorFont } from "./hooks/useEditorFont";
+import { useChatFont } from "./hooks/useChatFont";
 import { reportUnsavedFiles } from "./lib/report-unsaved-files";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
@@ -125,6 +126,7 @@ import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import { wireToastSubjects } from "./store/toast-subjects";
 import "./App.css";
+import "./chat-fonts.css";
 
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
@@ -170,6 +172,7 @@ function App() {
   useTerminalResync();
   useAgentContextRepair();
   useEditorFont();
+  useChatFont();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [goToFileOpen, setGoToFileOpen] = useState(false);

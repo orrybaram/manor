@@ -58,6 +58,10 @@ export interface AppPreferences {
   editorFontFamily: string;
   /** File and diff editor font size in px. */
   editorFontSize: number;
+  /** Chat message font family; empty means the system font. */
+  chatFontFamily: string;
+  /** Chat message font size in px on the desk; a phone keeps its own. */
+  chatFontSize: number;
   /**
    * Turn remote control on, relay and all, every time Manor opens. Written
    * only through `remoteControl.setStartOnLaunch`, which is local-only — see
@@ -106,6 +110,8 @@ const DEFAULTS: AppPreferences = {
   terminalFontSize: 13,
   editorFontFamily: "",
   editorFontSize: 12,
+  chatFontFamily: "",
+  chatFontSize: 14,
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
   mergeCleanups: {},

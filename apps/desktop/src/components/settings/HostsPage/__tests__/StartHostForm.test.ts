@@ -135,6 +135,8 @@ describe("StartHostForm — a template's Connect step", () => {
   }
 
   beforeEach(() => {
+    // jsdom has no layout, so no scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
     vi.useRealTimers();
     for (const fn of Object.values(api)) fn.mockReset();
     container = document.createElement("div");

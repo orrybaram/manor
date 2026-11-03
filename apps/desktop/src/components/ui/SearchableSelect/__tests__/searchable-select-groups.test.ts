@@ -61,7 +61,7 @@ describe("SearchableSelect groups, disabled options and actions", () => {
 
   it("skips a disabled option with the arrow keys and ignores a click on it", async () => {
     const onChange = vi.fn();
-    const input = await open({ onChange });
+    const input = await open({ onChange, value: "a" });
     await press(input, "ArrowDown");
     expect(rows()[2].getAttribute("aria-selected")).toBe("true");
     rows()[1].dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -70,9 +70,21 @@ describe("SearchableSelect groups, disabled options and actions", () => {
     expect(onChange).toHaveBeenCalledWith("c");
   });
 
+  it("rests on the current choice when it opens, so Enter keeps it", async () => {
+    const onChange = vi.fn();
+    const onHighlight = vi.fn();
+    const input = await open({ onChange, onHighlight });
+    expect(rows()[2].getAttribute("aria-selected")).toBe("true");
+    expect(onHighlight).toHaveBeenLastCalledWith("c");
+    await press(input, "Enter");
+    expect(onChange).toHaveBeenCalledWith("c");
+    expect(onHighlight).toHaveBeenLastCalledWith(null);
+  });
+
   it("reaches an action row by keyboard and runs it", async () => {
     const onSelect = vi.fn();
     const input = await open({
+      value: "a",
       actions: [{ label: "Set up elsewhere", onSelect, "data-testid": "act" }],
     });
     await press(input, "ArrowUp");

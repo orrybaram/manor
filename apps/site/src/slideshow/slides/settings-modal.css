@@ -46,3 +46,6 @@
 .ma-switch[data-state="checked"] { background: var(--accent); }
 .ma-switch > span { display: block; width: 12px; height: 12px; background: var(--text-selected); border-radius: 50%; transition: transform 150ms ease; transform: translateX(2px); }
 .ma-switch[data-state="checked"] > span { transform: translateX(14px); }
+
+/* Not a stop on the way through the window: it only holds the keyboard for Esc. Radix's Dialog.Content draws no ring either. */
+.mapp .ma-settings-modal:focus-visible { outline: none; }

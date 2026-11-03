@@ -89,6 +89,16 @@ const LATTE_BG = "#eff1f5";
 const TOKYONIGHT_BG = "#1a1b26";
 const DRACULA_BG = "#282a36";
 
+/** Shut, a layer leaves the keyboard with the page: nothing in the window holds focus, and Space and the arrows scroll. */
+async function expectPageHasKeys(page: Page) {
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  for (const key of ["Space", "ArrowDown"]) {
+    const from = await page.evaluate(() => window.scrollY);
+    await page.keyboard.press(key);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(from);
+  }
+}
+
 /** A theme token as the window has it now. */
 const cssVar = (page: Page, name: string) =>
   page.locator(".slideshow .mapp").evaluate((el, n) => getComputedStyle(el).getPropertyValue(n).trim(), name);
@@ -627,6 +637,14 @@ test.describe("the Themes slide", () => {
     await expect(search(page)).toHaveCount(0);
   });
 
+  test("Esc shuts Settings after a click in it has redrawn the page, and the page then has its keys back", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[data-settings-project="almanac"]').click();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    await expectPageHasKeys(page);
+  });
+
   test("Settings closes as the app's does, and the sidebar then switches project and reopens it", async ({ page }) => {
     await openThemes(page);
     await page.locator('[aria-label="Close settings"]').click();
@@ -1029,6 +1047,30 @@ test.describe("the Browser slide", () => {
     expect(errors).toEqual([]);
   });
 
+  test("Esc shuts the Send to… menu opened with the mouse, and the page then has its keys back", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await expect(win(page).locator("[data-send-menu]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator("[data-send-menu]")).toHaveCount(0);
+    await expect(pill(page)).toBeVisible();
+    await expectPageHasKeys(page);
+  });
+
+  test("a pin on what the agent already fixed opens empty, and the reply claims no second fix", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    await win(page).locator("#longest-free").click();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("");
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("already fixed", { timeout: 5000 });
+    expect((await terminal(page).innerText()).match(/Longest free now reads/g)).toHaveLength(1);
+  });
+
   test("New agent opens its own tab, and Clear empties the queue", async ({ page }) => {
     const errors = await openBrowser(page);
     await win(page).locator("[data-notes-send]").click();
@@ -1127,6 +1169,24 @@ test.describe("the Automations slide", () => {
     await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
     await expect(win(page).locator(".ma-term")).toContainText("Should I open the pull request");
     expect(errors).toEqual([]);
+  });
+
+  test("Esc shuts Settings after a card's click has redrawn it, and the page then has its keys back", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
+    await expectPageHasKeys(page);
+  });
+
+  test("only a run with an agent is a button", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "watch-ci-on-main").click();
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(3);
+    await expect(win(page).locator("button.ma-au-hist-row")).toHaveCount(0);
+    await win(page).locator("[data-au-back]").click();
+    await card(page, "morning-pr-triage").click();
+    await expect(win(page).locator("button.ma-au-hist-row")).toHaveCount(1);
   });
 
   test("the name takes typing, which the list shows, and a run in flight doesn't take the field's focus", async ({ page }) => {

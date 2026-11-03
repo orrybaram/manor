@@ -9,7 +9,7 @@ import { TICK_MS } from "../../shell/render";
 import { toWorkspaceIndicator, type AgentStatus } from "../../shell/state";
 import { claudeBox, cursor } from "../../shell/terminals";
 import type { Slide } from "../slide";
-import { settingsModal } from "./settings-modal";
+import { keepKeysInSettings, settingsModal } from "./settings-modal";
 
 const REMOTE_HOST = "boathouse";
 const TERMINAL_COLUMNS = 100;
@@ -301,6 +301,7 @@ export const automations: Slide = {
     let projectsOpen = true;
     let scrollTop = 0;
     let focusField: { name: string; start: number; end: number } | null = null;
+    let clicked = false;
     let tick = 0;
     let sinceTick = 0;
 
@@ -337,9 +338,8 @@ export const automations: Slide = {
 
     const runRow = (run: Run) => {
       const cells = `<span class="ma-au-hist-time">${historyTime(run.firedAt)}</span><span class="ma-au-hist-what">${esc(run.what)}</span>${runStatus(statusOf(run))}`;
-      if (run.agent || run.gone) {
-        return `<button class="ma-au-hist-row" type="button" tabindex="-1" title="Open this run's agent"${run.agent ? ` data-au-run="${run.id}"` : ""}>${cells}</button>`;
-      }
+      // RunHistory: a row opens the run's agent only if it has one.
+      if (run.agent) return `<button class="ma-au-hist-row" type="button" tabindex="-1" title="Open this run's agent" data-au-run="${run.id}">${cells}</button>`;
       return `<div class="ma-au-hist-row" data-au-run-row>${cells}</div>`;
     };
 
@@ -512,10 +512,12 @@ export const automations: Slide = {
           el?.focus({ preventScroll: true });
           el?.setSelectionRange(focusField.start, focusField.end);
         }
+        if (clicked) keepKeysInSettings(root);
       },
       onClick: (e) => {
         const t = e.target as Element | null;
         if (!t || !root.contains(t)) return;
+        clicked = true;
         const hit = (selector: string) => t.closest<HTMLElement>(selector);
         if (hit("[data-close-settings]")) {
           page = null;

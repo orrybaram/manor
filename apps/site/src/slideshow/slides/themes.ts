@@ -17,7 +17,7 @@ import {
 } from "../../shell/palettes";
 import { DEFAULT_THEME, MANOR_THEME, applyTheme, type Theme } from "../../shell/tokens";
 import { SLIDE_MS, type Slide } from "../slide";
-import { settingsModal } from "./settings-modal";
+import { keepKeysInSettings, settingsModal } from "./settings-modal";
 
 const GLOBAL_THEME = "__global__";
 
@@ -214,6 +214,7 @@ export const themes: Slide = {
     /** The project whose Settings page is open, or null with Settings shut. */
     let page: Project | null = first;
     let projectsOpen = true;
+    let clicked = false;
     let justOpened = false;
     let scrollTop = 0;
     let sinceSwitch = 0;
@@ -446,10 +447,12 @@ export const themes: Slide = {
           );
         }
         justOpened = false;
+        if (clicked) keepKeysInSettings(root);
       },
       onClick: (e) => {
         const t = e.target as Element | null;
         if (!t || !root.contains(t)) return;
+        clicked = true;
         const hit = <E extends Element = HTMLElement>(selector: string) => t.closest<E>(selector);
         const toggleButton = hit("[data-theme-trigger]");
         if (toggleButton) {

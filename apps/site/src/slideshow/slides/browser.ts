@@ -35,6 +35,8 @@ const PREFILLS: Record<string, { note: string; reply: string }> = {
 };
 const GENERIC_PREFILL = "Tighten this up.";
 const GENERIC_REPLY = "Tightened it up.";
+/** What the agent says of a pin on something it's already fixed. */
+const ALREADY_FIXED_REPLY = "That one's already fixed, so I've left it as it is.";
 
 /** The made-up app in the pane. Its text and markup are what the prompt quotes. */
 function guestPage(fixed: ReadonlySet<string>): string {
@@ -293,6 +295,9 @@ export const browser: Slide = {
     const addPin = (el: Element, guest: Element) => {
       const owner = el.closest("[id]");
       const known = owner && guest.contains(owner) ? PREFILLS[owner.id] : undefined;
+      // Already fixed, there's nothing to complain of: the note opens empty, as the app's always does.
+      const settled = !!known && fixed.has(owner!.id);
+      const prefill = settled ? "" : (known?.note ?? GENERIC_PREFILL);
       const note: Note = {
         id: nextNote++,
         selector: selectorPath(el, guest),
@@ -300,10 +305,10 @@ export const browser: Slide = {
         html: el.outerHTML.slice(0, 2000),
         // electron/server/pasted-images.ts's name, which main saves each pick's screenshot under.
         shot: `/Users/you/.manor/pasted-images/${Date.now()}-${nextNote.toString(16).padStart(8, "0")}.png`,
-        note: known?.note ?? GENERIC_PREFILL,
-        prefill: known?.note ?? GENERIC_PREFILL,
-        reply: known?.reply ?? GENERIC_REPLY,
-        fixes: known ? owner!.id : null,
+        note: prefill,
+        prefill,
+        reply: settled ? ALREADY_FIXED_REPLY : (known?.reply ?? GENERIC_REPLY),
+        fixes: known && !settled ? owner!.id : null,
       };
       notes.push(note);
       return note;
@@ -413,7 +418,7 @@ export const browser: Slide = {
         `<button class="ma-btn ma-ghost ma-sm ma-send-row" type="button" tabindex="-1" ${attrs}><span class="ma-send-icon">${mark}</span><span class="ma-send-name">${esc(name)}</span>${hint}</button>`;
       const separator = `<div class="ma-send-separator"></div>`;
       return (
-        `<div class="ma-send-menu" data-send-menu>` +
+        `<div class="ma-send-menu" tabindex="-1" data-send-menu>` +
         agents
           .map((a) =>
             row(
@@ -540,6 +545,8 @@ export const browser: Slide = {
         } else if (pageFocused) {
           guest?.focus({ preventScroll: true });
         }
+        // Radix's menu takes the keyboard: the click that opened it redrew its button away, and Esc needs somewhere to land. Shut, the keyboard falls back to the page.
+        if (menuOpen) root.querySelector<HTMLElement>("[data-send-menu]")?.focus({ preventScroll: true });
       },
       onClick: (e) => {
         const t = e.target as Element | null;

@@ -25,6 +25,15 @@ type SettingsModal = {
   content: string;
 };
 
+/**
+ * After a redraw that a click caused: the clicked control has gone and the keyboard fell to the page, so Esc wouldn't reach the slide. Hand it to the modal.
+ * Not on a slide's own opening, which mustn't take the page's keys; and once the modal shuts, the keyboard is the page's again.
+ */
+export function keepKeysInSettings(root: HTMLElement): void {
+  if (root.contains(document.activeElement)) return;
+  root.querySelector<HTMLElement>(".ma-settings-modal")?.focus({ preventScroll: true });
+}
+
 /** SettingsModal, and the dim behind it. Rows for its projects carry `data-settings-project`; the close button and dim, `data-close-settings`. */
 export function settingsModal({ projects, activePage, activeProject, projectsOpen, content }: SettingsModal): string {
   const nav = NAV.map(([name, label]) => {
@@ -41,7 +50,7 @@ export function settingsModal({ projects, activePage, activeProject, projectsOpe
     : "";
   return (
     `<div class="ma-settings-overlay" data-close-settings></div>` +
-    `<div class="ma-settings-modal">` +
+    `<div class="ma-settings-modal" tabindex="-1">` +
     `<div class="ma-settings-header"><div class="ma-settings-title">Settings</div>` +
     `<button class="ma-btn ma-ghost ma-sm" type="button" tabindex="-1" aria-label="Close settings" data-close-settings>${icon("x", 16)}</button></div>` +
     `<div class="ma-settings-layout"><div class="ma-settings-sidebar">` +

@@ -12,6 +12,7 @@ import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomple
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import styles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 type FolderItemProps = {
   folder: WorkspaceFolder;
@@ -252,6 +253,11 @@ export function FolderItem(props: FolderItemProps) {
                 </span>
                 {/* Same rule as a collapsed project: idle shows nothing. */}
                 {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
+                <CountBadge
+                  count={workspaces.length}
+                  title={`${workspaces.length} ${workspaces.length === 1 ? "workspace" : "workspaces"}`}
+                  data-testid="folder-workspace-count"
+                />
               </>
             )}
           </div>

@@ -114,6 +114,23 @@ describe("automation tools", () => {
     ]);
   });
 
+  it("create and update name a pane", async () => {
+    const http = fakeHttp(VIEW);
+    await handlers.create_automation(
+      { name: "n", cron: "0 * * * *", timezone: "UTC", prompt: "p", projectId: "p1", workspacePath: "/p1/ws", pane: "fresh" },
+      http,
+    );
+    expect(http.calls[0].body).toMatchObject({ workspace: { mode: "reuse", workspacePath: "/p1/ws", pane: "fresh" } });
+    await handlers.update_automation({ id: "a1", pane: "keep" }, http);
+    expect(http.calls[1].body).toEqual({ workspace: { pane: "keep" } });
+  });
+
+  it("says what each run of a reused workspace does", async () => {
+    const reused = { ...VIEW, workspace: { mode: "reuse", workspacePath: "/p1/ws", pane: "fresh" } };
+    const text = await handlers.list_automations({}, fakeHttp([reused]));
+    expect(JSON.stringify(text)).toContain("reuse /p1/ws workspace, same pane, fresh each run");
+  });
+
   it("update names a workspace mode only when given, and a keepLast of 0 drops it", async () => {
     const http = fakeHttp(VIEW);
     await handlers.update_automation({ id: "a1", workspacePath: "/p1/other" }, http);

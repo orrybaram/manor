@@ -52,11 +52,17 @@ const EDITABLE_PROPS = {
     type: "string",
     enum: ["new", "reuse"],
     description:
-      "'new' makes a fresh workspace per run in the project's Automations folder; 'reuse' opens a new agent tab in workspacePath.",
+      "'new' makes a fresh workspace per run in the project's Automations folder; 'reuse' runs in workspacePath, as 'pane' says.",
   },
   workspacePath: {
     type: "string",
     description: "The workspace a 'reuse' automation runs in (one of the project's workspace paths).",
+  },
+  pane: {
+    type: "string",
+    enum: ["new-tab", "fresh", "keep"],
+    description:
+      "For 'reuse', what each run does there. 'new-tab' (default) opens another agent tab. 'fresh' sends the prompt to the automation's agent pane after clearing its conversation; 'keep' sends it to the same conversation. Both skip the run while that agent is working or waiting for input, and open a new tab when its pane or agent has gone.",
   },
   keepLast: {
     type: "number",
@@ -133,7 +139,7 @@ const tools: ToolDef[] = [
         ...EDITABLE_PROPS,
         workspace: {
           ...EDITABLE_PROPS.workspace,
-          description: `${EDITABLE_PROPS.workspace.description} Changes the mode only when given; workspacePath or keepLast alone edit the current mode's ('reuse' needs workspacePath unless it already reuses one).`,
+          description: `${EDITABLE_PROPS.workspace.description} Changes the mode only when given; workspacePath, pane or keepLast alone edit the current mode's ('reuse' needs workspacePath unless it already reuses one).`,
         },
         keepLast: {
           ...EDITABLE_PROPS.keepLast,
@@ -228,7 +234,11 @@ function hostBody(args: Record<string, unknown>): Record<string, unknown> {
 /** The workspace a create's args describe: 'new' unless they say otherwise. */
 function workspaceOf(args: Record<string, unknown>): Record<string, unknown> {
   const mode = str(args.workspace) ?? (args.workspacePath !== undefined ? "reuse" : "new");
-  if (mode === "reuse") return { mode, workspacePath: args.workspacePath };
+  if (mode === "reuse") {
+    return { mode, workspacePath: args.workspacePath, ...(args.pane !== undefined ? { pane: args.pane } : {}) };
+  }
+  // A pane here is the validation's to refuse: it needs a reused workspace.
+  if (args.pane !== undefined) return { mode, pane: args.pane };
   return args.keepLast !== undefined ? { mode, keepLast: args.keepLast } : { mode };
 }
 
@@ -242,6 +252,7 @@ function workspacePatchOf(args: Record<string, unknown>): Record<string, unknown
   const mode = str(args.workspace);
   if (mode !== undefined) patch.mode = mode;
   if (args.workspacePath !== undefined) patch.workspacePath = args.workspacePath;
+  if (args.pane !== undefined) patch.pane = args.pane;
   if (args.keepLast !== undefined) patch.keepLast = args.keepLast === 0 ? null : args.keepLast;
   return Object.keys(patch).length > 0 ? patch : undefined;
 }
@@ -277,13 +288,20 @@ function workspaceText(a: AutomationView): string {
   return a.workspace.keepLast ? `new (keep last ${a.workspace.keepLast})` : "new";
 }
 
+function paneText(a: AutomationView): string {
+  if (a.workspace.mode !== "reuse") return "";
+  if (a.workspace.pane === "fresh") return ", same pane, fresh each run";
+  if (a.workspace.pane === "keep") return ", same pane, keeping context";
+  return ", new tab each run";
+}
+
 function automationLine(a: AutomationView): string {
   const state = a.enabled ? `next ${a.nextRunAt ?? "—"}` : "paused";
   const last = a.lastRun ? runLine(a.lastRun) : "no runs yet";
   return [
     `${a.name}  [${a.id}]`,
     `  ${a.schedule.cron} (${a.schedule.timezone}), ${state}`,
-    `  ${a.agentKind} in project ${a.projectId}, ${workspaceText(a)} workspace`,
+    `  ${a.agentKind} in project ${a.projectId}, ${workspaceText(a)} workspace${paneText(a)}`,
     `  last run: ${last}`,
   ].join("\n");
 }
@@ -293,7 +311,7 @@ function detailText(a: AutomationDetail): string {
     `${a.name}  [${a.id}]  ${a.enabled ? "on" : "paused"}`,
     `Schedule: ${a.schedule.cron} (${a.schedule.timezone})`,
     `Next runs: ${a.nextRuns.length ? a.nextRuns.join(", ") : "none"}`,
-    `Agent: ${a.agentKind} in project ${a.projectId}, ${workspaceText(a)} workspace`,
+    `Agent: ${a.agentKind} in project ${a.projectId}, ${workspaceText(a)} workspace${paneText(a)}`,
     `Catch-up grace: ${a.missedGraceMinutes} min`,
     "Prompt:",
     ...a.prompt.split("\n").map((l) => `  ${l}`),

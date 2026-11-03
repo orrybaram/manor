@@ -189,6 +189,26 @@ describe("/automations", () => {
     expect(await update({ mode: "reuse" })).toEqual({ status: 400, body: { error: "Pick a workspace to reuse" } });
   });
 
+  it("keeps a pane through edits that don't name it, and refuses one on a new workspace", async () => {
+    const reuse = (await request("POST", "/automations", {
+      ...input,
+      workspace: { mode: "reuse", workspacePath: "/p1/ws", pane: "fresh" },
+    })).body as AutomationView;
+    const update = (patch: Record<string, unknown>) =>
+      request("POST", `/automations/${reuse.id}/update`, { workspace: patch });
+
+    expect(((await update({ workspacePath: "/p1/other" })).body as AutomationView).workspace).toEqual({
+      mode: "reuse",
+      workspacePath: "/p1/other",
+      pane: "fresh",
+    });
+    expect(((await update({ pane: "keep" })).body as AutomationView).workspace).toMatchObject({ pane: "keep" });
+    expect(await update({ mode: "new", pane: "keep" })).toEqual({
+      status: 400,
+      body: { error: "'pane' is only for a reused workspace" },
+    });
+  });
+
   it("a bridge create for an adopted host's project, with no host named, says to make it there", async () => {
     const ops = deps as unknown as AutomationDeps;
     await expect(createAutomation(ops, { ...input, projectId: "p-box" })).rejects.toThrow(

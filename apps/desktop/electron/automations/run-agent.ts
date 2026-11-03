@@ -75,7 +75,7 @@ export function automationOfAgent(
   return null;
 }
 
-function findAgent(deps: RunAgentDeps, run: Pick<AutomationRun, "agentId" | "paneId" | "firedAt">): AgentInfo | null {
+export function findAgent(deps: RunAgentDeps, run: Pick<AutomationRun, "agentId" | "paneId" | "firedAt">): AgentInfo | null {
   if (run.agentId) {
     const byId = deps.agentManager.getAgentById(run.agentId);
     if (byId) return byId;

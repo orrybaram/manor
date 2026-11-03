@@ -42,6 +42,20 @@ export class AutomationRequestError extends Error {
   }
 }
 
+/**
+ * Runs that kept one conversation share an Agent, whose status now is only
+ * the newest one's: the older ones have responded.
+ */
+function withSupersededRuns(newestFirst: AutomationRunView[]): AutomationRunView[] {
+  const seen = new Set<string>();
+  return newestFirst.map((run) => {
+    if (run.outcome !== "started" || !run.agentId) return run;
+    if (seen.has(run.agentId)) return { ...run, status: "responded" };
+    seen.add(run.agentId);
+    return run;
+  });
+}
+
 /** A run with its Agent status now. Only a started run has an Agent of its own. */
 export function runView(deps: AutomationDeps, run: AutomationRun): AutomationRunView {
   if (run.outcome !== "started") return { ...run, status: null };
@@ -66,7 +80,7 @@ export function automationView(
 export function automationDetail(deps: AutomationDeps, automation: Automation): AutomationDetail {
   return {
     ...automationView(deps, automation),
-    runs: deps.automations.store.runs(automation.id).map((run) => runView(deps, run)),
+    runs: withSupersededRuns(deps.automations.store.runs(automation.id).map((run) => runView(deps, run))),
   };
 }
 
@@ -136,7 +150,8 @@ export async function createAutomation(deps: AutomationDeps, input: unknown): Pr
  * when the patch names one, and the field of the mode it ends up in is
  * kept unless the patch names it too (`keepLast: null` drops it). A
  * `keepLast` is only for a new workspace per run and a `workspacePath`
- * only for one reused, so a patch naming the other mode's field is a 400.
+ * and `pane` only for one reused, so a patch naming the other mode's field is
+ * a 400.
  */
 function mergeWorkspace(current: AutomationWorkspace, value: unknown): AutomationWorkspace {
   const patch = asRecord(value);
@@ -144,6 +159,9 @@ function mergeWorkspace(current: AutomationWorkspace, value: unknown): Automatio
   if (mode === "new") {
     if (patch.workspacePath !== undefined) {
       throw new AutomationRequestError("'workspacePath' is only for a reused workspace", 400);
+    }
+    if (patch.pane !== undefined) {
+      throw new AutomationRequestError("'pane' is only for a reused workspace", 400);
     }
     const keepLast =
       patch.keepLast !== undefined ? patch.keepLast : current.mode === "new" ? current.keepLast : undefined;
@@ -157,7 +175,8 @@ function mergeWorkspace(current: AutomationWorkspace, value: unknown): Automatio
     }
     const workspacePath =
       patch.workspacePath ?? (current.mode === "reuse" ? current.workspacePath : undefined);
-    return { mode, workspacePath } as AutomationWorkspace;
+    const pane = patch.pane ?? (current.mode === "reuse" ? current.pane : undefined);
+    return { mode, workspacePath, ...(pane !== undefined ? { pane } : {}) } as AutomationWorkspace;
   }
   // An unknown mode is the validation's to word.
   return { ...patch } as unknown as AutomationWorkspace;

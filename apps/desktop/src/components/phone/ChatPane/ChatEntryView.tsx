@@ -75,7 +75,7 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
         </div>
       );
     case "task":
-      return <TaskCard paneId={paneId} task={entry} />;
+      return <TaskCard task={entry} />;
     case "thought":
       return (
         <div className={styles.thought} data-testid="chat-thought">

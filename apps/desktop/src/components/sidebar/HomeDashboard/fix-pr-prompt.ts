@@ -24,54 +24,26 @@ function prLine(pr: PrRef): string {
 }
 
 /**
- * The first message for a "Fix with agent" launch from a blocked-PR card:
- * what's blocking the PR and what done looks like.
+ * The first message for a "Fix with agent" launch from a blocked-PR card.
+ * Failing checks and review threads are the PR card's briefs (`fetchBrief`),
+ * with the logs and thread text it reads fresh from GitHub; the other two say
+ * what's blocking the PR and what done looks like. Rejects when a brief can't
+ * be fetched, or the PR no longer has anything for it.
  */
-export function fixPrPrompt(
+export async function fixPrPrompt(
   pr: PrRef,
   context: FixableContext,
+  fetchBrief: (task: "checks" | "comments") => Promise<string>,
   overrides?: PromptOverrides | null,
-): string {
+): Promise<string> {
   switch (context.kind) {
     case "checks":
-      return fixChecksPrompt(pr, context.failing, context.failingCount);
+      return fetchBrief("checks");
+    case "threads":
+      return fetchBrief("comments");
     case "conflicts":
       return renderPrompt("prConflicts", { pr: prLine(pr) }, overrides);
     case "changes-requested":
       return renderPrompt("prChanges", { pr: prLine(pr), number: String(pr.number) }, overrides);
-    case "threads":
-      return [
-        `${prLine(pr)} has ${context.count} unresolved review thread${context.count === 1 ? "" : "s"}.`,
-        "Read the unresolved inline review threads (via `gh api graphql`, `reviewThreads` with `isResolved: false`). Address each one, run the tests, then commit and push to the PR branch. Don't resolve or reply to threads on GitHub; finish with a short summary of what you did for each thread.",
-      ].join("\n");
   }
-}
-
-/**
- * The checks-failing prompt. It names every failing check the card knows
- * about, with run URLs so the agent can read the logs, and says what done
- * looks like: reproduce locally, fix, push. `failingCount` can exceed the
- * named runs (GitHub doesn't always return every run), so the gap is spelled
- * out.
- */
-export function fixChecksPrompt(
-  pr: PrRef,
-  failing: readonly { name: string; url: string | null }[],
-  failingCount: number,
-): string {
-  const lines = [`CI checks are failing on ${prLine(pr)}.`];
-  if (failing.length > 0) {
-    const runs = failing.map((run) => (run.url ? `${run.name} (${run.url})` : run.name));
-    lines.push(`Failing checks: ${runs.join(", ")}.`);
-  }
-  const unnamed = failingCount - failing.length;
-  if (unnamed > 0) {
-    lines.push(
-      `${unnamed} more failing check${unnamed === 1 ? "" : "s"} ${unnamed === 1 ? "is" : "are"} listed on the PR.`,
-    );
-  }
-  lines.push(
-    "Read the check logs, reproduce each failure locally, fix it, run the checks again to confirm, then commit and push to the PR branch.",
-  );
-  return lines.join("\n");
 }

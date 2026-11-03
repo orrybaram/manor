@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import AlarmClock from "lucide-react/dist/esm/icons/alarm-clock";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
@@ -9,16 +9,71 @@ import { useAppStore } from "../../../store/app-store";
 import { navigateToAgent } from "../../../utils/agent-navigation";
 import { startAgentInBackground } from "../../../lib/agent-prompt-launch";
 import { toast } from "../../../toast";
+import { ghRepoOf } from "../../../lib/gh-repo";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { CardContext } from "./CardContext";
 import { savedPromptOverrides } from "../../../lib/prompts/saved-overrides";
-import { fixPrPrompt, isFixable } from "./fix-pr-prompt";
+import { fixPrPrompt, isFixable, type FixableContext } from "./fix-pr-prompt";
 import { formatAge } from "./format";
 import { needsYouKindLabel, needsYouTitle, cardColor } from "./needs-you-labels";
 import styles from "./NeedsYouCards.module.css";
+
+type FixWithAgentButtonProps = {
+  pr: Extract<NeedsYouCardData, { pr: unknown }>["pr"];
+  context: FixableContext;
+  project: ProjectInfo;
+  workspace: WorkspaceInfo;
+  toastId: string;
+  onStarted: () => void;
+};
+
+/**
+ * Starts an agent on what's blocking the PR. Waits on GitHub for checks and
+ * threads: their brief carries the failed logs and the threads' text, so it
+ * can take a while, and a brief that can't be fetched starts nothing.
+ */
+function FixWithAgentButton(props: FixWithAgentButtonProps) {
+  const { pr, context, project, workspace, toastId, onStarted } = props;
+  const [preparing, setPreparing] = useState(false);
+
+  const start = async () => {
+    setPreparing(true);
+    try {
+      const prompt = await fixPrPrompt(
+        pr,
+        context,
+        (task) => window.electronAPI.github.getPrAgentPrompt(ghRepoOf(project), pr.number, task),
+        savedPromptOverrides(),
+      );
+      // Stay on the Dashboard: the agent works in the background, and
+      // the toast says so.
+      startAgentInBackground(workspace.path, prompt, project.hostId);
+      toast.info(`Agent is fixing #${pr.number}`, {
+        id: toastId,
+        detail: `Working in ${workspace.name ?? workspace.branch}. It shows up here again if it needs you.`,
+      });
+      onStarted();
+    } catch (err) {
+      toast.error(`Couldn't start an agent on #${pr.number}`, { id: toastId, error: err });
+      setPreparing(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="primary"
+      size="sm"
+      className={primaryClass}
+      disabled={preparing}
+      onClick={() => void start()}
+    >
+      {preparing ? "Reading PR…" : "Fix with agent"}
+    </Button>
+  );
+}
 
 type NeedsYouCardProps = {
   card: NeedsYouCardData;
@@ -160,23 +215,14 @@ function cardActions(
     context.kind === "checks" ? context.failing.find((run) => run.url != null)?.url : undefined;
   return {
     primary: (
-      <Button
-        variant="primary"
-        size="sm"
-        className={primaryClass}
-        onClick={() => {
-          // Stay on the Dashboard: the agent works in the background, and
-          // the toast says so.
-          startAgentInBackground(workspace.path, fixPrPrompt(pr, context, savedPromptOverrides()), project.hostId);
-          toast.info(`Agent is fixing #${pr.number}`, {
-            id: `fix-pr-${card.key}`,
-            detail: `Working in ${workspace.name ?? workspace.branch}. It shows up here again if it needs you.`,
-          });
-          dismiss();
-        }}
-      >
-        Fix with agent
-      </Button>
+      <FixWithAgentButton
+        pr={pr}
+        context={context}
+        project={project}
+        workspace={workspace}
+        toastId={`fix-pr-${card.key}`}
+        onStarted={dismiss}
+      />
     ),
     secondary:
       context.kind === "checks" ? (

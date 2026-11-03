@@ -61,6 +61,8 @@ export type PaneData = {
   body: string;
   /** Not a terminal: what the pane holds instead of `body`, as HTML. */
   content?: string;
+  /** What the header shows instead of the title: a browser pane's controls, as HTML. */
+  header?: string;
 };
 
 export type WindowData = {
@@ -245,7 +247,7 @@ export function leafPane(pane: PaneData): string {
     iconButton("ma-pane-btn", "Close pane", CLOSE_PANE_ICON);
   return (
     `<div class="ma-leaf"${id}>` +
-    `<div class="ma-pane-bar${pane.focused ? " ma-pane-bar-focused" : ""}"><span class="ma-pane-title">${esc(pane.title)}</span>` +
+    `<div class="ma-pane-bar${pane.focused ? " ma-pane-bar-focused" : ""}">${pane.header ?? `<span class="ma-pane-title">${esc(pane.title)}</span>`}` +
     `<div class="ma-pane-actions">${actions}</div></div>` +
     `<div class="ma-leaf-terminal">${pane.content ?? `<div class="ma-term">${pane.body}</div>`}</div></div>`
   );

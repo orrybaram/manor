@@ -912,6 +912,116 @@ test.describe("the Pull requests slide", () => {
   });
 });
 
+test.describe("the Browser slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const pins = (page: Page) => win(page).locator(".ma-pins-pin");
+  const pill = (page: Page) => win(page).locator("[data-pill]");
+  const terminal = (page: Page) => win(page).locator('[data-pane="agent"] .ma-term');
+
+  async function openBrowser(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens picking, with one element pinned and its note showing, and doesn't take the keyboard", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await expect(win(page).locator("[data-pick-toggle]")).toHaveAttribute("aria-pressed", "true");
+    await expect(win(page).locator("[data-picking-hint]")).toHaveText("Click elements to collect them · Esc to stop");
+    await expect(pins(page)).toHaveText(["1"]);
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Says NaN. Should be 52 ft.");
+    await expect(win(page).locator("[data-note-input]")).not.toBeFocused();
+    await expect(pill(page)).toContainText("1 note on this page");
+    await expect(page.locator("#slide-tab-browser")).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+
+  test("hover, pin, note, Save, Send to… and the agent: the notes go in the app's words, and the pins and pill go with them", async ({ page }) => {
+    const errors = await openBrowser(page);
+    const book = win(page).locator("#book");
+    await book.hover();
+    await expect(win(page).locator("[data-hover]")).toBeVisible();
+    await book.click();
+    await expect(pins(page)).toHaveText(["1", "2"]);
+    await expect(win(page).locator(".ma-note-selector")).toHaveText("button#book");
+    await expect(win(page).locator("[data-note-input]")).toBeFocused();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Too faint to read. Make it solid.");
+    await win(page).locator("[data-note-save]").click();
+    await expect(win(page).locator("[data-note]")).toHaveCount(0);
+    await expect(pill(page)).toContainText("2 notes on this page");
+
+    await win(page).locator("[data-notes-send]").click();
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toContainText("Berth page");
+    await expect(menu).toContainText("New agent");
+    await expect(menu).toContainText("Copy to clipboard");
+    await menu.locator('[data-send-agent="agent"]').click();
+
+    await expect(pins(page)).toHaveCount(0);
+    await expect(pill(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 2 notes to Berth page");
+    await expect(win(page).locator(".ma-tab-title").first()).toHaveText("Berth page");
+    // Sending doesn't end picking in the app either.
+    await expect(win(page).locator("[data-picking-hint]")).toBeVisible();
+    const said = (await terminal(page).innerText()).replace(/\s+/g, " ");
+    expect(said).toContain("I left 2 notes on the page at http://localhost:5173/berths.");
+    await expect(terminal(page)).toContainText("Book a berth is now", { timeout: 5000 });
+    await expect(win(page).locator("#longest-free strong")).toHaveText("52 ft");
+    expect(errors).toEqual([]);
+  });
+
+  test("Esc puts the note back, Enter saves what's typed, Esc on the page ends picking, and a pin reopens its note", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await win(page).locator("#heading").click();
+    const input = win(page).locator("[data-note-input]");
+    await input.fill("Bigger, please");
+    await page.keyboard.press("Escape");
+    await expect(input).toHaveCount(0);
+    await expect(win(page).locator("[data-picking-hint]")).toBeVisible();
+    await pins(page).nth(1).click();
+    await expect(input).toHaveValue("Tighten this up.");
+    await input.fill("Bigger, please");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator("[data-picking-hint]")).toHaveCount(0);
+    await expect(win(page).locator("[data-pick-toggle]")).toHaveAttribute("aria-pressed", "false");
+    await expect(pins(page)).toHaveCount(2);
+    await pins(page).nth(1).click();
+    await expect(input).toHaveValue("Bigger, please");
+    expect(errors).toEqual([]);
+  });
+
+  test("New agent opens its own tab, and Clear empties the queue", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator("[data-send-new]").click();
+    await expect(win(page).locator(".ma-tab")).toHaveCount(2);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 1 note to a new agent");
+    await win(page).locator('[data-tab="main"]').click();
+    await win(page).locator("#book").click();
+    await win(page).locator("[data-notes-clear]").click();
+    await expect(pill(page)).toHaveCount(0);
+    await expect(pins(page)).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await page.locator("#slide-tab-themes").click();
+    await page.locator("#slide-tab-browser").click();
+    await expect(pins(page)).toHaveText(["1"]);
+    await expect(pill(page)).toContainText("1 note on this page");
+    await page.waitForTimeout(2600);
+    await expect(win(page).locator("#longest-free strong")).toHaveText("NaN ft");
+    await expect(terminal(page)).not.toContainText("I left");
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -958,6 +1068,15 @@ test.describe("slideshow at 390", () => {
     await page.locator("#slide-tab-pull-requests").click();
     await page.locator("[data-pr-fix]").click();
     await expect(page.locator(".ma-toast")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Browser window fits without sideways scroll, and a pin opens its note", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    await page.locator("#book").click();
+    await expect(page.locator("[data-note-input]")).toBeFocused();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(errors).toEqual([]);
   });

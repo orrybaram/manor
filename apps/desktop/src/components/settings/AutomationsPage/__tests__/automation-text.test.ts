@@ -29,6 +29,12 @@ describe("runWhatText", () => {
     expect(runWhatText(run({ outcome: "skipped", reason: "still-working" }), opts)).toBe(
       "Skipped · previous run still working",
     );
+    expect(runWhatText(run({ outcome: "skipped", reason: "waiting-for-input" }), opts)).toBe(
+      "Skipped · agent is waiting for input",
+    );
+    expect(runWhatText(run({ outcome: "skipped", reason: "agent-starting" }), opts)).toBe(
+      "Skipped · agent is still starting",
+    );
     expect(runWhatText(run({ outcome: "skipped", reason: "missed", missedCount: 3 }), opts)).toBe(
       "Missed 3 scheduled runs",
     );
@@ -40,6 +46,9 @@ describe("runWhatText", () => {
 
   it("names a started run's workspace, and a catch-up's cause", () => {
     expect(runWhatText(run({ workspacePath: "/w" }), opts)).toBe("Opened triage · Oct 29");
+    expect(runWhatText(run({ workspacePath: "/w", sentToPane: true }), opts)).toBe(
+      "Sent to the agent in triage · Oct 29",
+    );
     expect(runWhatText(run({ trigger: "manual", workspacePath: "/w" }), opts)).toBe(
       "Run now · triage · Oct 29",
     );

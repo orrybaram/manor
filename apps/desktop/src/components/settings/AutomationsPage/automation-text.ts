@@ -6,7 +6,7 @@
  */
 
 import type { AgentStatus } from "../../../electron.d";
-import type { AutomationAgentKind, AutomationWorkspace } from "../../../lib/automations";
+import type { AutomationAgentKind, AutomationPane, AutomationWorkspace } from "../../../lib/automations";
 import type { AutomationRunView, AutomationView } from "../../../lib/automation-views";
 import { clockTime, localTimezone, timezoneLabel } from "../../../lib/cron-describe";
 
@@ -180,7 +180,13 @@ export function runWhatText(
       const n = run.missedCount ?? 1;
       return n > 1 ? `Missed ${n} scheduled runs` : "Missed a scheduled run";
     }
-    if (run.reason === "still-working") return "Skipped · previous run still working";
+    if (run.reason === "still-working") {
+      return run.detail === "The pane is running something else"
+        ? "Skipped · pane is running something else"
+        : "Skipped · previous run still working";
+    }
+    if (run.reason === "waiting-for-input") return "Skipped · agent is waiting for input";
+    if (run.reason === "agent-starting") return "Skipped · agent is still starting";
     return run.detail ?? "Skipped";
   }
   if (run.outcome === "failed") {
@@ -201,6 +207,7 @@ export function runWhatText(
     return `Caught up · ${why}`;
   }
   if (run.trigger === "manual") return where ? `Run now · ${where}` : "Run now";
+  if (run.sentToPane) return where ? `Sent to the agent in ${where}` : "Sent to the agent";
   return where ? `Opened ${where}` : "Started";
 }
 
@@ -212,6 +219,13 @@ export function workspaceChipText(
   if (workspace.mode === "new") return "new workspace";
   return `reuse “${workspaceName(workspace.workspacePath) ?? lastSegment(workspace.workspacePath)}”`;
 }
+
+/** What the pane chip and its menu call each choice. */
+export const PANE_TEXT: Record<AutomationPane, { chip: string; menu: string; hint?: string }> = {
+  "new-tab": { chip: "new tab each run", menu: "New tab each run" },
+  fresh: { chip: "same pane, fresh", menu: "Same pane, fresh", hint: "clears first" },
+  keep: { chip: "same pane, keep context", menu: "Same pane, keep context" },
+};
 
 export function lastSegment(path: string): string {
   const parts = path.split(/[/\\]/).filter(Boolean);

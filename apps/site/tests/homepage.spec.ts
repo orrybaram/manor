@@ -800,6 +800,118 @@ test.describe("the Review slide", () => {
   });
 });
 
+test.describe("the Pull requests slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const prCard = (page: Page) => win(page).locator("[data-pr-card]");
+  const badge = (page: Page) => win(page).locator("[data-pr-badge]");
+  const merge = (page: Page) => win(page).locator("[data-pr-merge]");
+  const split = (page: Page) => win(page).locator("[data-pr-split]");
+
+  async function openPrs(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-pull-requests").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  async function toReady(page: Page) {
+    await win(page).locator("[data-pr-fix]").click();
+    await expect(split(page)).toHaveClass(/ma-pr-inviting/, { timeout: 8000 });
+  }
+
+  test("it opens on the failing card: Fix checks live, merge disabled with its reason", async ({ page }) => {
+    const errors = await openPrs(page);
+    await expect(badge(page)).toHaveAttribute("data-readiness", "blocked");
+    await expect(prCard(page)).toContainText("1 failing, 2 passing");
+    await expect(prCard(page)).toContainText("+40");
+    await expect(prCard(page)).toContainText("\u22123");
+    await expect(win(page).locator("[data-pr-fix]")).toBeEnabled();
+    await expect(merge(page)).toBeDisabled();
+    await expect(merge(page)).toHaveText("Squash and merge");
+    await expect(prCard(page)).toContainText("Fix the failing checks first");
+    await expect(win(page).locator(".ma-pr-caret")).toHaveCount(0);
+    await expect(win(page).locator("[data-pr-tick]")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("Fix checks briefs the agent and shuts the card, which comes back when the checks are green", async ({ page }) => {
+    const errors = await openPrs(page);
+    await win(page).locator("[data-pr-fix]").click();
+    await expect(win(page).locator("[data-pr-fix]")).toBeDisabled();
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Sent the failing checks to Tide heights");
+    await expect(prCard(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-term")).toContainText("1 check failing on PR #214");
+    await expect(win(page).locator(".ma-term")).toContainText("Find the cause of each failure");
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "pending", { timeout: 5000 });
+    await badge(page).hover();
+    await expect(prCard(page)).toContainText("passing", { timeout: 2000 });
+    await expect(prCard(page)).toContainText("Waiting on checks or review, and this repo has no auto-merge");
+    await page.mouse.move(5, 5);
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "ready", { timeout: 5000 });
+    await expect(prCard(page)).toContainText("3/3 passing");
+    await expect(split(page)).toHaveClass(/ma-pr-inviting/);
+    await expect(merge(page)).toBeEnabled();
+    await expect(win(page).locator("[data-pr-tick]")).toHaveText("Delete workspace after merge");
+    await expect(win(page).locator("[data-pr-tick] [role=checkbox]")).toHaveAttribute("aria-checked", "false");
+    await expect(prCard(page).locator(".ma-pr-reason")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("Squash and merge fills through Merging… to Merged with a burst, and the card settles merged", async ({ page }) => {
+    const errors = await openPrs(page);
+    await toReady(page);
+    await merge(page).click();
+    await expect(merge(page)).toHaveText("Merging…");
+    await expect(merge(page)).toBeDisabled();
+    await expect(split(page)).toHaveClass(/ma-pr-filling/);
+    await expect(win(page).locator("[data-pr-tick]")).toHaveCount(0);
+    await expect.poll(() => merge(page).evaluate((b) => Number((b as HTMLElement).style.getPropertyValue("--merge-fill")))).toBeGreaterThan(0.3);
+
+    await expect(merge(page)).toHaveText("Merged");
+    await expect(win(page).locator(".ma-pr-burst i")).toHaveCount(26);
+    await expect(win(page).locator("[data-pr-state]")).toHaveText("Merged");
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Merged #214");
+    // The badge waits for the poll that follows the hold.
+    await expect(badge(page)).toHaveAttribute("data-readiness", "ready");
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "merged", { timeout: 3000 });
+    await expect(win(page).locator(".ma-pr-footer")).toHaveCount(0);
+    await expect(win(page).locator("[data-pr-state]")).toHaveText("Merged");
+    await expect(win(page).locator('[data-ws="tide-tables"]')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openPrs(page);
+    await win(page).locator("[data-pr-fix]").click();
+    await tabs(page).first().click();
+    await page.locator("#slide-tab-pull-requests").click();
+    await expect(badge(page)).toHaveAttribute("data-readiness", "blocked");
+    await expect(prCard(page)).toContainText("1 failing, 2 passing");
+    await page.waitForTimeout(1200);
+    await expect(prCard(page)).toBeVisible();
+    await expect(win(page).locator(".ma-term")).not.toContainText("1 check failing");
+  });
+
+  test("under reduced motion the flow still runs, with no glint, glow, fill or flecks", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openPrs(page);
+    await toReady(page);
+    await expect(split(page)).toHaveCSS("animation-name", "none");
+    expect(await merge(page).evaluate((b) => getComputedStyle(b, "::after").display)).toBe("none");
+    expect(await merge(page).evaluate((b) => getComputedStyle(b, "::before").display)).toBe("none");
+    await merge(page).click();
+    await expect(merge(page)).toHaveText("Merged");
+    await expect(win(page).locator(".ma-pr-burst i")).toHaveCount(0);
+    await expect(split(page)).toHaveCSS("animation-name", "none");
+    await expect(badge(page)).toHaveAttribute("data-readiness", "merged", { timeout: 3000 });
+  });
+});
+
 test.describe("slideshow at 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
@@ -836,12 +948,16 @@ test.describe("slideshow at 390", () => {
     await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
   });
 
-  test("the Review window fits without sideways scroll, and its flow runs", async ({ page }) => {
+  test("the Review and Pull requests windows fit without sideways scroll, and their flows run", async ({ page }) => {
     const errors = await open(page);
     await page.locator("#slide-tab-review").click();
     await page.locator(".ma-cm-chip").click();
     await page.locator("[data-add]").click();
     await expect(page.locator(".ma-rs-bar")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.locator("#slide-tab-pull-requests").click();
+    await page.locator("[data-pr-fix]").click();
+    await expect(page.locator(".ma-toast")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     expect(errors).toEqual([]);
   });

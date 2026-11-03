@@ -1,0 +1,90 @@
+/* The Pull requests slide: the sidebar's PR badge and the card behind it. Values copied from the app, no build link; paths under apps/desktop/src. */
+
+/* components/sidebar/PrPopover.module.css .prBadge, .prBadgeIcon, readiness tints, icon tones */
+.ma-pr-badge { flex-shrink: 0; margin-left: auto; font-family: var(--font-mono); font-size: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; border-radius: 4px; padding: 2px; position: relative; margin-top: 2px; margin-right: 2px; color: var(--text-dim); }
+.ma-pr-badge-icon { display: inline-flex; color: var(--pr-badge-icon, currentColor); }
+.ma-pr-ready { background: var(--green-a20); --pr-badge-icon: var(--green); }
+.ma-pr-blocked { background: var(--yellow-a20, rgba(249, 226, 175, 0.13)); --pr-badge-icon: var(--yellow, #eab308); }
+.ma-pr-pending { background: var(--hover); --pr-badge-icon: var(--text-dim); }
+.ma-pr-merged { background: var(--magenta-a20); --pr-badge-icon: var(--magenta, #a855f7); }
+.ma-pr-icon-good { --pr-badge-icon: var(--green); }
+.ma-pr-icon-bad { --pr-badge-icon: var(--red); }
+.ma-pr-icon-pending { --pr-badge-icon: color-mix(in srgb, var(--yellow, #eab308) 55%, var(--text-dim)); }
+
+/* PrPopover.module.css .prPopover, .prDetails, header, title, diff stat, summary, tones, scroll, sections, checks, state chips, fades */
+.ma-pr-card { position: absolute; background: var(--dim); border: 1px solid var(--border); border-radius: 8px; padding: 12px; width: 420px; max-height: 520px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); z-index: 100; display: flex; flex-direction: column; color: var(--fg); }
+.ma-pr-card-in { animation: ma-pr-fade-in 150ms ease-out; }
+.ma-pr-card[data-state="closed"] { animation: ma-pr-fade-out 120ms ease-in forwards; }
+.ma-pr-details { display: flex; flex-direction: column; gap: 8px; min-height: 0; font-size: 11px; }
+.ma-pr-header { display: flex; align-items: center; gap: 6px; color: var(--text-primary); }
+.ma-pr-header > svg { flex-shrink: 0; }
+.ma-pr-title { display: block; width: 100%; padding: 2px 0; text-align: left; font-size: 12px; color: var(--text-selected); line-height: 1.4; border-radius: 4px; overflow-wrap: anywhere; cursor: pointer; }
+.ma-pr-title:hover { background: none; color: var(--accent); }
+.ma-pr-diffstat { margin-left: auto; display: inline-flex; gap: 5px; font-family: var(--font-mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.ma-pr-additions { color: var(--green); }
+.ma-pr-deletions { color: var(--red); }
+.ma-pr-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.ma-pr-row { display: flex; align-items: center; gap: 6px; }
+.ma-pr-tone-good { color: var(--green); }
+.ma-pr-tone-warn { color: var(--yellow, #eab308); }
+.ma-pr-tone-bad { color: var(--red); }
+.ma-pr-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 26px; margin-right: -6px; padding-right: 6px; }
+.ma-pr-section { display: flex; flex-direction: column; gap: 2px; }
+.ma-pr-section-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 2px; }
+.ma-pr-check { display: flex; width: 100%; align-items: center; justify-content: flex-start; gap: 6px; padding: 3px 6px; font-size: 11px; text-align: left; color: var(--text-primary); border-radius: 4px; cursor: pointer; }
+.ma-pr-check:hover { background: var(--surface); }
+.ma-pr-check-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-pr-check-workflow { margin-left: auto; flex-shrink: 0; color: var(--text-dim); font-size: 10px; }
+.ma-pr-state-open { color: var(--green); font-weight: 600; font-size: 10px; }
+.ma-pr-state-merged { color: var(--magenta, #a855f7); font-weight: 600; font-size: 10px; }
+@keyframes ma-pr-fade-out { from { opacity: 1; } to { opacity: 0; transform: translateY(2px); } }
+@keyframes ma-pr-fade-in { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: translateX(0); } }
+
+/* components/sidebar/PrActions.module.css: footer, agents, tick */
+.ma-pr-footer { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.ma-pr-footer-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ma-pr-spacer { flex: 1; }
+.ma-pr-agents { display: inline-flex; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ma-btn.ma-pr-agent { gap: 5px; }
+.ma-pr-spin { display: flex; animation: ma-pr-spin 0.9s linear infinite; }
+@keyframes ma-pr-spin { to { transform: rotate(360deg); } }
+.ma-pr-tick { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-dim); cursor: pointer; user-select: none; }
+
+/* components/ui/Checkbox/Checkbox.module.css, size sm, unchecked */
+.ma-pr-checkbox { all: unset; border-radius: 3px; border: 1.5px solid var(--text-dim); display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer; transition: background-color 150ms ease, border-color 150ms ease; width: 10px; height: 10px; }
+.ma-pr-checkbox:hover { border-color: var(--accent); }
+
+/* PrActions.module.css: the split button. The `font` line is verbatim: --font-ui is defined nowhere, so it fails and the button inherits the card's font, as in the app. */
+.ma-pr-split { --merge-tone: var(--green); --merge-ink: var(--bg); position: relative; display: inline-flex; flex-shrink: 0; border-radius: 5px; transition: transform 0.12s, box-shadow 0.3s; }
+.ma-pr-split:has(.ma-pr-main:active:not(:disabled)) { transform: scale(0.96); }
+.ma-pr-main, .ma-pr-caret { position: relative; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--merge-tone); background: var(--merge-tone); color: var(--merge-ink); font: 600 11px/1 var(--font-ui, inherit); padding: 5px 10px; white-space: nowrap; cursor: pointer; overflow: hidden; isolation: isolate; transition: background 0.3s, border-color 0.3s, color 0.3s; }
+.ma-pr-main { border-radius: 5px; }
+.ma-pr-split:has(.ma-pr-caret) .ma-pr-main { border-radius: 5px 0 0 5px; }
+.ma-pr-caret { border-radius: 0 5px 5px 0; border-left-color: color-mix(in srgb, #000 22%, var(--merge-tone)); padding: 5px 6px; }
+.ma-pr-main:disabled, .ma-pr-caret:disabled { cursor: default; }
+.ma-pr-tone-ready { --merge-tone: var(--green); }
+.ma-pr-tone-queued { --merge-tone: color-mix(in srgb, var(--accent) 22%, var(--dim)); --merge-ink: var(--text-selected); }
+.ma-pr-tone-queued .ma-pr-main, .ma-pr-tone-queued .ma-pr-caret { border-color: color-mix(in srgb, var(--accent) 70%, var(--border)); }
+.ma-pr-tone-unavailable { --merge-tone: var(--hover); --merge-ink: var(--text-dim); }
+.ma-pr-tone-unavailable .ma-pr-main, .ma-pr-tone-unavailable .ma-pr-caret { border-color: var(--border); }
+.ma-pr-tone-merged { --merge-tone: var(--magenta, #c2187f); --merge-ink: #fff; }
+.ma-pr-inviting { animation: ma-pr-breathe 2.4s ease-in-out infinite; }
+.ma-pr-inviting .ma-pr-main::after { content: ""; position: absolute; top: -20%; bottom: -20%; width: 38%; left: -60%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.6), transparent); transform: skewX(-18deg); pointer-events: none; z-index: 1; animation: ma-pr-glint 4.5s cubic-bezier(0.4, 0, 0.2, 1) 0.6s infinite; }
+@keyframes ma-pr-glint { 0% { left: -60%; } 30%, 100% { left: 130%; } }
+@keyframes ma-pr-breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 0%, transparent); } 50% { box-shadow: 0 0 12px 1px color-mix(in srgb, var(--green) 55%, transparent); } }
+.ma-pr-main::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, #fff 26%, transparent); transform: scaleX(var(--merge-fill, 0)); transform-origin: left; opacity: 0; z-index: -1; pointer-events: none; transition: transform 0.12s ease-out, opacity 0.25s 0.1s; }
+.ma-pr-filling .ma-pr-main::before { opacity: 1; transition: none; }
+.ma-pr-glyph { flex-shrink: 0; overflow: visible; }
+.ma-pr-zip-a, .ma-pr-zip-b { transition: transform 0.45s cubic-bezier(0.5, -0.6, 0.4, 1.6); }
+.ma-pr-tone-merged .ma-pr-zip-a { transform: translate(6px, 6px); }
+.ma-pr-tone-merged .ma-pr-zip-b { transform: translate(0, -6px); }
+.ma-pr-tone-merged { animation: ma-pr-pop 0.4s cubic-bezier(0.3, 1.8, 0.5, 1); }
+@keyframes ma-pr-pop { 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
+.ma-pr-burst { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.ma-pr-burst i { position: absolute; top: 40%; width: 6px; height: 6px; border-radius: 2px; opacity: 0; }
+.ma-pr-reason { align-self: flex-end; font-size: 10px; color: var(--text-dim); text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ma-pr-split, .ma-pr-inviting, .ma-pr-inviting .ma-pr-main::after, .ma-pr-tone-merged, .ma-pr-zip-a, .ma-pr-zip-b, .ma-pr-spin { animation: none; transition: none; }
+  .ma-pr-inviting .ma-pr-main::after, .ma-pr-main::before { display: none; }
+}

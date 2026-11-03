@@ -15,7 +15,13 @@ import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { markChatStarting, noteSentPrompt, startMenuHandoff } from "./usePaneChatView";
+import {
+  clearStartingPrompt,
+  markChatStarting,
+  noteSentPrompt,
+  noteStartingPrompt,
+  startMenuHandoff,
+} from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ChatComposerProps = {
@@ -32,8 +38,16 @@ type ChatComposerProps = {
   contextTokens?: number | null;
   /** The chat's tasks, for the status line's running and agents chips. */
   tasks?: readonly TaskItem[];
-  /** Bring a task's card into view: picked from the status line's agents list. */
+  /** Bring a task's card into view: from the status line's running chip. */
   onRevealTask?: (id: string) => void;
+  /** When your last message landed, which the agents chip counts finishes from. */
+  lastMessageAt?: string | null;
+  /** The agents chip was clicked. */
+  onToggleAgents?: () => void;
+  /** The task view is open. */
+  taskViewOpen?: boolean;
+  /** It's beside the composer, so Esc closes it instead of stopping the agent. */
+  taskViewDocked?: boolean;
   /** The session's model, effort and transcript branch, for the status line. */
   session?: ChatSessionInfo | null;
   /** The pane's layout, which orders the status line's chips. */
@@ -59,7 +73,7 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, session, layout } =
+  const { paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, lastMessageAt, onToggleAgents, taskViewOpen, taskViewDocked, session, layout } =
     props;
   const chatOf = agentChat(agentKind);
 
@@ -108,6 +122,10 @@ export function ChatComposer(props: ChatComposerProps) {
   const sendText = (sent: string, afterSent?: () => void) => {
     setSending(true);
     setError(null);
+    // A fresh chat has no transcript to show this for a moment yet. A command
+    // may never write a line that ends the wait, so it isn't drawn.
+    const echoed = transcript === undefined && splitCommand(sent) === null;
+    if (echoed) noteStartingPrompt(paneId, sent);
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);
@@ -123,6 +141,7 @@ export function ChatComposer(props: ChatComposerProps) {
         }
       },
       () => {
+        if (echoed) clearStartingPrompt(paneId);
         setError("Couldn't send. Try again, or use the terminal.");
         setSending(false);
       },
@@ -208,8 +227,9 @@ export function ChatComposer(props: ChatComposerProps) {
               }
             }
             // Mid-turn, Esc stops the agent, which the button doesn't
-            // offer while there's text to send.
-            if (e.key === "Escape" && busy) {
+            // offer while there's text to send. An open task panel goes
+            // first: the key bubbles up to `ChatPane`, which closes it.
+            if (e.key === "Escape" && busy && !taskViewDocked) {
               e.preventDefault();
               stop();
               return;
@@ -252,6 +272,9 @@ export function ChatComposer(props: ChatComposerProps) {
         contextTokens={contextTokens}
         tasks={tasks}
         onRevealTask={onRevealTask}
+        lastMessageAt={lastMessageAt}
+        onToggleAgents={onToggleAgents}
+        taskViewOpen={taskViewOpen}
         session={session}
         layout={layout}
       />

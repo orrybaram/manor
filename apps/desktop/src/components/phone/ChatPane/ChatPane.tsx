@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory, ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
@@ -6,6 +6,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { agentChat } from "../../../lib/agent-chat";
+import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { PullToRefresh } from "../PullToRefresh";
 import {
@@ -14,16 +15,22 @@ import {
   mergeHistory,
   newestContent,
   chatTasks,
+  lastMessageAt,
   upsertEntry,
 } from "./chat-entries";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
+import { ChatLinkMenuContext } from "./ChatLink";
 import { ChatThinking } from "./ChatThinking";
+import { openingAgent, taskChips } from "./chat-status-line";
+import { TaskViewContext, type TaskViewControl } from "./task-view-context";
+import { AgentsSheet, TaskPanel, type TaskViewState } from "./TaskView";
 import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
-import { clearQueuedPrompts, noteChatEntries, useQueuedPrompts } from "./usePaneChatView";
+import { UserBubble } from "./UserBubble";
+import { clearQueuedPrompts, noteChatEntries, useQueuedPrompts, useStartingPrompt } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
 
@@ -54,6 +61,13 @@ const OFFLINE_RETRY_MS = 5_000;
 
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_SLOP_PX = 48;
+
+/** The chat's mounted item rows. */
+function chatRows(content: HTMLElement): HTMLElement[] {
+  return [...content.children].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
+  );
+}
 
 type ChatPaneProps = {
   paneId: string;
@@ -91,6 +105,10 @@ type ChatPaneProps = {
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
  * the chat on its live line with its composer held.
  *
+ * A new session's hook names its transcript a moment before the transcript
+ * holds the first prompt. A prompt the starting chat was showing stays drawn
+ * through that, and its line landing takes its place without animating in.
+ *
  * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
  * top mounts earlier ones; back at the bottom, the window drops back to the
  * newest. Either way the items that stay mounted must not move on screen, so
@@ -101,6 +119,12 @@ type ChatPaneProps = {
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, agentKind, transcript, hidden, onShowTerminal, layout = "phone" } = props;
   const agentName = agentChat(agentKind).name;
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const linkMenu = useMemo(
+    () => (isWebApp() ? null : { paneId, containerRef: rootRef }),
+    [paneId],
+  );
 
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -257,6 +281,11 @@ export function ChatPane(props: ChatPaneProps) {
     return () => observer.disconnect();
   }, []);
 
+  // As it was when this chat took over: landing, the store's copy is cleared.
+  const storedPrompt = useStartingPrompt(paneId);
+  const [firstPrompt] = useState(storedPrompt);
+  const awaitingPrompt = entries.length === 0 ? firstPrompt : null;
+
   const answerableId = answerablePickerId(entries);
   const busy = isBusyStatus(status) && !turnSettled;
   const queued = useQueuedPrompts(paneId);
@@ -303,9 +332,7 @@ export function ChatPane(props: ChatPaneProps) {
     const content = contentRef.current;
     const scroller = content?.parentElement;
     if (!content || !scroller) return;
-    const rows = [...content.children].filter(
-      (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
-    );
+    const rows = chatRows(content);
     const kept = rows.find((el) => placed.current.has(el.dataset.itemId!));
     const moved = kept ? kept.offsetTop - placed.current.get(kept.dataset.itemId!)! : 0;
     if (moved !== 0) {
@@ -316,8 +343,8 @@ export function ChatPane(props: ChatPaneProps) {
     placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
   /**
-   * A task card to bring into view once it mounts: picked from the status
-   * line's agents list while above the window.
+   * A task card to bring into view once it mounts: the status line's running
+   * chip asked for it while above the window.
    */
   const revealing = useRef<string | null>(null);
   const revealTask = (id: string) => {
@@ -346,6 +373,66 @@ export function ChatPane(props: ChatPaneProps) {
       if (!settledIds.has(items[i].id)) retired.current.add(items[i].id);
     }
   });
+  const tasks = chatTasks(items);
+  const messageAt = lastMessageAt(items);
+  const chips = taskChips(tasks, messageAt);
+  const docked = layout === "desk";
+
+  /** The task view: the side panel on a desk, a sheet on a phone. */
+  const [taskView, setTaskView] = useState<TaskViewState | null>(null);
+  const viewedTask =
+    taskView?.kind === "task" ? tasks.find((task) => task.id === taskView.id) : undefined;
+  // Its task went (a history reset), or the list has nothing left to list.
+  if (taskView && (taskView.kind === "task" ? !viewedTask : chips.agents.length === 0)) {
+    setTaskView(null);
+  }
+  // The other layout has its own surface for it; don't spring that open
+  // (a sheet would cover whatever this pane is behind).
+  const [taskViewLayout, setTaskViewLayout] = useState(layout);
+  if (layout !== taskViewLayout) {
+    setTaskViewLayout(layout);
+    setTaskView(null);
+  }
+  /** The row at the top of the chat, kept there when the panel narrows the chat. */
+  const keepRow = useRef<{ id: string; top: number } | null>(null);
+  const changeTaskView = (next: TaskViewState | null) => {
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (docked && content && scroller && !stuck.current) {
+      const edge = scroller.getBoundingClientRect().top;
+      const row = chatRows(content).find((el) => el.getBoundingClientRect().bottom > edge);
+      if (row) keepRow.current = { id: row.dataset.itemId!, top: row.getBoundingClientRect().top };
+    }
+    setTaskView(next);
+  };
+  useLayoutEffect(() => {
+    const keep = keepRow.current;
+    keepRow.current = null;
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (!keep || !content || !scroller) return;
+    const rows = chatRows(content);
+    const row = rows.find((el) => el.dataset.itemId === keep.id);
+    if (!row) return;
+    scroller.scrollTo({ top: scroller.scrollTop + row.getBoundingClientRect().top - keep.top });
+    lastScrollTop.current = scroller.scrollTop;
+    placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
+  });
+  const toggleAgents = () => {
+    if (taskView) {
+      changeTaskView(null);
+    } else if (docked || chips.agents.length === 1) {
+      const agent = openingAgent(chips.agentsInOrder);
+      if (agent) changeTaskView({ kind: "task", id: agent.id });
+    } else {
+      changeTaskView({ kind: "list" });
+    }
+  };
+  const taskViewControl: TaskViewControl = {
+    open: (id) => changeTaskView({ kind: "task", id }),
+    viewedId: viewedTask?.id ?? null,
+  };
+
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line. A timing line
@@ -360,6 +447,7 @@ export function ChatPane(props: ChatPaneProps) {
 
   return (
     <div
+      ref={rootRef}
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
       data-chat-pane
       data-layout={layout}
@@ -373,70 +461,120 @@ export function ChatPane(props: ChatPaneProps) {
         </div>
       ) : (
         <>
-          {/* Pulling down at the top refreshes the bridge. It moves an
-              overlay and never scrolls, so it can't change what
-              bottom-follow sees. */}
-          <PullToRefresh
-            onRefresh={refreshState}
-            className={styles.scroller}
-            onScroll={onScroll}
-          >
-            <div ref={followBottom} className={styles.entries}>
-              {loaded && entries.length === 0 && (
-                <p className={styles.empty}>Nothing in this conversation yet.</p>
+          <TaskViewContext.Provider value={taskViewControl}>
+            <div
+              className={styles.chatBody}
+              // A click in the chat focuses this rather than the page, so
+              // Escape still closes the panel.
+              tabIndex={docked && viewedTask ? -1 : undefined}
+              data-task-panel={(docked && viewedTask !== undefined) || undefined}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && !e.defaultPrevented && docked && viewedTask) {
+                  e.preventDefault();
+                  changeTaskView(null);
+                }
+              }}
+            >
+              <div className={styles.chatMain}>
+                {/* Pulling down at the top refreshes the bridge. It moves an
+                    overlay and never scrolls, so it can't change what
+                    bottom-follow sees. */}
+                <PullToRefresh
+                  onRefresh={refreshState}
+                  className={styles.scroller}
+                  onScroll={onScroll}
+                >
+                  <div ref={followBottom} className={styles.entries}>
+                    {loaded && entries.length === 0 && awaitingPrompt === null && (
+                      <p className={styles.empty}>Nothing in this conversation yet.</p>
+                    )}
+                    {items.slice(start).map((entry) => {
+                      const live =
+                        settledIds !== null &&
+                        !settledIds.has(entry.id) &&
+                        !retired.current.has(entry.id) &&
+                        !(firstPrompt !== null && entry.id === entries[0]?.id);
+                      return (
+                        <div
+                          key={entry.id}
+                          className={styles.entry}
+                          data-item-id={entry.id}
+                          data-enter={live || undefined}
+                        >
+                          <ChatLinkMenuContext.Provider value={linkMenu}>
+                            <ChatEntryView
+                              paneId={paneId}
+                              entry={entry}
+                              answerableId={answerableId}
+                              live={live}
+                              onShowTerminal={onShowTerminal}
+                            />
+                          </ChatLinkMenuContext.Provider>
+                        </div>
+                      );
+                    })}
+                    {awaitingPrompt !== null && (
+                      <div className={styles.entry}>
+                        <UserBubble text={awaitingPrompt} />
+                      </div>
+                    )}
+                    {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
+                    {queued.map((text, i) => (
+                      <div key={i} className={styles.userRow} data-testid="chat-queued">
+                        <div className={`${styles.userBubble} ${styles.userQueued}`}>
+                          <span className={styles.queuedLabel}>Queued</span>
+                          {text}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </PullToRefresh>
+                {needsYou && (
+                  <div className={styles.needsYou} data-testid="chat-needs-you">
+                    <span>{agentName} needs you</span>
+                    <Button size="sm" variant="primary" onClick={onShowTerminal}>
+                      Open terminal
+                    </Button>
+                  </div>
+                )}
+                <ChatComposer
+                  paneId={paneId}
+                  agentKind={agentKind}
+                  busy={busy}
+                  transcript={transcript}
+                  contextTokens={contextTokens}
+                  tasks={tasks}
+                  onRevealTask={revealTask}
+                  lastMessageAt={messageAt}
+                  onToggleAgents={toggleAgents}
+                  taskViewOpen={taskView !== null}
+                  taskViewDocked={docked && viewedTask !== undefined}
+                  session={session}
+                  layout={layout}
+                />
+              </div>
+              {docked && viewedTask && (
+                <TaskPanel
+                  paneId={paneId}
+                  task={viewedTask}
+                  agents={chips.agentsInOrder}
+                  hidden={hidden}
+                  onPick={(id) => setTaskView({ kind: "task", id })}
+                  onClose={() => changeTaskView(null)}
+                />
               )}
-              {items.slice(start).map((entry) => {
-                const live =
-                  settledIds !== null &&
-                  !settledIds.has(entry.id) &&
-                  !retired.current.has(entry.id);
-                return (
-                  <div
-                    key={entry.id}
-                    className={styles.entry}
-                    data-item-id={entry.id}
-                    data-enter={live || undefined}
-                  >
-                    <ChatEntryView
-                      paneId={paneId}
-                      entry={entry}
-                      answerableId={answerableId}
-                      live={live}
-                      onShowTerminal={onShowTerminal}
-                    />
-                  </div>
-                );
-              })}
-              {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
-              {queued.map((text, i) => (
-                <div key={i} className={styles.userRow} data-testid="chat-queued">
-                  <div className={`${styles.userBubble} ${styles.userQueued}`}>
-                    <span className={styles.queuedLabel}>Queued</span>
-                    {text}
-                  </div>
-                </div>
-              ))}
             </div>
-          </PullToRefresh>
-          {needsYou && (
-            <div className={styles.needsYou} data-testid="chat-needs-you">
-              <span>{agentName} needs you</span>
-              <Button size="sm" variant="primary" onClick={onShowTerminal}>
-                Open terminal
-              </Button>
-            </div>
-          )}
-          <ChatComposer
-            paneId={paneId}
-            agentKind={agentKind}
-            busy={busy}
-            transcript={transcript}
-            contextTokens={contextTokens}
-            tasks={chatTasks(items)}
-            onRevealTask={revealTask}
-            session={session}
-            layout={layout}
-          />
+            {!docked && (
+              <AgentsSheet
+                paneId={paneId}
+                view={hidden ? null : taskView}
+                task={hidden ? undefined : viewedTask}
+                agents={chips.agents}
+                running={chips.runningAgents}
+                onViewChange={setTaskView}
+              />
+            )}
+          </TaskViewContext.Provider>
         </>
       )}
     </div>

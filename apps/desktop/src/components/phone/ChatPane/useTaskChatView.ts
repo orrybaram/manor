@@ -17,7 +17,7 @@ type TaskChatView = {
  * One background task's own transcript, read the way
  * `ChatPane` reads a pane's: subscribe to its stream first, then fetch the
  * history, and merge the two by entry id so nothing published in between is
- * lost. Mounted per open `TaskSheet`, so each watches one child stream.
+ * lost. Mounted per shown task, so each watches one child stream.
  */
 export function useTaskChatView(paneId: string, taskId: string): TaskChatView {
   const [entries, setEntries] = useState<ChatEntry[]>([]);

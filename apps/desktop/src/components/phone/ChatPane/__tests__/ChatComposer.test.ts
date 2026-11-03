@@ -4,7 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { uploadPastedImage } = vi.hoisted(() => ({ uploadPastedImage: vi.fn() }));
+const { uploadPastedImage, noteStartingPrompt, clearStartingPrompt } = vi.hoisted(() => ({
+  uploadPastedImage: vi.fn(),
+  noteStartingPrompt: vi.fn(),
+  clearStartingPrompt: vi.fn(),
+}));
 
 vi.mock("../../../../lib/paste-image-upload", () => ({ uploadPastedImage }));
 vi.mock("../useSlashCommands", () => ({
@@ -17,8 +21,10 @@ vi.mock("../useSlashCommands", () => ({
 }));
 vi.mock("../ChatStatusLine", () => ({ ChatStatusLine: () => null }));
 vi.mock("../usePaneChatView", () => ({
+  clearStartingPrompt,
   markChatStarting: () => {},
   noteSentPrompt: () => {},
+  noteStartingPrompt,
   startMenuHandoff: () => {},
 }));
 
@@ -77,6 +83,51 @@ function thumbs(): HTMLElement[] {
 function sendButton(): HTMLButtonElement {
   return container.querySelector<HTMLButtonElement>("[data-testid=chat-send]")!;
 }
+
+describe("ChatComposer on a fresh chat", () => {
+  const send = vi.fn();
+  const sendNow = async () => {
+    await act(async () => {
+      sendButton().click();
+    });
+  };
+
+  beforeEach(() => {
+    send.mockReset();
+    send.mockResolvedValue(undefined);
+    (window as unknown as { electronAPI: unknown }).electronAPI = { chat: { send } };
+  });
+
+  it("draws the prompt as it goes, before the send has answered", () => {
+    send.mockReturnValue(new Promise(() => {}));
+    typeAt("hello", 5);
+    act(() => sendButton().click());
+    expect(noteStartingPrompt).toHaveBeenCalledWith("p1", "hello");
+  });
+
+  it("takes the prompt back if it never went", async () => {
+    send.mockRejectedValue(new Error("no"));
+    typeAt("hello", 5);
+    await sendNow();
+    expect(clearStartingPrompt).toHaveBeenCalledWith("p1");
+  });
+
+  it("leaves a command to the transcript, which may never write a line for it", async () => {
+    typeAt("/help", 5);
+    await sendNow();
+    expect(send).toHaveBeenCalledWith("p1", "/help");
+    expect(noteStartingPrompt).not.toHaveBeenCalled();
+  });
+
+  it("leaves a chat with a transcript alone", async () => {
+    act(() => {
+      root.render(createElement(ChatComposer, { paneId: "p1", agentKind: "claude", busy: false, transcript: "/t.jsonl" }));
+    });
+    typeAt("hello", 5);
+    await sendNow();
+    expect(noteStartingPrompt).not.toHaveBeenCalled();
+  });
+});
 
 describe("ChatComposer images", () => {
   const send = vi.fn();

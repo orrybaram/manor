@@ -1,7 +1,7 @@
 import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Link } from "../../ui/Link/Link";
+import { ChatLink } from "./ChatLink";
 import styles from "./ChatPane.module.css";
 
 /** The slice of a hast node this file touches. */
@@ -48,7 +48,7 @@ type ChatMarkdownProps = {
 /**
  * Claude's prose as GitHub-flavoured markdown. Raw HTML is not parsed (the
  * default), so the transcript can't put elements in the page, and links open
- * in the browser through `<Link>` rather than navigating the app.
+ * in the browser through `<ChatLink>` rather than navigating the app.
  *
  * Memoized on its source: parsing is most of what a long chat costs, and a
  * push must not re-parse every reply above it.
@@ -62,14 +62,7 @@ export const ChatMarkdown = memo(function ChatMarkdown(props: ChatMarkdownProps)
         remarkPlugins={[remarkGfm]}
         rehypePlugins={fadeWords ? [rehypeFadeWords] : []}
         components={{
-          a: ({ href, children }) =>
-            href ? (
-              <Link variant="inline" href={href} title={href}>
-                {children}
-              </Link>
-            ) : (
-              <span>{children}</span>
-            ),
+          a: ChatLink,
           ...(imagesAsText && {
             img: ({ src, alt }) => (
               <span className={styles.imageText}>

@@ -274,13 +274,17 @@ test.describe("chat task view", () => {
       await page.keyboard.press("Escape");
       await expect(sheet).toBeHidden();
       await expect(page.getByText("here is paragraph 11")).toBeInViewport({ timeout: 5_000 });
-      await useTheme(window, "Catppuccin Latte");
-      await page.waitForTimeout(1500);
+      // The phone paints the light palette itself, as `useTheme` does where the theme list isn't loaded.
+      await useTheme(page, "Catppuccin Latte");
       await phoneChip.tap();
       await expect(sheet.getByTestId("chat-agent-row")).toHaveCount(3);
+      await page.waitForTimeout(500);
       await film.shot(page, "phone-light-list");
+      await sheet.getByTestId("chat-agent-row").first().tap();
+      await expect(sheet.getByText("Findings from Audit toast call sites")).toBeVisible({ timeout: 15_000 });
+      await page.waitForTimeout(500);
+      await film.shot(page, "phone-light-transcript");
       await page.keyboard.press("Escape");
-      await useManorTheme(window);
     } finally {
       await client.close();
     }

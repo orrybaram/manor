@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.26.1] - 2026-11-03
+
+### Features
+
+- **Settings › Prompts**
+  - The 11 messages Manor writes for agents are now editable, app-wide. Each opens in an editor with placeholders for live data, warnings and Reset to default.
+  - Edits reach each connected host. An edit that renders to nothing still sends the default, except for the session start hint, where blank means no hint.
+  - `--prompt-template` keeps its `{number}` syntax and still wins for that call.
+- **Agent chat**
+  - The "N agents" chip and a task's card now open one task view, and the chat stays put. It's a panel inside the pane on the desktop and one sheet on the phone.
+  - The agents chip stays as, for example, "3 agents done" until your next message.
+  - With the task panel open, Escape closes it. The next Escape stops the agent as before.
+  - Right-clicking a link in a desktop chat now offers what a terminal's link does: a browser tab or split, the default browser, or the clipboard.
+  - Settings › Font has a new Chat row with five bundled faces or any installed font. Messages and the composer follow it, while code, tool cards and status lines don't.
+- **Automations**
+  - A reused workspace can now send each run to the automation's agent pane, either fresh or keeping its context. New tab stays the default, and this applies to scheduled runs and Run now.
+  - Choose it with the new chip in the editor, or with `--pane` on `create-automation` and `update-automation`.
+  - A same-pane run skips while the agent is busy. Run history says when a run was sent to the agent or why it skipped.
+- The PR card now offers **Fix conflicts**, which hands a conflicted PR to the workspace's agent. It also appears on the phone's PR sheet.
+- A folder header in the sidebar now shows how many workspaces are in its subtree, whether it's open or collapsed.
+- `manor create-workspace --folder` files the new workspace in a named folder as it's created.
+
+### Fixes
+
+- **Agent chat**
+  - A new chat's first message shows as it's sent and stays on screen, instead of appearing, vanishing and appearing again.
+  - ⌘N into a new desktop chat, or switching back to a chat tab, focuses the composer so you can start typing.
+- Changing a preference now reaches open windows and the phone. A font picked on the desktop redraws an open phone without a reload.
+
+### Improvements
+
+- The chat's live line now shows dust rising beside a verb that a light passes over, with a timer that holds still. A finished turn settles into a still, left-aligned line in place of the house mark and its rule.
+- Queuing a merge, or a "Merges when ready" merge, lights a fuse around the button. The merge fill keeps creeping until the merge answers, a reopened queued card says Queued to merge, and reduced motion turns these effects off.
+- Terminal, Editor and Chat font rows now share one list, with each font shown in its own face. The list opens on your current choice.
+- "Fix with agent" on the Home dashboard now sends the same checks and threads briefs as the PR card, and starts nothing if it can't fetch one.
+- Settings › Appearance no longer has a Seasonal section. Halloween dust and cobwebs still appear Oct 25–Nov 1, and anyone who already turned them off stays off.
+
 ## [0.26.0] - 2026-10-31
 
 ### Features

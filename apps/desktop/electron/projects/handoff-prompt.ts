@@ -45,14 +45,23 @@ function quote(turn: HandoffTurn): string {
   return `${who}: ${clip(turn.text, TURN_MAX)}`;
 }
 
+/** The handoff's parts a session may have nothing for. */
+const OPTIONAL_PARTS = new Set(["session", "first_prompt", "recent_turns"]);
+
+/** Stands in for a part with nothing to say, until its gap is closed. */
+const NOTHING = "\u0000";
+
 /**
- * Render a handoff, closing the gap a part with nothing to say would leave:
- * only around those parts, so a quoted turn's own blank lines survive.
+ * Render a handoff, closing the gap an optional part with nothing to say would
+ * leave: only around those parts, so a quoted turn's own blank lines survive.
+ * A NUL in a session's text is dropped, so it can't pass for the marker.
  */
 function renderHandoff(template: string, values: Record<string, string>): string {
-  const NOTHING = "\u0000";
   const marked = Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [name, value || NOTHING]),
+    Object.entries(values).map(([name, value]) => {
+      const clean = value.split(NOTHING).join("");
+      return [name, !clean && OPTIONAL_PARTS.has(name) ? NOTHING : clean];
+    }),
   );
   return renderTemplate(template, marked)
     .replace(new RegExp(`\\s*(?:${NOTHING}\\s*)+`, "g"), "\n\n")
@@ -71,8 +80,10 @@ export function buildHandoffPrompt(input: HandoffInput, overrides?: PromptOverri
   );
   const quoted = said.slice(-RECENT_TURNS).map(quote);
 
+  // An edit whose every part came up empty still has to say something.
+  const edited = promptTemplate("handoff", overrides);
   const compose = (turns: string[]) =>
-    renderHandoff(promptTemplate("handoff", overrides), {
+    renderHandoff(edited, {
       source: sourceHostName,
       target: targetHostName,
       branch,
@@ -84,6 +95,7 @@ export function buildHandoffPrompt(input: HandoffInput, overrides?: PromptOverri
           : "",
     });
 
+  if (!compose(quoted).trim()) return buildHandoffPrompt(input);
   let text = compose(quoted);
   while (text.length > HANDOFF_MAX && quoted.length > 0) {
     quoted.shift();

@@ -263,7 +263,10 @@ export function renderPrompt(
   values: Record<string, string>,
   overrides?: PromptOverrides | null,
 ): string {
-  return renderTemplate(promptTemplate(id, overrides), values);
+  const text = renderTemplate(promptTemplate(id, overrides), values);
+  // An edit made only of placeholders that came up empty: still not a brief.
+  if (!text.trim() && !BY_ID[id].allowEmpty) return renderTemplate(BY_ID[id].template, values);
+  return text;
 }
 
 export type PromptProblems = {

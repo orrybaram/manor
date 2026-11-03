@@ -43,6 +43,21 @@ let unsubscribeTask: ReturnType<typeof vi.fn>;
 let scrollIntoView: ReturnType<typeof vi.fn>;
 const interrupt = vi.fn(() => Promise.resolve());
 
+function renderPane(layout: LayoutMode, hidden = false) {
+  return act(async () => {
+    root.render(
+      createElement(ChatPane, {
+        paneId: PANE,
+        agentKind: "claude",
+        transcript: "/t/tasks.jsonl",
+        hidden,
+        onShowTerminal: () => {},
+        layout,
+      }),
+    );
+  });
+}
+
 async function open(entries: ChatEntry[], layout: LayoutMode): Promise<void> {
   unsubscribeTask = vi.fn();
   getTaskHistory = vi.fn((_pane: string, id: string) =>
@@ -61,18 +76,7 @@ async function open(entries: ChatEntry[], layout: LayoutMode): Promise<void> {
     interrupt: interrupt,
   };
   (window as unknown as { electronAPI: unknown }).electronAPI = { claim: null, chat };
-  await act(async () => {
-    root.render(
-      createElement(ChatPane, {
-        paneId: PANE,
-        agentKind: "claude",
-        transcript: "/t/tasks.jsonl",
-        hidden: false,
-        onShowTerminal: () => {},
-        layout,
-      }),
-    );
-  });
+  await renderPane(layout);
 }
 
 const byId = (id: string) => document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -180,6 +184,47 @@ describe("task view on a desk", () => {
     useAppStore.setState({ paneAgentStatus: {} });
   });
 
+  it("closes on Escape after a click in the chat, which focuses the chat body", async () => {
+    await open(three(), "desk");
+    await click(chip());
+    const body = panel()!.parentElement!;
+    expect(body.getAttribute("tabindex")).toBe("-1");
+    await act(async () => {
+      body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(panel()).toBeNull();
+    expect(body.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("hands focus to the composer when it closes with focus inside", async () => {
+    await open(three(), "desk");
+    await click(chip());
+    expect(document.activeElement).toBe(panel());
+    await click(byId("chat-task-panel-close"));
+    expect(document.activeElement).toBe(container.querySelector("textarea"));
+  });
+
+  it("leaves focus in another pane when it mounts", async () => {
+    await open(three(), "desk");
+    const other = document.createElement("input");
+    document.body.appendChild(other);
+    other.focus();
+    await click(card("one"));
+    expect(panel()).not.toBeNull();
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+
+  it("closes rather than becoming a sheet when the layout changes", async () => {
+    await open(three(), "desk");
+    await click(chip());
+    await renderPane("phone");
+    expect(panel()).toBeNull();
+    expect(sheet()).toBeNull();
+    await renderPane("desk");
+    expect(panel()).toBeNull();
+  });
+
   it("stops watching when closed", async () => {
     await open(three(), "desk");
     await click(chip());
@@ -211,6 +256,14 @@ describe("task view on a phone", () => {
     await click(byId("chat-agents-back"));
     expect(sheet()?.querySelectorAll('[data-testid="chat-agent-row"]').length).toBe(2);
     expect(panel()).toBeNull();
+  });
+
+  it("takes the sheet away when the pane shows its terminal", async () => {
+    await open([agent("one")], "phone");
+    await click(chip());
+    expect(sheet()).not.toBeNull();
+    await renderPane("phone", true);
+    expect(sheet()).toBeNull();
   });
 
   it("skips the list with one agent", async () => {

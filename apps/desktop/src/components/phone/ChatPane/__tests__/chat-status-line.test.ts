@@ -121,6 +121,7 @@ describe("agentsChipLabel", () => {
     expect(agentsChipLabel(1, 2)).toBe("1 agent · 2 done");
     expect(agentsChipLabel(0, 1)).toBe("1 agent done");
     expect(agentsChipLabel(0, 3)).toBe("3 agents done");
+    expect(agentsChipLabel(0, 0, 2)).toBe("2 agents");
   });
 });
 

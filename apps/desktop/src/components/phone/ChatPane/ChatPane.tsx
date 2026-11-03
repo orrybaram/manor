@@ -61,6 +61,13 @@ const OFFLINE_RETRY_MS = 5_000;
 /** Within this many px of the bottom counts as "at the bottom". */
 const STICK_SLOP_PX = 48;
 
+/** The chat's mounted item rows. */
+function chatRows(content: HTMLElement): HTMLElement[] {
+  return [...content.children].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
+  );
+}
+
 type ChatPaneProps = {
   paneId: string;
   /** The **Agent kind** of the agent whose transcript this is. */
@@ -315,9 +322,7 @@ export function ChatPane(props: ChatPaneProps) {
     const content = contentRef.current;
     const scroller = content?.parentElement;
     if (!content || !scroller) return;
-    const rows = [...content.children].filter(
-      (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
-    );
+    const rows = chatRows(content);
     const kept = rows.find((el) => placed.current.has(el.dataset.itemId!));
     const moved = kept ? kept.offsetTop - placed.current.get(kept.dataset.itemId!)! : 0;
     if (moved !== 0) {
@@ -371,18 +376,21 @@ export function ChatPane(props: ChatPaneProps) {
   if (taskView && (taskView.kind === "task" ? !viewedTask : chips.agents.length === 0)) {
     setTaskView(null);
   }
+  // The other layout has its own surface for it; don't spring that open
+  // (a sheet would cover whatever this pane is behind).
+  const [taskViewLayout, setTaskViewLayout] = useState(layout);
+  if (layout !== taskViewLayout) {
+    setTaskViewLayout(layout);
+    setTaskView(null);
+  }
   /** The row at the top of the chat, kept there when the panel narrows the chat. */
   const keepRow = useRef<{ id: string; top: number } | null>(null);
   const changeTaskView = (next: TaskViewState | null) => {
-    const scroller = contentRef.current?.parentElement;
-    if (docked && scroller && !stuck.current) {
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (docked && content && scroller && !stuck.current) {
       const edge = scroller.getBoundingClientRect().top;
-      const row = [...contentRef.current!.children].find(
-        (el): el is HTMLElement =>
-          el instanceof HTMLElement &&
-          el.dataset.itemId !== undefined &&
-          el.getBoundingClientRect().bottom > edge,
-      );
+      const row = chatRows(content).find((el) => el.getBoundingClientRect().bottom > edge);
       if (row) keepRow.current = { id: row.dataset.itemId!, top: row.getBoundingClientRect().top };
     }
     setTaskView(next);
@@ -390,19 +398,15 @@ export function ChatPane(props: ChatPaneProps) {
   useLayoutEffect(() => {
     const keep = keepRow.current;
     keepRow.current = null;
-    const scroller = contentRef.current?.parentElement;
-    if (!keep || !scroller) return;
-    const row = [...contentRef.current!.children].find(
-      (el) => el instanceof HTMLElement && el.dataset.itemId === keep.id,
-    );
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (!keep || !content || !scroller) return;
+    const rows = chatRows(content);
+    const row = rows.find((el) => el.dataset.itemId === keep.id);
     if (!row) return;
-    scroller.scrollTop += row.getBoundingClientRect().top - keep.top;
+    scroller.scrollTo({ top: scroller.scrollTop + row.getBoundingClientRect().top - keep.top });
     lastScrollTop.current = scroller.scrollTop;
-    placed.current = new Map(
-      [...contentRef.current!.children]
-        .filter((el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined)
-        .map((el) => [el.dataset.itemId!, el.offsetTop]),
-    );
+    placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
   const toggleAgents = () => {
     if (taskView) {
@@ -450,6 +454,9 @@ export function ChatPane(props: ChatPaneProps) {
           <TaskViewContext.Provider value={taskViewControl}>
             <div
               className={styles.chatBody}
+              // A click in the chat focuses this rather than the page, so
+              // Escape still closes the panel.
+              tabIndex={docked && viewedTask ? -1 : undefined}
               data-task-panel={(docked && viewedTask !== undefined) || undefined}
               onKeyDown={(e) => {
                 if (e.key === "Escape" && !e.defaultPrevented && docked && viewedTask) {
@@ -543,8 +550,8 @@ export function ChatPane(props: ChatPaneProps) {
             {!docked && (
               <AgentsSheet
                 paneId={paneId}
-                view={taskView}
-                task={viewedTask}
+                view={hidden ? null : taskView}
+                task={hidden ? undefined : viewedTask}
                 agents={chips.agents}
                 running={chips.runningAgents}
                 onViewChange={setTaskView}

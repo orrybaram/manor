@@ -266,6 +266,7 @@ describe("ChatStatusLine — agents chip", () => {
     const tasks = [done("a1")];
     render({ layout: "desk", tasks, lastMessageAt: "2026-01-01T00:05:00.000Z", taskViewOpen: true });
     expect(testId("chat-agents-chip")?.getAttribute("aria-expanded")).toBe("true");
+    expect(testId("chat-agents-chip")?.textContent).toBe("1 agent");
     render({ layout: "desk", tasks: [], taskViewOpen: true });
     expect(testId("chat-agents-chip")).toBeNull();
   });

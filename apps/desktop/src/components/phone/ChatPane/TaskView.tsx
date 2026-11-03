@@ -150,16 +150,16 @@ export function TaskPanel(props: TaskPanelProps) {
     onPick(agents[(index + by + agents.length) % agents.length].id);
   };
 
-  // Takes the keyboard so Escape closes it, and hands it back on the way out
-  // unless you've already moved on (to the composer, say).
+  // Takes the keyboard so Escape closes it, unless you're typing in another
+  // pane (it also mounts when a remote host comes back). On the way out, focus
+  // that went with it lands in the composer, ready to reply.
   useMountEffect(() => {
-    const opener = document.activeElement;
-    panelRef.current?.focus({ preventScroll: true });
+    const panel = panelRef.current;
+    const pane = panel?.closest("[data-chat-pane]");
+    const idle = () => !document.activeElement || document.activeElement === document.body;
+    if (idle() || pane?.contains(document.activeElement)) panel?.focus({ preventScroll: true });
     return () => {
-      const lost = !document.activeElement || document.activeElement === document.body;
-      if (lost && opener instanceof HTMLElement && opener.isConnected) {
-        opener.focus({ preventScroll: true });
-      }
+      if (idle()) pane?.querySelector("textarea")?.focus({ preventScroll: true });
     };
   });
 

@@ -204,6 +204,7 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
         key="agents"
         running={runningAgents}
         done={doneAgents}
+        total={agents.length}
         open={taskViewOpen}
         onClick={onToggleAgents}
       />
@@ -365,14 +366,16 @@ type AgentsChipProps = {
   running: number;
   /** The agents that finished since your last message. */
   done: readonly TaskItem[];
+  /** How many background agents the chat has had. */
+  total: number;
   open: boolean;
   onClick?: () => void;
 };
 
 /** The agents chip, which opens the task view. */
 function AgentsChip(props: AgentsChipProps) {
-  const { running, done, open, onClick } = props;
-  const label = agentsChipLabel(running, done.length);
+  const { running, done, total, open, onClick } = props;
+  const label = agentsChipLabel(running, done.length, total);
   const failed = running === 0 && done.some((t) => t.display === "error");
   return (
     <Button

@@ -172,23 +172,42 @@ test.describe("chat task view", () => {
     await expect(panel.getByText("Spec 29 of 30 passed.")).toBeInViewport({ timeout: 15_000 });
     await film.shot(window, "desk-dark-panel-following");
 
+    // Scrolled up, new output leaves your place alone.
+    const transcript = panel.getByTestId("chat-task-transcript");
+    await transcript.hover();
+    await window.mouse.wheel(0, -300);
+    await expect.poll(() => transcript.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeGreaterThan(100);
+    const scrolledTo = await transcript.evaluate((el) => el.scrollTop);
+    child("atwo", "atwo-late", "assistant", [{ type: "text", text: "One more spec passed." }]);
+    await expect(panel.getByText("One more spec passed.")).toBeAttached({ timeout: 15_000 });
+    expect(await transcript.evaluate((el) => el.scrollTop)).toBe(scrolledTo);
+
+    // Escape closes it after a click in the chat too, which takes focus off everything.
+    await lastLine.click();
+    await window.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await chip.click();
+    await expect(panel).toBeVisible();
+
     // 3. Escape closes it, even from the composer, and the composer stays usable with it open.
     await composer.click();
     await composer.fill("still typing");
     await expect(panel).toBeVisible();
     await composer.press("Escape");
     await expect(panel).toBeHidden();
+    await expect(composer).toBeFocused();
     await composer.fill("");
 
     // 4. A card opens the same view on its agent, and leaves a scrolled chat in place.
     const card = chat.locator('[data-task-id="toolu_one"]');
-    await card.scrollIntoViewIfNeeded();
+    await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    await window.waitForTimeout(300);
     const before = await card.boundingBox();
     await card.getByRole("button").first().click();
     await expect(panel).toContainText("Audit toast call sites");
     await expect(card).toHaveAttribute("data-viewed", "true");
     const after = await card.boundingBox();
-    expect(Math.abs(after!.y - before!.y)).toBeLessThan(120);
+    expect(Math.abs(after!.y - before!.y)).toBeLessThan(4);
     await film.shot(window, "desk-dark-card-opens-panel");
     await window.keyboard.press("Escape");
     await expect(panel).toBeHidden();
@@ -221,6 +240,7 @@ test.describe("chat task view", () => {
 
     // 7. Light.
     await useTheme(window, "Catppuccin Latte");
+    await window.waitForTimeout(800);
     await chip.click();
     await expect(panel).toBeVisible();
     await film.shot(window, "desk-light-panel");
@@ -284,6 +304,10 @@ test.describe("chat task view", () => {
     await film.shot(window, "desk-dark-done-panel");
     await window.keyboard.press("Escape");
     await expect(panel).toBeHidden();
+    await expect(composer).toBeFocused();
+    await film.shot(window, "desk-dark-after-escape");
+    // The fake agent's timestamps are whole seconds: this message must land in a later one.
+    await window.waitForTimeout(1100);
     await composer.fill("thanks, carry on");
     await composer.press("Enter");
     await expect(chat.getByTestId("chat-user").filter({ hasText: "thanks, carry on" })).toBeVisible({ timeout: 15_000 });

@@ -1509,6 +1509,7 @@ button.editToggle {
   display: flex;
   flex: 1;
   min-height: 0;
+  outline: none;
   container: chat-body / inline-size;
 }
 

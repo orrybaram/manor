@@ -117,10 +117,12 @@ function finishedAt(task: TaskItem): number {
 
 /**
  * The agents chip: "3 agents" while they run, "1 agent · 2 done" with some
- * finished since your last message, "3 agents done" once all are.
+ * finished since your last message, "3 agents done" once all are. With neither
+ * (the task view keeps it up over older agents), how many the chat has had.
  */
-export function agentsChipLabel(running: number, done = 0): string {
+export function agentsChipLabel(running: number, done = 0, total = 0): string {
   const count = (n: number) => (n === 1 ? "1 agent" : `${n} agents`);
+  if (running === 0 && done === 0) return count(total);
   if (running === 0) return `${count(done)} done`;
   return done > 0 ? `${count(running)} · ${done} done` : count(running);
 }

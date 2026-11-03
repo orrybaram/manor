@@ -12,6 +12,22 @@ interface PreferencesState {
   ) => void;
 }
 
+/** This window's writes the main process hasn't answered yet, by key. */
+const unanswered = new Map<keyof AppPreferences, number>();
+
+/**
+ * What main says, except for keys this window has a write on the way for:
+ * main's answer to an earlier keystroke would take back a later one.
+ */
+function overUnanswered(
+  theirs: AppPreferences,
+  ours: AppPreferences,
+): AppPreferences {
+  const merged: Record<string, unknown> = { ...theirs };
+  for (const key of unanswered.keys()) merged[key] = ours[key];
+  return merged as unknown as AppPreferences;
+}
+
 const defaultPreferences: AppPreferences = {
   dockBadgeEnabled: true,
   notifyOnResponse: true,
@@ -45,12 +61,16 @@ const defaultPreferences: AppPreferences = {
   mergeCleanups: {},
 };
 
-export const usePreferencesStore = create<PreferencesState>((set) => {
+export const usePreferencesStore = create<PreferencesState>((set, get) => {
   if (window.electronAPI?.preferences) {
     liveValue(
       () => window.electronAPI.preferences.getAll(),
       (cb) => window.electronAPI.preferences.onChange(cb),
-      (preferences) => set({ preferences, loaded: true }),
+      (preferences) =>
+        set({
+          preferences: overUnanswered(preferences, get().preferences),
+          loaded: true,
+        }),
     );
   }
 
@@ -64,7 +84,15 @@ export const usePreferencesStore = create<PreferencesState>((set) => {
         preferences: { ...s.preferences, [key]: value },
       }));
       // Persist to main process
-      window.electronAPI?.preferences.set(key, value);
+      const write = window.electronAPI?.preferences.set(key, value);
+      if (!write) return;
+      unanswered.set(key, (unanswered.get(key) ?? 0) + 1);
+      const answered = () => {
+        const left = (unanswered.get(key) ?? 1) - 1;
+        if (left > 0) unanswered.set(key, left);
+        else unanswered.delete(key);
+      };
+      void Promise.resolve(write).then(answered, answered);
     },
   };
 });

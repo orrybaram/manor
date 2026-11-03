@@ -1,6 +1,8 @@
 /**
  * The fonts chat can be drawn in. Manor ships these (`chat-fonts.css`), so one
- * looks the same on every computer and on a paired phone.
+ * looks the same on every computer and on a paired phone. Their faces go by
+ * private names (`Manor Chat …`): a web font takes over every use of its name,
+ * so one called Inter would replace an installed Inter wherever it is drawn.
  */
 
 const SYSTEM_SANS = `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
@@ -25,5 +27,6 @@ export const BUNDLED_CHAT_FONTS = Object.keys(BUNDLED_FALLBACK);
 export function chatFontStack(family: string): string {
   const name = family.replace(/["\\]/g, "").trim();
   if (!name) return "inherit";
-  return `"${name}", ${BUNDLED_FALLBACK[name] ?? SYSTEM_SANS}`;
+  const fallback = BUNDLED_FALLBACK[name];
+  return fallback ? `"Manor Chat ${name}", ${fallback}` : `"${name}", ${SYSTEM_SANS}`;
 }

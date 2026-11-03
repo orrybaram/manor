@@ -2,7 +2,8 @@
 # Regenerates public/fonts/chat/ and src/chat-fonts.css: the fonts chat can be
 # drawn in (Settings › Font). Each is a variable font from Fontsource, cut to
 # Latin and Latin Extended, under the SIL Open Font License shipped beside it.
-# Picked by name in src/lib/chat-fonts.ts.
+# Picked by name in src/lib/chat-fonts.ts, which says why the faces go by
+# private names.
 set -euo pipefail
 
 VERSION=5.3.0
@@ -52,7 +53,7 @@ for sheet in ("wght.css", "wght-italic.css"):
     for comment, rule in re.findall(r"/\* (\S+) \*/\s*(@font-face \{.*?\})", text, re.S):
         if not re.fullmatch(rf"{re.escape(slug)}-latin(-ext)?-wght-(normal|italic)", comment):
             continue
-        rule = re.sub(r"font-family: *'[^']*'", f'font-family: "{name}"', rule)
+        rule = re.sub(r"font-family: *'[^']*'", f'font-family: "Manor Chat {name}"', rule)
         rule = re.sub(r"url\(\./files/", "url(/fonts/chat/", rule)
         print(rule)
 PY

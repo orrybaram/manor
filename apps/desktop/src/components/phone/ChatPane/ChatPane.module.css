@@ -660,7 +660,8 @@ button.more {
   border: none;
   background: transparent;
   resize: none;
-  font-family: var(--chat-font-family, inherit);
+  /* With no choice made, the textarea's own font, as ever. */
+  font-family: var(--chat-font-family, revert);
   font-size: 16px;
   field-sizing: content;
 }

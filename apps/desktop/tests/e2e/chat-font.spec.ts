@@ -32,8 +32,9 @@ const fetchedFaces = (page: Page) =>
   page.evaluate(
     (bundled) =>
       [...document.fonts]
-        .filter((f) => bundled.includes(f.family.replace(/"/g, "")) && f.status !== "unloaded")
-        .map((f) => `${f.family.replace(/"/g, "")}/${f.status}`),
+        .map((f) => ({ family: f.family.replace(/"/g, "").replace("Manor Chat ", ""), status: f.status }))
+        .filter((f) => bundled.includes(f.family) && f.status !== "unloaded")
+        .map((f) => `${f.family}/${f.status}`),
     BUNDLED,
   );
 
@@ -103,6 +104,15 @@ test.describe("chat font", () => {
 
     // ── A fresh profile: as it always was, and nothing downloaded ──
     const systemFamily = await style(paragraph, "fontFamily");
+    // The composer keeps the textarea's own font.
+    expect(await style(composer, "fontFamily")).toBe(
+      await window.evaluate(() => {
+        const plain = document.body.appendChild(document.createElement("textarea"));
+        const family = getComputedStyle(plain).fontFamily;
+        plain.remove();
+        return family;
+      }),
+    );
     const uiFamily = await chat.evaluate((el) => getComputedStyle(el).fontFamily);
     expect(systemFamily).toBe(uiFamily);
     expect(await style(paragraph, "fontSize")).toBe("14px");
@@ -122,9 +132,12 @@ test.describe("chat font", () => {
       const list = window.locator("#searchable-select-listbox");
       await expect(list.getByText("Manor", { exact: true })).toBeVisible();
       const first = list.getByRole("option").first();
-      // The default row draws its label in its own face.
-      const label = first.locator("span").first();
-      await expect.poll(() => style(label, "fontFamily")).not.toBe("");
+      await expect(first).toBeVisible();
+      // The list rests on the current choice, so Enter changes nothing.
+      await window.keyboard.press("Enter");
+      await expect(list).toBeHidden();
+      await window.getByTestId(`${row}-family`).click();
+      await expect(list).toBeVisible();
       if (row === "chat-font") {
         for (const family of BUNDLED) {
           const option = list.getByRole("option", { name: family, exact: true });
@@ -207,6 +220,7 @@ test.describe("chat font", () => {
       const phoneParagraph = phoneReply.locator("p").first();
       await expect.poll(() => style(phoneParagraph, "fontFamily")).toContain("Literata");
       expect(await style(phoneParagraph, "fontSize")).toBe("15px");
+      expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--chat-font-size"))).toBe("");
       await expect.poll(() => fetchedFaces(page)).toContain("Literata/loaded");
 
       // Picked on the desk with the phone open: the phone redraws without a reload.

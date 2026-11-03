@@ -9,8 +9,8 @@ describe("chatFontStack", () => {
 
   it("offers five bundled families, each with a fallback of its kind", () => {
     expect(BUNDLED_CHAT_FONTS).toHaveLength(5);
-    expect(chatFontStack("Literata")).toBe('"Literata", Georgia, serif');
-    expect(chatFontStack("JetBrains Mono")).toBe('"JetBrains Mono", var(--font-mono)');
+    expect(chatFontStack("Literata")).toBe('"Manor Chat Literata", Georgia, serif');
+    expect(chatFontStack("JetBrains Mono")).toBe('"Manor Chat JetBrains Mono", var(--font-mono)');
   });
 
   it("falls back to the system font for an installed family a phone may lack", () => {

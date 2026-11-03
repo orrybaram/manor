@@ -178,7 +178,17 @@ export function SearchableSelect(props: SearchableSelectProps) {
   const rowCount = rows.length;
   // A disabled first row hands the highlight to the next one that isn't.
   const firstEnabled = rowDisabled(rows[0]) ? nextEnabled(rows, 0, 1) : 0;
-  const active = highlightIndex === -1 ? firstEnabled : highlightIndex;
+  // A list that just opened rests on the current choice, so Enter keeps it.
+  const selectedRow = search
+    ? -1
+    : rows.findIndex(
+        (row) =>
+          row.kind === "option" &&
+          row.option.value === value &&
+          !row.option.disabledReason,
+      );
+  const resting = selectedRow === -1 ? firstEnabled : selectedRow;
+  const active = highlightIndex === -1 ? resting : highlightIndex;
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -256,7 +266,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
       `[data-row="${active}"]`,
     );
     el?.scrollIntoView({ block: "nearest" });
-  }, [active]);
+  }, [active, open]);
 
   const highlightedRow = rows[active];
   const highlightedValue =

@@ -49,6 +49,9 @@ describe("runWhatText", () => {
     expect(runWhatText(run({ workspacePath: "/w", sentToPane: true }), opts)).toBe(
       "Sent to the agent in triage · Oct 29",
     );
+    expect(runWhatText(run({ trigger: "manual", workspacePath: "/w", sentToPane: true }), opts)).toBe(
+      "Run now · sent to the agent in triage · Oct 29",
+    );
     expect(runWhatText(run({ trigger: "manual", workspacePath: "/w" }), opts)).toBe(
       "Run now · triage · Oct 29",
     );

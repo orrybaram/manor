@@ -41,6 +41,7 @@ describe("createPaneSender", () => {
   let facts: PaneFacts | null;
   let status: string | null;
   let root: string | null;
+  let paneKind: string | null;
   let agents: Array<{ id: string; paneId: string; createdAt: string }>;
   let panes: string[];
   let typed: string[];
@@ -61,6 +62,7 @@ describe("createPaneSender", () => {
     facts = AT_PROMPT;
     status = "responded";
     root = "session-1";
+    paneKind = null;
     agents = [{ id: "agent-1", paneId: "pane-1", createdAt: HOUR_AGO }];
     panes = ["pane-1"];
     typed = [];
@@ -72,7 +74,7 @@ describe("createPaneSender", () => {
         getAgentByPaneId: (paneId: string) => agents.find((a) => a.paneId === paneId) ?? null,
       },
       agentStatus: {
-        getPaneState: () => (status === null && root === null ? undefined : { status, rootSessionId: root }),
+        getPaneState: () => (status === null && root === null ? undefined : { status, rootSessionId: root, kind: paneKind }),
       },
       lastStartedRun: () => run,
       layout: {
@@ -136,8 +138,14 @@ describe("createPaneSender", () => {
     expect(typed).toEqual([]);
   });
 
+  it("sends to an agent launched through a wrapper, which its session vouches for", async () => {
+    facts = { ...AT_PROMPT, foreground: { name: "myclaude", kind: null } };
+    expect(await send(automation("keep"))).toMatchObject({ outcome: "started" });
+  });
+
   it("skips a program the user runs in the pane rather than typing into it", async () => {
     facts = { ...AT_PROMPT, foreground: { name: "vim", kind: null } };
+    root = null;
     expect(await send()).toMatchObject({ outcome: "skipped", reason: "still-working" });
     expect(typed).toEqual([]);
   });
@@ -148,6 +156,10 @@ describe("createPaneSender", () => {
     ["the host has no such session", () => (facts = null)],
     ["the agent exited to its shell", () => (facts = SHELL)],
     ["another kind of agent is there", () => (facts = { ...AT_PROMPT, foreground: { name: "codex", kind: "codex" } })],
+    ["its session says another kind of agent", () => {
+      facts = { ...AT_PROMPT, foreground: { name: "wrapper", kind: null } };
+      paneKind = "codex";
+    }],
     ["the last run was in another workspace", () => (run = { ...run!, workspacePath: "/elsewhere" })],
   ])("leaves it to a new tab when %s", async (_name, arrange) => {
     arrange();
@@ -170,6 +182,12 @@ describe("createPaneSender", () => {
     agents = [];
     facts = SHELL;
     expect(await send()).toBeNull();
+  });
+
+  it("doesn't wait on a sent run whose clear made no new Agent", async () => {
+    run = { ...run!, sentToPane: true, firedAt: new Date(NOW - 10_000).toISOString() };
+    agents = [];
+    expect(await send(automation("keep"))).toMatchObject({ outcome: "started" });
   });
 
   it("skips a second run right after a send", async () => {

@@ -206,8 +206,12 @@ export function runWhatText(
     const why = opts.local ? "Manor was closed" : "host was asleep";
     return `Caught up · ${why}`;
   }
-  if (run.trigger === "manual") return where ? `Run now · ${where}` : "Run now";
-  if (run.sentToPane) return where ? `Sent to the agent in ${where}` : "Sent to the agent";
+  const sent = where ? `sent to the agent in ${where}` : "sent to the agent";
+  if (run.trigger === "manual") {
+    if (run.sentToPane) return `Run now · ${sent}`;
+    return where ? `Run now · ${where}` : "Run now";
+  }
+  if (run.sentToPane) return sent[0].toUpperCase() + sent.slice(1);
   return where ? `Opened ${where}` : "Started";
 }
 

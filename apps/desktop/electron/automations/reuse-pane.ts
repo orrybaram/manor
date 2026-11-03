@@ -82,16 +82,20 @@ export function createPaneSender(
 
     const foreground = facts.foreground;
     if (!foreground) return isStarting(deps, run) ? starting : null;
-    if (foreground.kind && foreground.kind !== automation.agentKind) return null;
-
     const state = deps.agentStatus.getPaneState(paneId);
+    const kind = foreground.kind ?? state?.kind ?? null;
+    if (kind && kind !== automation.agentKind) return null;
+
     const status = state?.status ?? null;
     if (status === "thinking" || status === "working") {
       return skip("still-working", "The previous run is still working");
     }
     if (status === "requires_input") return skip("waiting-for-input", "The agent is waiting for input");
-    // Not the agent itself, and no turn that explains it: the user's program.
-    if (!foreground.kind) return skip("still-working", "The pane is running something else");
+    // A name we don't know with no session reporting: the user's program, not
+    // an agent launched through a wrapper, which its hooks would vouch for.
+    if (!foreground.kind && !state?.rootSessionId) {
+      return skip("still-working", "The pane is running something else");
+    }
     if (isStarting(deps, run)) return starting;
 
     sending.add(automation.id);
@@ -127,7 +131,9 @@ function paneInWorkspace(deps: Pick<PaneSenderDeps, "layout">, paneId: string, w
 
 function isStarting(deps: PaneSenderDeps, run: AutomationRun): boolean {
   const age = deps.now() - Date.parse(run.firedAt);
-  return age < JUST_SENT_MS || (age < STARTING_MS && !findAgent(deps, run));
+  if (age < JUST_SENT_MS) return true;
+  // A run sent to an agent found it running; only a launch can still be starting.
+  return !run.sentToPane && age < STARTING_MS && !findAgent(deps, run);
 }
 
 /** Until a clear has replaced the pane's root session, or it has had its time. */

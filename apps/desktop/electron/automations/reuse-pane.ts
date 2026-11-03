@@ -1,4 +1,5 @@
 import type { AgentManager } from "../agent-persistence";
+import type { PaneAgentState } from "../agent-status/types";
 import type { LayoutStore } from "../layout/layout-store";
 import type { PaneFacts } from "../terminal-host/types";
 import { allPaneIds } from "../../src/lib/layout/pane-tree";
@@ -17,8 +18,14 @@ import type { AutomationFireResult } from "./scheduler";
  * the caller to open a new tab, which later runs then use: the pane has closed,
  * the agent has exited to its shell, or it is another kind of agent now.
  *
- * Unlike the scheduler's overlap check this also counts Needs input, and it is
- * also what a Run now goes through.
+ * Unlike the scheduler's overlap check this also counts Needs input, a turn
+ * that went quiet without ending (`stalled`, which may yet resume) and a pane
+ * whose state isn't known yet, and it is also what a Run now goes through.
+ *
+ * A `fresh` run types its prompt only once the clear has taken: when the agent
+ * reports sessions, a new one must have started, and in any case no turn may
+ * have. Otherwise the run fails where it can be seen, rather than continue the
+ * old conversation or type into whatever the clear did instead.
  */
 
 /**
@@ -36,7 +43,7 @@ const CLEAR_COMMAND: Record<AutomationAgentKind, string> = {
 const STARTING_MS = 60_000;
 /** A run this recent may not have reported its turn yet, Agent record or not. */
 const JUST_SENT_MS = 5_000;
-/** How long a clear gets to replace the root session. The prompt follows regardless. */
+/** How long a clear gets to replace the root session. */
 const CLEAR_TIMEOUT_MS = 5_000;
 /** A TUI that sends no hooks: the wait before typing after its clear. */
 const UNHOOKED_CLEAR_MS = 1_000;
@@ -47,6 +54,8 @@ const POLL_MS = 100;
 export interface PaneSenderDeps extends RunAgentDeps {
   agentManager: RunAgentDeps["agentManager"] & Pick<AgentManager, "getAgentByPaneId">;
   lastStartedRun: (automationId: string) => AutomationRun | null;
+  /** Names a run's Agent for good, before clearing takes it off the pane. */
+  linkRunAgent: (automationId: string, runId: string, agentId: string) => void;
   layout: Pick<LayoutStore, "get">;
   /** The pane's facts, or null when its host has no such session. */
   paneFacts: (paneId: string) => Promise<PaneFacts | null>;
@@ -86,14 +95,13 @@ export function createPaneSender(
     const kind = foreground.kind ?? state?.kind ?? null;
     if (kind && kind !== automation.agentKind) return null;
 
-    const status = state?.status ?? null;
-    if (status === "thinking" || status === "working") {
-      return skip("still-working", "The previous run is still working");
-    }
-    if (status === "requires_input") return skip("waiting-for-input", "The agent is waiting for input");
-    // A name we don't know with no session reporting: the user's program, not
-    // an agent launched through a wrapper, which its hooks would vouch for.
-    if (!foreground.kind && !state?.rootSessionId) {
+    // No signal yet (the server has just restarted, say): it could be mid-turn.
+    if (!state) return starting;
+    if (state.status === "requires_input") return skip("waiting-for-input", "The agent is waiting for input");
+    if (inTurn(state)) return skip("still-working", "The previous run is still working");
+    // A name we don't know, at rest: the status reconciler calls that the agent
+    // gone too, whether it's the user's program or a wrapper around the agent.
+    if (!foreground.kind && !state.hookDriven) {
       return skip("still-working", "The pane is running something else");
     }
     if (isStarting(deps, run)) return starting;
@@ -101,12 +109,24 @@ export function createPaneSender(
     sending.add(automation.id);
     try {
       const fresh = automation.workspace.mode === "reuse" && automation.workspace.pane === "fresh";
-      // Named now: clearing retires this Agent, and the run's is the next one.
-      const agent = fresh ? null : deps.agentManager.getAgentByPaneId(paneId);
       if (fresh) {
+        // Clearing takes this Agent off the pane, where the last run finds it.
+        const previous = run.agentId ? null : findAgent(deps, run);
+        if (previous) deps.linkRunAgent(automation.id, run.id, previous.id);
         await deps.typeIntoPane(paneId, CLEAR_COMMAND[automation.agentKind]);
-        await waitForNewSession(deps, sleep, paneId, state?.rootSessionId ?? null);
+        if (!(await clearTook(deps, sleep, paneId, state.rootSessionId))) {
+          return {
+            outcome: "failed",
+            reason: "error",
+            detail: "The agent didn't start a new conversation, so the prompt wasn't sent",
+            paneId,
+            workspacePath,
+          };
+        }
       }
+      // A retired Agent keeps its pane until the next one starts: not this run's.
+      const current = fresh ? null : deps.agentManager.getAgentByPaneId(paneId);
+      const agent = current?.status === "active" ? current : null;
       await deps.typeIntoPane(paneId, automation.prompt);
       return {
         outcome: "started",
@@ -136,21 +156,35 @@ function isStarting(deps: PaneSenderDeps, run: AutomationRun): boolean {
   return !run.sentToPane && age < STARTING_MS && !findAgent(deps, run);
 }
 
-/** Until a clear has replaced the pane's root session, or it has had its time. */
-async function waitForNewSession(
+/**
+ * Whether a turn is open or may still be: only `none` and `responded` are the
+ * agent at its prompt.
+ */
+function inTurn(state: PaneAgentState): boolean {
+  if (state.status === "thinking" || state.status === "working" || state.status === "requires_input") return true;
+  return state.phase !== "none" && state.phase !== "responded";
+}
+
+/** Waits out a clear. True when the agent is at its prompt in a new conversation. */
+async function clearTook(
   deps: Pick<PaneSenderDeps, "agentStatus">,
   sleep: (ms: number) => Promise<void>,
   paneId: string,
   rootBefore: string | null,
-): Promise<void> {
+): Promise<boolean> {
+  const now = () => deps.agentStatus.getPaneState(paneId);
   if (rootBefore === null) {
     await sleep(UNHOOKED_CLEAR_MS);
-    return;
+  } else {
+    let replaced = false;
+    for (let waited = 0; waited < CLEAR_TIMEOUT_MS && !replaced; waited += POLL_MS) {
+      const root = now()?.rootSessionId ?? null;
+      replaced = root !== null && root !== rootBefore;
+      if (!replaced) await sleep(POLL_MS);
+    }
+    if (!replaced) return false;
+    await sleep(SETTLE_MS);
   }
-  for (let waited = 0; waited < CLEAR_TIMEOUT_MS; waited += POLL_MS) {
-    const root = deps.agentStatus.getPaneState(paneId)?.rootSessionId ?? null;
-    if (root !== null && root !== rootBefore) break;
-    await sleep(POLL_MS);
-  }
-  await sleep(SETTLE_MS);
+  const after = now();
+  return !!after && !inTurn(after);
 }

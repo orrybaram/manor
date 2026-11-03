@@ -42,7 +42,9 @@ describe("createPaneSender", () => {
   let status: string | null;
   let root: string | null;
   let paneKind: string | null;
-  let agents: Array<{ id: string; paneId: string; createdAt: string }>;
+  let phase: string;
+  let linked: string[][];
+  let agents: Array<{ id: string; paneId: string; createdAt: string; status: string }>;
   let panes: string[];
   let typed: string[];
   let onTyped: (text: string) => void;
@@ -63,7 +65,9 @@ describe("createPaneSender", () => {
     status = "responded";
     root = "session-1";
     paneKind = null;
-    agents = [{ id: "agent-1", paneId: "pane-1", createdAt: HOUR_AGO }];
+    phase = "responded";
+    linked = [];
+    agents = [{ id: "agent-1", paneId: "pane-1", createdAt: HOUR_AGO, status: "active" } as never];
     panes = ["pane-1"];
     typed = [];
     onTyped = () => {};
@@ -74,9 +78,10 @@ describe("createPaneSender", () => {
         getAgentByPaneId: (paneId: string) => agents.find((a) => a.paneId === paneId) ?? null,
       },
       agentStatus: {
-        getPaneState: () => (status === null && root === null ? undefined : { status, rootSessionId: root, kind: paneKind }),
+        getPaneState: () => (status === null && root === null ? undefined : { status, rootSessionId: root, kind: paneKind, phase, hookDriven: root !== null }),
       },
       lastStartedRun: () => run,
+      linkRunAgent: (...args: string[]) => linked.push(args),
       layout: {
         get: () =>
           ({
@@ -111,13 +116,33 @@ describe("createPaneSender", () => {
     expect(result).toEqual({ outcome: "started", sentToPane: true, paneId: "pane-1", workspacePath: WORKSPACE });
   });
 
-  it("fresh still sends the prompt when the clear never replaces the session", async () => {
+  it("fails rather than send when the clear never replaces the session", async () => {
+    expect(await send()).toMatchObject({ outcome: "failed", reason: "error", paneId: "pane-1" });
+    expect(typed).toEqual(["/clear"]);
+  });
+
+  it("fails rather than send when the clear started a turn instead", async () => {
+    root = null;
+    onTyped = () => {
+      status = "working";
+    };
+    expect(await send()).toMatchObject({ outcome: "failed" });
+    expect(typed).toEqual(["/clear"]);
+  });
+
+  it("names the last run's Agent before clearing takes it off the pane", async () => {
+    onTyped = (text) => {
+      if (text === "/clear") root = "session-2";
+    };
     await send();
-    expect(typed).toEqual(["/clear", "Screen new PRs"]);
+    expect(linked).toEqual([["auto-1", "run-1", "agent-1"]]);
   });
 
   it("uses each agent's own command", async () => {
     facts = { ...AT_PROMPT, foreground: { name: "codex", kind: "codex" } };
+    onTyped = () => {
+      root = "session-2";
+    };
     await send(automation("fresh", { agentKind: "codex" }));
     expect(typed[0]).toBe("/new");
   });
@@ -138,9 +163,29 @@ describe("createPaneSender", () => {
     expect(typed).toEqual([]);
   });
 
-  it("sends to an agent launched through a wrapper, which its session vouches for", async () => {
+  it("sends past an unknown process name while a session is still hook-driven", async () => {
     facts = { ...AT_PROMPT, foreground: { name: "myclaude", kind: null } };
     expect(await send(automation("keep"))).toMatchObject({ outcome: "started" });
+  });
+
+  it.each(["stalled", "active", "pendingStop"])("skips a turn in phase %s, whatever its status says", async (p) => {
+    phase = p;
+    expect(await send()).toMatchObject({ outcome: "skipped", reason: "still-working" });
+    expect(typed).toEqual([]);
+  });
+
+  it("skips a pane whose state isn't known yet", async () => {
+    status = null;
+    root = null;
+    expect(await send()).toMatchObject({ outcome: "skipped", reason: "agent-starting" });
+    expect(typed).toEqual([]);
+  });
+
+  it("keep doesn't name an Agent that has finished", async () => {
+    agents = [{ ...agents[0], status: "completed" } as never];
+    const result = await send(automation("keep"));
+    expect(result).toMatchObject({ outcome: "started" });
+    expect(result).not.toHaveProperty("agentId");
   });
 
   it("skips a program the user runs in the pane rather than typing into it", async () => {

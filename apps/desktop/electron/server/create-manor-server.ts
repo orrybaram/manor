@@ -787,6 +787,7 @@ export function createManorServer<D extends BridgeServerDeps>(
         agentManager,
         agentStatus: agentStatusDriver,
         lastStartedRun: (id) => automationStore.lastStartedRun(id),
+        linkRunAgent: (id, runId, agentId) => automationStore.linkRunAgent(id, runId, agentId),
         layout: layoutStore,
         // Read at call time, as above.
         paneFacts: (paneId) => core.shared.backend.pty.getPaneFacts(paneId),

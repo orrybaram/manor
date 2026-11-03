@@ -320,6 +320,15 @@ export class AutomationStore {
     return run;
   }
 
+  /** Names a started run's Agent, once it can no longer be found by its pane. */
+  linkRunAgent(automationId: string, runId: string, agentId: string): void {
+    const run = this.runs(automationId).find((r) => r.id === runId);
+    if (!run || run.agentId === agentId) return;
+    run.agentId = agentId;
+    // Not a `run` change: that announces a new run.
+    this.changed({ type: "automation", automationId });
+  }
+
   /** The automation's runs, newest first. */
   runs(automationId: string): AutomationRun[] {
     return this.runsById.get(automationId) ?? [];

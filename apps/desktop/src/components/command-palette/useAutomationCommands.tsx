@@ -126,7 +126,12 @@ export function useAutomationCommands({
               window.electronAPI.automations
                 .runNow(host.hostId, automation.id)
                 .then(
-                  () => toast.success(`Started ${automation.name}`),
+                  (run) => {
+                    if (run.outcome === "started") toast.success(`Started ${automation.name}`);
+                    else if (run.outcome === "failed") {
+                      toast.error(`Couldn't run ${automation.name}`, { detail: run.detail });
+                    } else toast.info(`Skipped ${automation.name}`, { detail: run.detail });
+                  },
                   (err: unknown) =>
                     toast.error(`Couldn't run ${automation.name}`, {
                       detail: errorText(err),

@@ -70,8 +70,13 @@ test.describe("Automations: one agent pane across runs", () => {
     const projects = await call<Array<{ id: string; path: string; workspaces: { path: string }[] }>>("GET", "/projects");
     const project = projects.find((p) => p.path === path.join(tempHome, "test-project")) ?? projects[0];
     const log = path.join(tempHome, "fake-agent.log");
+    // Named as the real CLI is: Manor tells an agent at rest from a program
+    // the user runs in the pane by its foreground process's name.
+    const claude = path.join(tempHome, "fake-bin", "claude");
+    fs.mkdirSync(path.dirname(claude), { recursive: true });
+    fs.symlinkSync(FAKE_AGENT, claude);
     await call("POST", `/projects/${project.id}/update`, {
-      agentCommand: `${FAKE_AGENT_LOG_ENV}="${log}" "${FAKE_AGENT}"`,
+      agentCommand: `FAKE_AGENT_CLEARS=1 ${FAKE_AGENT_LOG_ENV}="${log}" "${claude}"`,
     });
     const logged = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf-8").trim().split("\n") : []);
 

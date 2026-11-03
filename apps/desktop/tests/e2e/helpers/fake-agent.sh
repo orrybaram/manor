@@ -63,6 +63,16 @@ while IFS= read -r -n 1 char; do
   # An empty read is a newline; bash strips its own delimiter.
   if [ -z "$char" ] || [ "$char" = $'\r' ]; then
     [ -n "$line" ] || continue
+    # With FAKE_AGENT_CLEARS set, "/clear" does what a real agent's does: this
+    # session ends, and a new one starts in the same process, with no turn.
+    if [ -n "${FAKE_AGENT_CLEARS:-}" ] && [ "$line" = "/clear" ]; then
+      hook SessionEnd
+      session="e2e-$$-$RANDOM"
+      hook SessionStart
+      [ -n "${FAKE_AGENT_LOG:-}" ] && printf '%s\n' "$line" >> "$FAKE_AGENT_LOG"
+      line=""
+      continue
+    fi
     hook UserPromptSubmit
     retitle
     printf 'received: %s\n' "$line"

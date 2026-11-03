@@ -118,6 +118,7 @@
 /* components/sidebar/ProjectItem.module.css: projects */
 .ma-project-body { margin: 4px 0 14px 11px; padding-left: 7px; border-left: 1px solid var(--border); }
 .ma-project-selected .ma-project-body { border-left-color: var(--project-color, var(--accent)); }
+.ma-project-body > :first-child { margin-top: 0; }
 .ma-project-header { position: relative; display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-selected); transition: background-color 150ms ease; }
 .ma-project-header:hover { background: var(--surface); }
 .ma-project-swatch { flex-shrink: 0; width: 8px; height: 8px; border-radius: 2px; background: var(--project-color, var(--text-dim)); }

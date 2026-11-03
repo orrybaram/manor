@@ -217,7 +217,7 @@ export function tabbedPanel(tabs: TabData[], body: string): string {
 export function leafPane(pane: PaneData): string {
   const id = pane.id ? ` data-pane="${esc(pane.id)}"` : "";
   const actions =
-    (pane.hasChat ? iconButton("ma-pane-btn", "Show chat", icon("message-square", 12)) : "") +
+    (pane.hasChat ? iconButton("ma-pane-btn", "Show as Chat", icon("message-square", 12)) : "") +
     iconButton("ma-pane-btn", "Split pane", SPLIT_PANE_ICON) +
     iconButton("ma-pane-btn", "Close pane", CLOSE_PANE_ICON);
   return (

@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { layoutFile, manorDataDir } from "./paths";
+import { layoutFile, manorDataDir, sessionHintsFile } from "./paths";
+import { writeSessionHints } from "./session-hints";
 import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
@@ -357,6 +358,7 @@ export function initApp(devTitle: string | null): void {
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room.
       vapidKeys: () => core.relayStores.push.vapidKeys(),
+      promptOverrides: () => shared.preferencesManager.get("promptOverrides"),
       // What the desktop still holds for each host, handed to its server;
       // from then on it reads them through that server.
       adoption: core.hostAdoption,
@@ -386,6 +388,17 @@ export function initApp(devTitle: string | null): void {
     // connected.
     hostServerSync.start();
     hostLinks.start();
+
+    // The prompts edited in Settings: this computer's hook reads the session
+    // hints from a file, and each connected host gets the whole set.
+    let promptEdits = shared.preferencesManager.get("promptOverrides");
+    writeSessionHints(sessionHintsFile(), promptEdits);
+    shared.preferencesManager.onChange(({ promptOverrides }) => {
+      if (promptOverrides === promptEdits) return;
+      promptEdits = promptOverrides;
+      writeSessionHints(sessionHintsFile(), promptOverrides);
+      hostServerSync.promptOverridesChanged();
+    });
 
     // Remote control. Constructed here so the status sink and the
     // quit hook can see it; deliberately *not* started here — remote control is

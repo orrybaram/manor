@@ -34,6 +34,8 @@ import {
 import { startAgentWithPrompt } from "../../lib/agent-prompt-launch";
 import { fetchPrs } from "../../hooks/usePrWatcher";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
+import { renderPrompt } from "../../lib/prompts/catalog";
+import { savedPromptOverrides } from "../../lib/prompts/saved-overrides";
 import { PrActions } from "./PrActions";
 import styles from "./PrPopover.module.css";
 
@@ -742,11 +744,15 @@ function CommentsSection(props: {
  * agent can find the code and report where it answered.
  */
 function reviewCommentPrompt(pr: PrInfo, comment: PrComment): string {
-  const where = comment.path ? ` on \`${comment.path}\`` : "";
-  const who = comment.author ? `@${comment.author}` : "a reviewer";
-  return [
-    `Address this unresolved review comment${where} from ${who} on PR #${pr.number} (${pr.title}):`,
-    comment.body.trim(),
-    `Comment: ${comment.url}`,
-  ].join(" ");
+  return renderPrompt(
+    "prComment",
+    {
+      where: comment.path ? ` on \`${comment.path}\`` : "",
+      author: comment.author ? `@${comment.author}` : "a reviewer",
+      pr: `PR #${pr.number} (${pr.title})`,
+      comment: comment.body.trim(),
+      url: comment.url,
+    },
+    savedPromptOverrides(),
+  );
 }

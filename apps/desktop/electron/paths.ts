@@ -174,6 +174,19 @@ export function hookPortFile(): string {
 }
 
 /**
+ * The edited SessionStart hints the hook script reads: beside `hookPortFile()`,
+ * as the script finds them. See `electron/session-hints.ts`.
+ */
+export function sessionHintsFile(): string {
+  return path.join(manorHomeDir(), "session-hints.json");
+}
+
+/** The same for a host server, beside `remoteHookPortFile()`. */
+export function remoteSessionHintsFile(): string {
+  return path.join(remoteNamespaceDir(), "session-hints.json");
+}
+
+/**
  * The remote daemon's hook listener: `<port>\n<token>`, mode 0600. Remote
  * PTYs get its path as `MANOR_HOOK_PORT_FILE`.
  */

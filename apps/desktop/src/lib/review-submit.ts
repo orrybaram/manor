@@ -1,5 +1,7 @@
 import type { DraftComment } from "../store/review-store";
 import { sendPromptToAgent, type AgentTarget } from "./agent-send";
+import { renderPrompt, type PromptOverrides } from "./prompts/catalog";
+import { savedPromptOverrides } from "./prompts/saved-overrides";
 
 export { agentLabel } from "./agent-send";
 
@@ -24,12 +26,8 @@ function commentCount(n: number): string {
  * place that flattens it, because only the delivery step cares that a bare
  * newline in a harness's prompt box submits the turn early.
  */
-export function reviewPrompt(comments: DraftComment[]): string {
-  const lines: string[] = [
-    comments.length === 1
-      ? "I left a comment on the current diff. Take it on its own terms — it may be a question about the code rather than a request to change it. Answer a question directly, and only edit code if the comment actually asks for that."
-      : `I left ${comments.length} comments on the current diff. Take each on its own terms — some may be questions about the code, others requests to change it. Answer the questions directly, and only edit code where a comment actually asks for that.`,
-  ];
+export function reviewPrompt(comments: DraftComment[], overrides?: PromptOverrides | null): string {
+  const lines: string[] = [];
 
   comments.forEach((comment, i) => {
     lines.push(
@@ -40,7 +38,11 @@ export function reviewPrompt(comments: DraftComment[]): string {
     }
   });
 
-  return lines.join("\n");
+  return renderPrompt(
+    "diffComments",
+    { count_comments: commentCount(comments.length), comments: lines.join("\n") },
+    overrides,
+  );
 }
 
 /**
@@ -55,7 +57,7 @@ export function submitReview(
   hostId?: string | null,
 ): void {
   if (comments.length === 0) return;
-  sendPromptToAgent(workspacePath, reviewPrompt(comments), target, {
+  sendPromptToAgent(workspacePath, reviewPrompt(comments, savedPromptOverrides()), target, {
     what: commentCount(comments.length),
     toastId: `review-submit-${workspacePath}`,
     hostId,

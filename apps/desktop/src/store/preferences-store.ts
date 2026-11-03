@@ -41,6 +41,7 @@ const defaultPreferences: AppPreferences = {
   remoteControlOnLaunch: false,
   deleteWorkspaceAfterMerge: true,
   mergeCleanups: {},
+  promptOverrides: {},
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

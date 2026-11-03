@@ -154,6 +154,7 @@ import {
 } from "../bridge/handlers/files";
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
 import type { ProjectInfo } from "../projects/types";
 import { themeScheme, type Theme, type ThemeCatalog, type ThemeColors } from "../theme";
 import type {
@@ -200,7 +201,7 @@ import type { VapidKeys } from "../remote-control/push";
 import type { Adopt, AdoptionBundle } from "./adopt";
 import { answerOwnerRequest } from "./cli-relay";
 import type { ControlRelayResult } from "../terminal-host/control-relay-listener";
-import { assertAdoptionBundle, assertVapidKeys } from "./owner";
+import { assertAdoptionBundle, assertPromptOverrides, assertVapidKeys } from "./owner";
 import { assertOwned, type OwnershipState } from "./ownership";
 import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
 import type { HostWinsize } from "./winsize";
@@ -227,6 +228,8 @@ export interface HostServerDeps
   winsize: HostWinsize;
   /** This server's preferences: the defaults until the desktop syncs any. */
   preferences(): AppPreferences;
+  /** Store the desktop's edited prompts, for what this server builds itself. */
+  setPromptOverrides(overrides: PromptOverrides): void;
   /** The theme a phone draws terminals in: Manor's default. */
   theme(): Theme;
   /** This server's own relay room: pairing, devices, push. */
@@ -458,6 +461,12 @@ async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
 function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
   assertVapidKeys(keys);
   return ctx.deps.relay.setVapidKeys(keys);
+}
+
+/** The prompts edited on the desktop, whole. Replaces what this host held. */
+function hostServerSetPromptOverrides(ctx: Ctx, overrides: PromptOverrides): void {
+  assertPromptOverrides(overrides);
+  ctx.deps.setPromptOverrides(overrides);
 }
 
 /**
@@ -744,6 +753,7 @@ const METHODS = flatten({
     status: method(hostServerStatus, { localOnly: true }),
     resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    setPromptOverrides: method(hostServerSetPromptOverrides, { localOnly: true, mutating: true }),
     setLinearToken: method(hostServerSetLinearToken, { localOnly: true, secretFirstArg: true }),
     adopt: method(hostServerAdopt, { localOnly: true }),
     control: method(hostServerControl, { localOnly: true, mutating: true }),

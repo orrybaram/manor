@@ -210,7 +210,7 @@ export function githubMergePr(
 
 /** The first message for an agent asked to fix a PR's checks or comments. */
 export function githubGetPrAgentPrompt(
-  ctx: HandlerCtx<GithubDeps>,
+  ctx: HandlerCtx<GithubDeps & Pick<SharedDeps, "preferencesManager">>,
   repo: GhRepo,
   number: number,
   task: PrAgentTask,
@@ -220,7 +220,12 @@ export function githubGetPrAgentPrompt(
   if (task !== "checks" && task !== "comments") {
     throw new Error("task: expected checks or comments");
   }
-  return ctx.deps.githubManager.getPrAgentPrompt(repo, number, task);
+  return ctx.deps.githubManager.getPrAgentPrompt(
+    repo,
+    number,
+    task,
+    ctx.deps.preferencesManager.get("promptOverrides"),
+  );
 }
 
 export function githubCreateIssue(

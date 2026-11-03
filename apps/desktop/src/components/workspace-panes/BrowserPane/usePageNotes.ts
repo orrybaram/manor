@@ -10,6 +10,7 @@ import {
   pinLabels,
   type PageNote,
 } from "../../../lib/page-notes";
+import { savedPromptOverrides } from "../../../lib/prompts/saved-overrides";
 import { LOCAL_HOST_ID, parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import type { PagePick, PagePinsLayout } from "../../../../electron/webview-pins";
 
@@ -180,7 +181,7 @@ export function usePageNotes({
   const copy = useCallback(async () => {
     const list = notesRef.current;
     if (list.length === 0) return;
-    const prompt = pageNotesPrompt(list, await screenshotPaths(list));
+    const prompt = pageNotesPrompt(list, await screenshotPaths(list), savedPromptOverrides());
     void window.electronAPI.clipboard.writeText(prompt);
     toast.success(`Copied ${noteCountLabel(list.length)} to the clipboard`, {
       id: `page-notes-${paneId}`,
@@ -193,7 +194,7 @@ export function usePageNotes({
       const list = notesRef.current;
       if (list.length === 0 || !workspaceKey) return;
       const { path: workspacePath, hostId } = parseWorkspaceKey(workspaceKey);
-      const sent = sendPromptToAgent(workspacePath, pageNotesPrompt(list, await screenshotPaths(list)), target, {
+      const sent = sendPromptToAgent(workspacePath, pageNotesPrompt(list, await screenshotPaths(list), savedPromptOverrides()), target, {
         what: noteCountLabel(list.length),
         toastId: `page-notes-${paneId}`,
         hostId,

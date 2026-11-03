@@ -23,6 +23,7 @@ import {
   assertStringArray,
 } from "../ipc-validate";
 import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
+import { PROMPT_MAX_CHARS, isPromptId, type PromptOverrides } from "../../src/lib/prompts/catalog";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { AgentInfo } from "../agent-persistence";
 import type { AdoptionBundle } from "./adopt";
@@ -239,5 +240,15 @@ export function assertVapidKeys(
   assertString(value.privateKey, "vapidKeys.privateKey");
   if (value.publicKey === "" || value.privateKey === "") {
     throw new Error("vapidKeys: keys must not be empty");
+  }
+}
+
+/** Throws unless `value` is what `hostServer.setPromptOverrides` stores. */
+export function assertPromptOverrides(value: unknown): asserts value is PromptOverrides {
+  assertRecord(value, "promptOverrides");
+  for (const [id, text] of Object.entries(value)) {
+    if (!isPromptId(id)) throw new Error(`promptOverrides: unknown prompt '${id}'`);
+    assertString(text, `promptOverrides.${id}`);
+    if (text.length > PROMPT_MAX_CHARS) throw new Error(`promptOverrides.${id}: too long`);
   }
 }

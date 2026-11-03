@@ -26,6 +26,7 @@ import { startAgentInWorkspace } from "./agents";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
 import type { Json, RouteContext, ServerRoute, ServerRouteDeps } from "./types";
 import { issuePrompt } from "../../src/lib/issue-prompt";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
 
 type Ctx = RouteContext<ServerRouteDeps>;
 
@@ -395,6 +396,7 @@ const UPDATABLE_PROJECT_FIELDS = [
 function renderPrompt(
   template: string | undefined,
   ws: WorkspaceFromIssue,
+  overrides: PromptOverrides,
 ): string {
   if (template) {
     // Function replacers: a string one would expand `$&` written in the issue.
@@ -403,7 +405,7 @@ function renderPrompt(
       .replace(/\{title\}/g, () => ws.title)
       .replace(/\{body\}/g, () => ws.body ?? "");
   }
-  return issuePrompt(`GitHub issue #${ws.number}`, ws.title, ws.body);
+  return issuePrompt(`GitHub issue #${ws.number}`, ws.title, ws.body, overrides);
 }
 
 /**
@@ -532,7 +534,7 @@ async function batchCreateWorkspaces(
     }
     if (ws.worktreePath && launch) {
       const result = await startAgentInWorkspace(deps, ws.worktreePath, {
-        prompt: renderPrompt(promptTemplate, ws),
+        prompt: renderPrompt(promptTemplate, ws, deps.preferencesManager.get("promptOverrides")),
         hostId: project.hostId,
       });
       entry.started = result.ok;

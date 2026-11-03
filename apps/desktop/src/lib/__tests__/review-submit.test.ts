@@ -5,6 +5,7 @@ import { clearRecords, toastStore } from "../../toast/toast-store";
 import { reviewPrompt, submitReview } from "../review-submit";
 import { startAgentWithPrompt } from "../agent-prompt-launch";
 import { navigateToAgent } from "../../utils/agent-navigation";
+import { usePreferencesStore } from "../../store/preferences-store";
 
 // `flattenPrompt` is kept real — the "prompt arrives as one line" guarantee
 // below is only worth asserting against the implementation that ships.
@@ -82,7 +83,7 @@ describe("reviewPrompt", () => {
   it("uses singular wording and numbers a single comment", () => {
     const prompt = reviewPrompt([makeComment()]);
 
-    expect(prompt.split("\n")[0]).toContain("I left a comment");
+    expect(prompt.split("\n")[0]).toContain("I left 1 comment");
     expect(prompt).toContain(
       "[1] src/store/app-store.ts L120 — This should be a constant.",
     );
@@ -142,7 +143,7 @@ describe("reviewPrompt", () => {
     ]).split("\n")[0];
 
     expect(preamble).not.toMatch(/^Address/);
-    expect(preamble).toContain("may be questions");
+    expect(preamble).toContain("may be a question");
     expect(preamble).toContain("only edit code where a comment actually asks");
   });
 });
@@ -213,10 +214,22 @@ describe("submitReview", () => {
     const [workspacePath, prompt] =
       vi.mocked(startAgentWithPrompt).mock.calls[0];
     expect(workspacePath).toBe(WS_PATH);
-    expect(prompt).toContain("I left a comment on the current diff.");
+    expect(prompt).toContain("I left 1 comment on the current diff.");
     expect(toastStore.getState().toasts[0].message).toBe(
       "Sent 1 comment to a new agent",
     );
+  });
+
+  it("sends the wording edited in Settings", () => {
+    const store = usePreferencesStore.getState();
+    usePreferencesStore.setState({
+      preferences: { ...store.preferences, promptOverrides: { diffComments: "Look: {{comments}}" } },
+    });
+    submitReview(WS_PATH, [makeComment()], { kind: "new" });
+    usePreferencesStore.setState({ preferences: store.preferences });
+
+    const [, prompt] = vi.mocked(startAgentWithPrompt).mock.calls[0];
+    expect(prompt).toMatch(/^Look: \[1\] src\/store\/app-store\.ts L120/);
   });
 
   it("does nothing when there is nothing to send", () => {

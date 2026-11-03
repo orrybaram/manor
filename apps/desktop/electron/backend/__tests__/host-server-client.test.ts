@@ -140,6 +140,7 @@ describe("HostServerClient over server-bridge", () => {
       secretBox: plainFileSecretBox,
       appVersion: "9.9.9-test",
       transport: noDaemon,
+      sessionHintsFile: path.join(tmp, "session-hints.json"),
       internals: (parts) => {
         relay = parts.relay;
         ownership = parts.ownership;
@@ -282,6 +283,36 @@ describe("HostServerClient over server-bridge", () => {
     await vi.waitFor(() => expect(c.state).toBe("connected"));
     await vi.waitFor(() => expect(vapidKeys).toHaveBeenCalledTimes(3));
     expect(connected).toHaveBeenCalledTimes(3);
+    sync.dispose();
+  });
+
+  it("pushes edited prompts on connect and on each edit, hints to the hook's file", async () => {
+    const c = client();
+    let edits: Record<string, string> = { issue: "First {{issue}}" };
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+      },
+      promptOverrides: () => edits,
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(async () =>
+      expect((await c.api.preferences.getAll()).promptOverrides).toEqual({ issue: "First {{issue}}" }),
+    );
+
+    edits = { sessionHintRemote: "Remote words" };
+    sync.promptOverridesChanged();
+    await vi.waitFor(async () =>
+      expect((await c.api.preferences.getAll()).promptOverrides).toEqual({ sessionHintRemote: "Remote words" }),
+    );
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, "session-hints.json"), "utf-8"))).toEqual({
+      sessionHintRemote: "Remote words",
+    });
     sync.dispose();
   });
 

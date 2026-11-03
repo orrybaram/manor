@@ -184,26 +184,26 @@
   }
 }
 
-/* While `gh pr merge` runs, the button fills like a progress bar. */
+/* While `gh pr merge` runs, the button fills like a progress bar: PrActions
+   drives --merge-fill frame by frame, and the answer finishes it and fades it. */
 .main::before {
   content: "";
   position: absolute;
   inset: 0;
   background: color-mix(in srgb, #fff 26%, transparent);
-  transform: scaleX(0);
+  transform: scaleX(var(--merge-fill, 0));
   transform-origin: left;
+  opacity: 0;
   z-index: -1;
   pointer-events: none;
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.25s 0.1s;
 }
 
 .filling .main::before {
-  animation: fill 1.6s cubic-bezier(0.3, 0.1, 0.3, 1) forwards;
-}
-
-@keyframes fill {
-  to {
-    transform: scaleX(0.92);
-  }
+  opacity: 1;
+  transition: none;
 }
 
 /* Landed: the branches snap together and the whole button pops. */
@@ -235,6 +235,54 @@
   }
   100% {
     transform: scale(1);
+  }
+}
+
+/* Queued or armed: a spark races round the edge for as long as the PR waits. */
+.settled {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.fuse {
+  position: absolute;
+  inset: -2px;
+  z-index: 1;
+  padding: 2px;
+  border-radius: 7px;
+  overflow: hidden;
+  pointer-events: none;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+.fuse::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150%;
+  aspect-ratio: 1;
+  background: conic-gradient(transparent 0 68%, var(--accent) 88%, #fff 99%, transparent 100%);
+  transform: translate(-50%, -50%);
+  animation: fuse 1.9s linear infinite;
+}
+
+@keyframes fuse {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* The moment it catches: a flash, once. */
+.lit {
+  animation: ignite 0.56s ease-out;
+}
+
+@keyframes ignite {
+  30% {
+    transform: scale(1.09);
+    box-shadow: 0 0 26px 7px var(--accent);
   }
 }
 
@@ -328,8 +376,9 @@
   .split,
   .inviting,
   .inviting .main::after,
-  .filling .main::before,
   .merged,
+  .lit,
+  .fuse::before,
   .zipA,
   .zipB,
   .spin {
@@ -337,7 +386,9 @@
     transition: none;
   }
 
-  .inviting .main::after {
+  .inviting .main::after,
+  .main::before,
+  .fuse {
     display: none;
   }
 }

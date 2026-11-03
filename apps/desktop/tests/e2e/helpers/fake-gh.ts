@@ -49,6 +49,8 @@ export interface FakeGhFixtures {
   repo?: FakeRepoSettings;
   /** PR numbers whose base branch has a merge queue. */
   mergeQueue?: number[];
+  /** How long `gh pr merge` takes to answer, by PR number. Absent: at once. */
+  mergeDelayMs?: Record<number, number>;
   /** `gh run view --job <id> --log-failed` output by job id. */
   jobLogs?: Record<string, string>;
 }
@@ -112,6 +114,8 @@ function answer() {
   if (sub === "pr merge") {
     const pr = prByNumber(Number(args[2]));
     if (!pr) return null;
+    const delay = fix.mergeDelayMs[pr.number];
+    if (delay) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
     if (fix.mergeQueue.includes(pr.number)) pr.isInMergeQueue = true;
     else if (args.includes("--auto")) pr.autoMergeRequest = { enabledAt: "2026-10-30T12:00:00Z" };
     else pr.state = "MERGED";
@@ -190,6 +194,7 @@ export function fakeGhFixturesJson(fixtures: FakeGhFixtures): string {
     quiet: QUIET_CONVERSATION,
     repo: fixtures.repo ?? DEFAULT_REPO,
     mergeQueue: fixtures.mergeQueue ?? [],
+    mergeDelayMs: fixtures.mergeDelayMs ?? {},
     jobLogs: fixtures.jobLogs ?? {},
   });
 }

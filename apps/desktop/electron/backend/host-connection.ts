@@ -266,6 +266,12 @@ export interface HostProxyContext
   label(hostId: string): string;
   /** A host's progress events for its owner (`HostProxyOptions.onProgress`). */
   onProgress?(hostId: string, event: HostProgressEvent, args: unknown[]): void;
+  /** A host's own usage stats (`HostProxyOptions.onStatsHistory`). */
+  onStatsHistory?(hostId: string, history: unknown): void;
+  /** `HostProxyOptions.statsResetDue`, for a host. */
+  statsResetDue?(hostId: string): boolean;
+  /** `HostProxyOptions.onStatsReset`, for a host. */
+  onStatsReset?(hostId: string): void;
   /** Where the cache files go. Defaults to `hostCacheDir()`. */
   cacheDir?: string;
 }
@@ -597,6 +603,9 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
             proxyCtx.onAgentUpdate?.(agent, unseen, prev),
           onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
           onNotificationsChanged: () => proxyCtx.onNotificationsChanged?.(),
+          onStatsHistory: (history) => proxyCtx.onStatsHistory?.(hostId, history),
+          statsResetDue: () => proxyCtx.statsResetDue?.(hostId) ?? false,
+          onStatsReset: () => proxyCtx.onStatsReset?.(hostId),
           publishKeyed: proxyCtx.publishKeyed,
           claimsFor: proxyCtx.claimsFor,
           onLayoutMoved: proxyCtx.onLayoutMoved,

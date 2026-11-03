@@ -8,7 +8,8 @@ export type SettingsPageId =
   | "integrations"
   | "hosts"
   | "devices"
-  | "automations";
+  | "automations"
+  | "prompts";
 
 export type SettingsSection = {
   /**
@@ -61,6 +62,11 @@ const PAGE_SECTIONS: {
         keywords: ["source control", "scm", "git", "diff", "panel", "side by side", "changes"],
       },
       {
+        id: "general-chat",
+        label: "Agent Chat",
+        keywords: ["chat", "agent", "conversation", "terminal", "transcript", "claude", "codex", "phone"],
+      },
+      {
         id: "general-stats",
         label: "Usage Stats",
         keywords: ["stats", "usage", "telemetry", "reset", "privacy"],
@@ -86,11 +92,6 @@ const PAGE_SECTIONS: {
         id: "app-font",
         label: "Font",
         keywords: ["font", "family", "size", "typeface"],
-      },
-      {
-        id: "app-seasonal",
-        label: "Seasonal",
-        keywords: ["halloween", "cobwebs", "dust", "seasonal", "spooky"],
       },
     ],
   },
@@ -188,6 +189,18 @@ const PAGE_SECTIONS: {
         id: "automations-list",
         label: "Automations",
         keywords: ["schedule", "cron", "scheduled agents", "run now", "pause", "every day", "weekdays", "hourly"],
+      },
+    ],
+  },
+  {
+    page: "prompts",
+    pageLabel: "Prompts",
+    pageKeywords: ["prompts", "agent", "template", "instructions", "wording"],
+    sections: [
+      {
+        id: "prompts-list",
+        label: "Prompts",
+        keywords: ["fix with agent", "issue", "failing checks", "review", "merge conflicts", "page notes", "handoff", "session start hint"],
       },
     ],
   },

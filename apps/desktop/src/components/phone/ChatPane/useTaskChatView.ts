@@ -17,7 +17,7 @@ type TaskChatView = {
  * One background task's own transcript, read the way
  * `ChatPane` reads a pane's: subscribe to its stream first, then fetch the
  * history, and merge the two by entry id so nothing published in between is
- * lost. Mounted per open `TaskSheet`, so each watches one child stream.
+ * lost. Mounted per shown task, so each watches one child stream.
  */
 export function useTaskChatView(paneId: string, taskId: string): TaskChatView {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -29,13 +29,14 @@ export function useTaskChatView(paneId: string, taskId: string): TaskChatView {
     let alive = true;
     let shown = false;
 
-    function fetchHistory(): void {
+    /** `replace`: the history changed in place (`ChatReset`); show it alone. */
+    function fetchHistory(replace = false): void {
       chat.getTaskHistory(paneId, taskId).then(
         (history) => {
           if (!alive) return;
           shown = history.ok;
           if (history.ok) {
-            setEntries((prev) => mergeHistory(history.entries, prev));
+            setEntries((prev) => (replace ? history.entries : mergeHistory(history.entries, prev)));
           }
           setUnavailable(!history.ok);
           setLoaded(true);
@@ -51,9 +52,12 @@ export function useTaskChatView(paneId: string, taskId: string): TaskChatView {
 
     // Keyed by pane and task: only this task's pushes arrive here.
     const unsubscribe = chat.onTaskEntry(chatTaskKey(paneId, taskId), (_paneId, _taskId, entry) => {
-      if (entry.kind !== "usage" && entry.kind !== "turn") setEntries((prev) => upsertEntry(prev, entry));
+      if (entry.kind === "reset") fetchHistory(true);
+      else if (entry.kind !== "usage" && entry.kind !== "turn" && entry.kind !== "session") {
+        setEntries((prev) => upsertEntry(prev, entry));
+      }
     });
-    const unsubscribeResync = onBridgeResync(fetchHistory);
+    const unsubscribeResync = onBridgeResync(() => fetchHistory());
     fetchHistory();
     return () => {
       alive = false;

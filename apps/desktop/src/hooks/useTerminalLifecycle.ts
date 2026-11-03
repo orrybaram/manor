@@ -7,11 +7,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { osc52Clipboard } from "../terminal/osc52-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
 import { claimWebgl, type WebglClaim } from "../terminal/webgl-contexts";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { editorIsManor, openInEditor } from "../lib/editor";
 import { createLinkHoverTracker } from "../terminal/link-hover";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
@@ -38,6 +40,7 @@ import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
 import { useOwnerFit, useFollowerFit } from "./useTerminalResize";
+import { currentTerminalFont, useTerminalFont } from "./useTerminalFont";
 import { useMountEffect } from "./useMountEffect";
 import {
   registerTerminal,
@@ -74,6 +77,8 @@ export function useTerminalLifecycle(
     null,
   );
   const termRef = useRef<Terminal | null>(null);
+  /** The font from Settings, applied to a live terminal by the effect below. */
+  const font = useTerminalFont();
   /** The link under the pointer, for the context menu's link items. */
   const [linkHover] = useState(createLinkHoverTracker);
   /**
@@ -147,7 +152,13 @@ export function useTerminalLifecycle(
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
   // both called: see each hook's own comment.
   const refitOwner = useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
-  const refitFollower = useFollowerFit(containerRef, term, follower, follower !== null);
+  const refitFollower = useFollowerFit(
+    containerRef,
+    term,
+    follower,
+    follower !== null,
+    font.size,
+  );
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -216,6 +227,24 @@ export function useTerminalLifecycle(
     if (shown && refitPendingRef.current) refitAfterSwap();
   }, [shown, refitAfterSwap]);
 
+  // A font from Settings: draw with it now and refit, as a renderer swap
+  // does — a new cell is a new grid, and the pty hears it once. A follower's
+  // size is `useFollowerFit`'s to set: it is shrunk to the owner's grid, and
+  // the new size is only its ceiling.
+  useLayoutEffect(() => {
+    if (!term) return;
+    const owner = follower === null;
+    if (
+      term.options.fontFamily === font.family &&
+      (!owner || term.options.fontSize === font.size)
+    ) {
+      return;
+    }
+    term.options.fontFamily = font.family;
+    if (owner) term.options.fontSize = font.size;
+    refitAfterSwap();
+  }, [term, font.family, font.size, follower, refitAfterSwap]);
+
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.
   const prevThemeRef = useRef<ITheme | null>(theme);
@@ -247,8 +276,13 @@ export function useTerminalLifecycle(
       // pane waited, and the render-time sync above had no terminal to apply
       // it to.
       const currentTheme = prevThemeRef.current;
+      // Read from the store, not a render: preferences may have landed
+      // after this pane's last render (`whenTerminalCanOpen` waits on them).
+      const openFont = currentTerminalFont();
       const t = new Terminal(
         terminalOptions({
+          fontFamily: openFont.family,
+          fontSize: openFont.size,
           ...(currentTheme ? { theme: currentTheme } : {}),
           linkHandler: {
             activate: (_event, text) => {
@@ -343,7 +377,7 @@ export function useTerminalLifecycle(
       }
 
       try {
-        t.loadAddon(new ClipboardAddon());
+        t.loadAddon(new ClipboardAddon(undefined, osc52Clipboard));
       } catch {
         // ignored
       }
@@ -374,8 +408,9 @@ export function useTerminalLifecycle(
       // frame into the scrollback.
       fit.fit();
 
-      // File path links: a workspace file opens in a file pane (Cmd/Ctrl+click,
-      // or the context menu); any other file Cmd/Ctrl+clicks into the editor.
+      // File path links: a workspace file Cmd/Ctrl+clicks into a file pane
+      // when Manor is the editor, else into the editor; the context menu offers
+      // the file pane either way. Any other file Cmd/Ctrl+clicks into the editor.
       // Not in the browser: the phone's file pane is read-only, and the
       // editor fallback resolves paths through `shell`, which it does not have.
       if (!isWebApp()) {
@@ -387,8 +422,13 @@ export function useTerminalLifecycle(
             workspace: workspaceKey ? parseWorkspaceKey(workspaceKey) : null,
             hover: linkHover.hoverFile,
             leave: linkHover.leave,
-            open: (link) =>
-              openFileBeside(paneId, link.path, splitDirectionBeside(container), link),
+            open: (link) => {
+              if (editorIsManor()) {
+                openFileBeside(paneId, link.path, splitDirectionBeside(container), link);
+              } else if (workspaceKey) {
+                openInEditor(`${parseWorkspaceKey(workspaceKey).path}/${link.path}`);
+              }
+            },
           }),
         );
       }

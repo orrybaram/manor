@@ -42,12 +42,14 @@ const CommandPalette = lazy(() => import("./components/command-palette/CommandPa
 const GoToFile = lazy(() => import("./components/go-to-file/GoToFile").then(m => ({ default: m.GoToFile })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
+type AutomationTarget = import("./components/settings/AutomationsPage/AutomationsPage").AutomationTarget;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
 import { RemoveFromHostDialog } from "./components/sidebar/RemoveFromHostDialog";
 import { DeletePodDialogHost } from "./components/hosts/DeletePodDialogHost";
 import { ProfileEditorDialog } from "./components/settings/HostsPage/ProfileEditorDialog";
 import { useHostProfileStore } from "./store/host-profile-store";
+const MoveWorkspaceToHostDialogHost = lazy(() => import("./components/sidebar/MoveWorkspaceToHostDialog").then(m => ({ default: m.MoveWorkspaceToHostDialogHost })));
 const TransferDialogHost = lazy(() => import("./components/hosts/TransferDialogHost").then(m => ({ default: m.TransferDialogHost })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
@@ -94,6 +96,8 @@ import { onBridgeResync } from "./bridge/resync";
 import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { useEditorFont } from "./hooks/useEditorFont";
+import { useChatFont } from "./hooks/useChatFont";
 import { reportUnsavedFiles } from "./lib/report-unsaved-files";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
@@ -122,9 +126,11 @@ import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import { wireToastSubjects } from "./store/toast-subjects";
 import "./App.css";
+import "./chat-fonts.css";
 
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
+  const themedSettingsProjectId = useThemeStore((s) => s.settingsProjectId);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const projectsLoadError = useProjectStore((s) => s.loadError);
   const [appReady, setAppReady] = useState(false);
@@ -165,6 +171,8 @@ function App() {
   useRemoteRecovery();
   useTerminalResync();
   useAgentContextRepair();
+  useEditorFont();
+  useChatFont();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [goToFileOpen, setGoToFileOpen] = useState(false);
@@ -190,10 +198,7 @@ function App() {
   );
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
-  const [settingsAutomation, setSettingsAutomation] = useState<{
-    hostId: string;
-    automationId: string;
-  } | null>(null);
+  const [settingsAutomation, setSettingsAutomation] = useState<AutomationTarget | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
@@ -413,6 +418,12 @@ function App() {
           setSettingsAutomation({ hostId: request.hostId, automationId: request.automationId });
           setSettingsOpen(true);
         }
+        if (request.type === "new-automation") {
+          setSettingsPage("automations");
+          setSettingsSection(null);
+          setSettingsAutomation("new");
+          setSettingsOpen(true);
+        }
         if (request.type === "open-remote-settings") {
           setSettingsPage("hosts");
           setSettingsSection("host-local");
@@ -486,11 +497,15 @@ function App() {
   // re-applies here.
   // A detached window paints in its claimed workspace's theme:
   // it has no sidebar selection of its own to read one from.
-  const effectiveThemeName = OWN_CLAIM
-    ? (ownerOf(projects, OWN_CLAIM.workspacePath as WorkspaceKey)?.themeName ?? null)
-    : isHomePath(activeWorkspacePath) || tasksViewShown
-      ? null
-      : projects[selectedProjectIndex]?.themeName ?? null;
+  // A project's Settings page shows that project's theme.
+  const settingsProject = projects.find((p) => p.id === themedSettingsProjectId);
+  const effectiveThemeName = settingsProject
+    ? (settingsProject.themeName ?? null)
+    : OWN_CLAIM
+      ? (ownerOf(projects, OWN_CLAIM.workspacePath as WorkspaceKey)?.themeName ?? null)
+      : isHomePath(activeWorkspacePath) || tasksViewShown
+        ? null
+        : projects[selectedProjectIndex]?.themeName ?? null;
   const prevThemeRef = useRef(effectiveThemeName);
   if (effectiveThemeName !== prevThemeRef.current) {
     prevThemeRef.current = effectiveThemeName;
@@ -969,6 +984,7 @@ function App() {
               onRemoteProjectAdded={handleRemoteProjectAdded}
             />
             <TransferDialogHost />
+            <MoveWorkspaceToHostDialogHost />
             {layoutMode === "desk" && <MoveToWorkspacePicker />}
             <RemoveFromHostDialog />
             <DeletePodDialogHost />

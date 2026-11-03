@@ -35,7 +35,11 @@ export interface UseRemoteBrowserUrlOptions {
 }
 
 export interface UseRemoteBrowserUrlResult {
-  /** The webview's `src` — the forwarded URL actually loaded, never the remembered box URL. */
+  /**
+   * The webview's `src`: the first URL loaded, fixed for the pane's life. A
+   * remote pane's is never the remembered box URL, which would load on this
+   * machine.
+   */
   src: string;
   /** Waiting on a disconnected/reconnecting host to resolve a remembered URL. */
   waiting: boolean;
@@ -82,9 +86,13 @@ export function useRemoteBrowserUrl(
   const [deferInitialLoad] = useState(
     () => remoteHostId !== null && isLocalhostHttpUrl(initialUrl),
   );
-  const [loadedUrl, setLoadedUrl] = useState(deferInitialLoad ? "about:blank" : initialUrl);
-  const loadedUrlRef = useRef(loadedUrl);
-  loadedUrlRef.current = loadedUrl;
+  // The webview's `src` is set once, here, and never again: React rewriting
+  // the attribute makes Electron load it, so a `src` that followed the page
+  // turned every client-side (pushState) route change into a full reload.
+  // Every later load is imperative (`wv.src = …` below, back/forward, reload).
+  const [mountSrc] = useState(deferInitialLoad ? "about:blank" : initialUrl);
+  /** The URL the webview actually loaded — for a remote pane, the forward's. */
+  const loadedUrlRef = useRef(mountSrc);
   const [waitingForHost, setWaitingForHost] = useState(deferInitialLoad);
   const waitingForHostRef = useRef(waitingForHost);
   waitingForHostRef.current = waitingForHost;
@@ -119,7 +127,7 @@ export function useRemoteBrowserUrl(
       // own localhost is not the box's.
       if (!wv || !target) return;
       wv.src = target;
-      setLoadedUrl(target);
+      loadedUrlRef.current = target;
     });
   };
 
@@ -133,7 +141,7 @@ export function useRemoteBrowserUrl(
     setWaitingForHost(false);
     const wv = webviewRef.current;
     if (wv) wv.src = resolved;
-    if (hostId) setLoadedUrl(resolved);
+    loadedUrlRef.current = resolved;
   };
 
   const resolveInitialLoad = () => {
@@ -152,7 +160,7 @@ export function useRemoteBrowserUrl(
     }
     if (newUrl === "about:blank" && skipBlankRef.current) return;
     skipBlankRef.current = false;
-    setLoadedUrl(newUrl);
+    loadedUrlRef.current = newUrl;
     if (!isLocalhostHttpUrl(newUrl)) {
       apply(newUrl, newUrl);
       return;
@@ -186,7 +194,7 @@ export function useRemoteBrowserUrl(
       const wv = webviewRef.current;
       if (!wv || !target || sameHost(target, loadedUrlRef.current)) return;
       wv.src = target;
-      setLoadedUrl(target);
+      loadedUrlRef.current = target;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostStatus, paneId]);
@@ -200,7 +208,7 @@ export function useRemoteBrowserUrl(
   });
 
   return {
-    src: remoteHostId ? loadedUrl : initialUrl,
+    src: mountSrc,
     waiting: waitingForHost,
     hostLabel,
     deferInitialLoad,

@@ -231,6 +231,7 @@ function Harness(props: {
   target: { cols: number; rows: number } | null;
   enabled: boolean;
   width: number;
+  fontSize?: number;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   // A callback ref, so the fake dimensions land on the real DOM node before
@@ -249,7 +250,13 @@ function Harness(props: {
       });
     }
   };
-  useFollowerFit(ref, props.term as unknown as Terminal, props.target, props.enabled);
+  useFollowerFit(
+    ref,
+    props.term as unknown as Terminal,
+    props.target,
+    props.enabled,
+    props.fontSize ?? 13,
+  );
   return createElement("div", { ref: setRef, "data-testid": "container" });
 }
 
@@ -335,5 +342,34 @@ describe("useFollowerFit", () => {
       );
     });
     expect(term.options.fontSize).toBe(6);
+  });
+
+  it("restores the size set in Settings mid-session, not the one it started with", () => {
+    const term = fakeTerm(13, 8);
+    const props = { term, target: { cols: 160, rows: 40 }, enabled: true, width: 640 };
+    act(() => {
+      root.render(createElement(Harness, props));
+    });
+    expect(term.options.fontSize).toBe(6);
+
+    // Settings moves the configured size while this pane is a follower: the
+    // pane still needs the shrink, so it stays at the fit.
+    act(() => {
+      root.render(createElement(Harness, { ...props, fontSize: 16 }));
+    });
+    expect(term.options.fontSize).toBe(6);
+
+    // A pane wide enough for the grid draws at the new ceiling at once.
+    act(() => {
+      root.render(createElement(Harness, { ...props, width: 4000, fontSize: 10 }));
+    });
+    expect(term.options.fontSize).toBe(10);
+
+    act(() => {
+      root.render(
+        createElement(Harness, { ...props, target: null, enabled: false, fontSize: 16 }),
+      );
+    });
+    expect(term.options.fontSize).toBe(16);
   });
 });

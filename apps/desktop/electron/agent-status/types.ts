@@ -44,6 +44,11 @@ export type UserAction =
   | "abandon"
   /** The session was ended from outside (`/sessions/end`). */
   | "end"
+  /**
+   * The pane's workspace moved to another host, where its Agent goes on as a
+   * fresh one (`workspace-host-move.ts`): this pane's Agent is done here.
+   */
+  | "move"
   /** The user looked at the pane (`agents:markSeen`, `/agents/:id/seen`). */
   | "markSeen";
 
@@ -88,6 +93,12 @@ export interface PaneAgentState {
   readonly phase: TurnPhase;
   /** True from the root session's first hook until it ends. */
   readonly hookDriven: boolean;
+  /**
+   * The root was restored from its saved Agent after a main restart and has
+   * sent no hook since. Until it does, a prompt from another session is the
+   * pane's new root: main missed the SessionStart of a `/clear` or resume.
+   */
+  readonly rootRestored: boolean;
   /**
    * Subagents the root has started and not yet stopped. Keys are
    * tagged by what identifies them: `agent:<agent_id>` (exact pairing),

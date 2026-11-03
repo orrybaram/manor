@@ -60,6 +60,7 @@ const RELAYED_BROWSER_COMMANDS: Record<string, string> = {
   "browser-find": "webview:find",
   "browser-back": "webview:go-back",
   "browser-forward": "webview:go-forward",
+  "browser-devtools": "webview:toggle-devtools",
 };
 
 /** The KeyCombo an Electron `Input` describes. */
@@ -70,6 +71,38 @@ export function comboFromInput(input: Electron.Input): KeyCombo {
     ctrl: input.control,
     shift: input.shift,
     alt: input.alt,
+  };
+}
+
+/**
+ * The combo by the physical letter key, for Option on a Mac: ⌥⌘I reports
+ * `key` "ˆ" (Option+I's dead key), not "i". Same combo as `comboFromInput`
+ * when there is no letter code or no Alt.
+ */
+function comboFromLetterCode(input: Electron.Input): KeyCombo {
+  const letter = /^Key([A-Z])$/.exec(input.code ?? "")?.[1];
+  const combo = comboFromInput(input);
+  return input.alt && letter ? { ...combo, key: letter.toLowerCase() } : combo;
+}
+
+/**
+ * The KeyCombo of a key press in a DevTools frontend, or null for anything
+ * else. A frontend emits `input-event`, not `before-input-event`, typed as the
+ * generic `InputEvent`; key presses carry `key` at runtime.
+ */
+export function comboFromInputEvent(input: Electron.InputEvent): KeyCombo | null {
+  const modifiers = input.modifiers ?? [];
+  if (input.type !== "rawKeyDown" || modifiers.includes("isautorepeat")) {
+    return null;
+  }
+  const key = (input as { key?: unknown }).key;
+  if (typeof key !== "string") return null;
+  return {
+    key,
+    meta: modifiers.includes("meta") || modifiers.includes("cmd") || modifiers.includes("command"),
+    ctrl: modifiers.includes("control") || modifiers.includes("ctrl"),
+    shift: modifiers.includes("shift"),
+    alt: modifiers.includes("alt"),
   };
 }
 
@@ -108,7 +141,9 @@ export function createPageKeyHandler(
       return;
     }
 
-    const action = resolvePageKey(comboFromInput(input), getBindings());
+    const action =
+      resolvePageKey(comboFromInput(input), getBindings()) ??
+      resolvePageKey(comboFromLetterCode(input), getBindings());
     if (!action) return;
     event.preventDefault();
 

@@ -26,7 +26,8 @@ export function useAutomationHosts(): AutomationHost[] {
   return automationHosts(hosts, profiles);
 }
 
-function currentHosts(): AutomationHost[] {
+/** The hosts as they stand now, for a read outside React. */
+export function currentHosts(): AutomationHost[] {
   return automationHosts(useHostStore.getState().hosts, useHostProfileStore.getState().profiles);
 }
 

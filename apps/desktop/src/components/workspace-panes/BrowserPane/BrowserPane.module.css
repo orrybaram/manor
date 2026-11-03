@@ -12,8 +12,91 @@
 .webviewContainer {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   background: white;
   position: relative;
+}
+
+/* ── Docked DevTools ── */
+
+/* DevTools docked right: the page and DevTools side by side. */
+.containerDockRight {
+  flex-direction: row;
+}
+
+.devToolsHandle {
+  flex: 0 0 5px;
+  background: var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.containerDockRight .devToolsHandle {
+  cursor: col-resize;
+}
+
+.devToolsHandle:hover,
+.devToolsHandleActive {
+  background: var(--accent);
+}
+
+.devTools {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.devToolsHeader {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.devToolsTitle {
+  margin-right: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.devToolsBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.devToolsBtn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* Empty: main lays the native DevTools view over it. */
+.devToolsSlot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The hidden view's last frame, shown while Manor UI covers it. */
+.devToolsSnapshot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
 }
 
 .emptyState {
@@ -24,6 +107,137 @@
   align-items: center;
   justify-content: center;
   font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* What stands in for the page: the error, crash and waiting pages. Under
+   the host-away banner (z-index 5), which explains them. */
+.statePage {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.stateTitle {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.stateDetail {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stateActions {
+  display: flex;
+  gap: 6px;
+}
+
+.stateSpinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: stateSpin 1s linear infinite;
+}
+
+@keyframes stateSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateSpinner { animation: none; }
+}
+
+/* ── Blank pane: the workspace's dev servers ── */
+
+.serverList {
+  /* Wide enough for a workspace's proxy hostname; a longer one ellipsizes. */
+  width: min(420px, 100%);
+  display: grid;
+  gap: 4px;
+}
+
+.serverRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dim);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.serverRow:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+
+.serverRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.serverDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex: none;
+}
+
+.serverHost {
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Never squeezed out by a long host: the process is how you tell rows apart. */
+.serverProcess {
+  flex: none;
+  max-width: 40%;
+  margin-left: auto;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.serverHint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.serverKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.stateCode {
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-dim);
 }
 
@@ -59,6 +273,90 @@
 .webviewContainer webview {
   width: 100%;
   height: 100%;
+}
+
+/* ── Page dialog (alert / confirm / prompt) ── */
+
+/* Covers only this pane: the page waits on its dialog, Manor doesn't. */
+.dialogScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.dialogCard {
+  width: min(320px, 100%);
+  max-height: 100%;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  color: var(--fg);
+  font-size: 13px;
+}
+
+.dialogSite {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.dialogMessage {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dialogInput {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.dialogInput:focus {
+  border-color: var(--accent);
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ── Hovered link ── */
+
+/* The URL of the link under the pointer. Never takes a click from the page. */
+.linkBubble {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  max-width: 70%;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dim);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* ── URL Autocomplete ── */
@@ -212,4 +510,163 @@
 @keyframes recordingPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+/* ── Page notes (picking, pins, the notes pill) ── */
+
+/* Over the top of the page while picking. Never takes a click from it. */
+.pickingHint {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  color: var(--fg);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.kbd {
+  padding: 0 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font: 10px var(--font-mono);
+}
+
+/* Beside its pin; placed by `placeNotePopover`. */
+.notePopover {
+  position: absolute;
+  z-index: 3;
+  width: 240px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.noteHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The pin's own number, as the page shows it. */
+.noteNumber {
+  flex-shrink: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.noteSelector {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.noteIconButton {
+  flex-shrink: 0;
+  padding: 3px;
+}
+
+.noteInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.noteInput:focus {
+  border-color: var(--accent);
+}
+
+.noteInput::placeholder {
+  color: var(--text-dim);
+}
+
+.noteFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.noteKeys {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* The queue, floating over the bottom of the page. */
+.notesPill {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+
+.notesCount {
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.notesWhere {
+  color: var(--text-dim);
+}
+
+.notesSend {
+  border-radius: 999px;
+}
+
+/* The page's box: what its pin rects scale into. Only its children take clicks. */
+.notesLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.notesLayer > * {
+  pointer-events: auto;
+}
+
+.notesLayer > .pickingHint {
+  pointer-events: none;
 }

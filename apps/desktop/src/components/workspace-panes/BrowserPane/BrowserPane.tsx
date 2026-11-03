@@ -1,13 +1,29 @@
 import { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
-import { toast } from "../../../toast";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
-import type { PickedElementResult } from "../../../electron.d";
 import { onUiRequest } from "../../../utils/ui-request";
 import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
+import { siteLabel } from "./site-label";
+import { isLocalhostHttpUrl } from "../../../lib/hosts";
+import type { PageDialog } from "../../../../electron/webview-dialogs";
+import { PageDialogOverlay } from "./PageDialogOverlay";
+import { LoadProblemPage } from "./LoadProblemPage";
+import { useLoadProblem } from "./useLoadProblem";
+import { BlankPage } from "./BlankPage";
+import { splitDirectionBeside } from "../../../lib/open-in-file-pane";
+import type { WorkspaceKey } from "../../../lib/workspace-key";
+import { DEFAULT_DOCK_FRACTION, type DevToolsDockSide } from "../../../lib/devtools-dock";
+import { DevToolsDock } from "./DevToolsDock";
+import {
+  forgetDevTools,
+  rememberDevTools,
+  rememberedDevTools,
+} from "../../../lib/remembered-devtools";
+import { PageNotesOverlay } from "./PageNotes";
+import { usePageNotes } from "./usePageNotes";
 
 import styles from "./BrowserPane.module.css";
 
@@ -26,15 +42,9 @@ interface WebviewTitleEvent extends Event {
   title: string;
 }
 
-/** Electron <webview> dialog event — returnValue must be set synchronously. */
-type WebviewDialogEvent = Event & {
-  readonly url: string;
-  readonly message: string;
-  readonly defaultPromptText: string;
-  readonly dialogType: "alert" | "confirm" | "prompt";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  returnValue: any;
-};
+interface WebviewTargetUrlEvent extends Event {
+  url: string;
+}
 
 export interface BrowserPaneNavState {
   url: string;
@@ -54,6 +64,8 @@ export interface BrowserPaneNavState {
   findTotalMatches: number;
   audible: boolean;
   muted: boolean;
+  /** The page's DevTools are open, docked in the pane. */
+  devToolsOpen: boolean;
 }
 
 export interface BrowserPaneRef {
@@ -61,8 +73,10 @@ export interface BrowserPaneRef {
   goForward(): void;
   reload(): void;
   stop(): void;
+  /** Arm picking: each click on the page adds a note, until Escape. */
   startPicker(): void;
   cancelPicker(): void;
+  togglePicker(): void;
   navigate(url: string): void;
   focusUrlInput(): void;
   zoomIn(): void;
@@ -72,6 +86,8 @@ export interface BrowserPaneRef {
   stopFind(): void;
   toggleFindBar(): void;
   toggleMute(): void;
+  /** Open or close the page's DevTools, docked in the pane. */
+  toggleDevTools(): void;
   /** Stop this pane's active recording, if any. */
   stopRecording(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
@@ -97,27 +113,10 @@ type BrowserPaneProps = {
   remoteHostId?: string | null;
   /** The pane's project, so the host-away overlay can open its Host settings. */
   projectId?: string;
+  /** The pane's workspace, whose dev servers a blank pane lists. */
+  workspaceKey?: WorkspaceKey;
   onNavStateChange?: (state: BrowserPaneNavState) => void;
 };
-
-function formatPickedElement(result: PickedElementResult): string {
-  const sections: string[] = [];
-
-  if (result.reactComponents && result.reactComponents.length > 0) {
-    const lines = result.reactComponents.map((c) => {
-      if (c.source) {
-        return `  in ${c.name} (at ${c.source.fileName}:${c.source.lineNumber})`;
-      }
-      return `  in ${c.name}`;
-    });
-    sections.push(`## React Context\n${lines.join("\n")}`);
-  }
-
-  sections.push(`## Selector\n${result.selector}`);
-  sections.push(`## HTML\n${result.outerHTML}`);
-
-  return sections.join("\n\n");
-}
 
 // React 19 silently drops a boolean `allowpopups={true}` on <webview>, leaving
 // the attribute absent — which makes Electron block all guest window.open /
@@ -129,9 +128,10 @@ const WEBVIEW_ALLOW_POPUPS: any = { allowpopups: "true" };
 
 export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
   function BrowserPane(props: BrowserPaneProps, ref) {
-    const { paneId, initialUrl, remoteHostId = null, projectId, onNavStateChange } = props;
+    const { paneId, initialUrl, remoteHostId = null, projectId, workspaceKey, onNavStateChange } = props;
 
     const webviewRef = useRef<WebviewElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Remote panes load `localhost:<port>` URLs through a port
     // forward rather than on this machine — everything about that lives in
@@ -142,18 +142,85 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       initialUrl,
       webviewRef,
     });
+    const remoteHostIdRef = useRef(remoteHostId);
+    remoteHostIdRef.current = remoteHostId;
+
+    // The sites a remote pane's error page and dialogs name, by the URL they
+    // are for. The page is loaded through a port forward on this machine, so
+    // a loopback URL means one of the box's ports: until main says which, the
+    // forward's own `host:port` stands in.
+    const [boxSites, setBoxSites] = useState<Record<string, string>>({});
+    const nameBoxSite = (url: string) => {
+      const hostId = remoteHostIdRef.current;
+      if (!hostId || !isLocalhostHttpUrl(url)) return;
+      window.electronAPI.ports.remoteUrl(url, hostId).then(
+        (shown) => setBoxSites((prev) => ({ ...prev, [url]: siteLabel(shown) })),
+        () => {},
+      );
+    };
+    const siteOf = (url: string) => boxSites[url] ?? siteLabel(url);
+
+    // The error and crash pages.
+    const loadProblem = useLoadProblem(
+      paneId,
+      webviewRef,
+      (problem) => {
+        if (problem.kind !== "crashed") nameBoxSite(problem.url);
+      },
+      () => remoteHostIdRef.current !== null,
+    );
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // The URL last asked for or shown as the page, as the pane names it (a
+    // remote pane's box URL), for the notes pill to say whether its notes are
+    // on this page.
+    const [shownUrl, setShownUrl] = useState(initialUrl);
+    const shownUrlRef = useRef(shownUrl);
+    shownUrlRef.current = shownUrl;
+    // The page's open alert/confirm/prompt; the first is shown. The page is
+    // blocked on it, so there is rarely more than one.
+    const [dialogs, setDialogs] = useState<PageDialog[]>([]);
+    // The link under the pointer (or focused), for the status bubble.
+    const [targetUrl, setTargetUrl] = useState("");
 
     const isDragActive = useDragOverlayStore(selectIsDragActive);
 
+    // Docked DevTools. Whether they are open is main's to say
+    // (`webview:devtools-changed`): Inspect Element and the page's own ⌥⌘I
+    // open them without asking here. Side and size are this pane's; each
+    // side remembers its own size. A pane that moved mounts afresh with a new
+    // page, and main closed the old page's DevTools: if they were open, they
+    // are reopened as they were once the new page registers.
+    const [restoreDevTools] = useState(() => rememberedDevTools(paneId));
+    const [devToolsOpen, setDevToolsOpen] = useState(false);
+    const [dockSide, setDockSide] = useState<DevToolsDockSide>(
+      restoreDevTools?.side ?? "bottom",
+    );
+    const [dockFractions, setDockFractions] = useState<Record<DevToolsDockSide, number>>(
+      restoreDevTools?.fractions ?? {
+        bottom: DEFAULT_DOCK_FRACTION,
+        right: DEFAULT_DOCK_FRACTION,
+      },
+    );
+    // Until the reopened DevTools report open, a close reported for this
+    // pane is the previous mount's, closed by its unregister: not the user's.
+    const restoringDevToolsRef = useRef(restoreDevTools !== undefined);
+    useEffect(() => {
+      if (devToolsOpen) rememberDevTools(paneId, { side: dockSide, fractions: dockFractions });
+    }, [paneId, devToolsOpen, dockSide, dockFractions]);
+    const [dockResizing, setDockResizing] = useState(false);
+    const splitRef = useRef<HTMLDivElement>(null);
+    const setDockFraction = useCallback(
+      (fraction: number) => setDockFractions((prev) => ({ ...prev, [dockSide]: fraction })),
+      [dockSide],
+    );
+
     const setPaneTitle = useAppStore((s) => s.setPaneTitle);
     const setPaneUrl = useAppStore((s) => s.setPaneUrl);
-    const setPickedElement = useAppStore((s) => s.setPickedElement);
     const clearPickedElement = useAppStore((s) => s.clearPickedElement);
 
     // Track nav state in a ref so we can read it synchronously in imperative callbacks
@@ -175,6 +242,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       findTotalMatches: 0,
       audible: false,
       muted: false,
+      devToolsOpen: false,
     });
 
     const onNavStateChangeRef = useRef(onNavStateChange);
@@ -184,6 +252,34 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       navStateRef.current = { ...navStateRef.current, ...overrides };
       onNavStateChangeRef.current?.(navStateRef.current);
     }, []);
+
+    // Notes picked on the page, and the pins that mark them.
+    const [picking, setPicking] = useState(false);
+    const setPickingState = useCallback((active: boolean) => {
+      setPicking(active);
+      fireNavStateChange({ pickerActive: active });
+    }, [fireNavStateChange]);
+    const pageNotes = usePageNotes({
+      paneId,
+      webviewRef,
+      workspaceKey,
+      pageUrl: () => shownUrlRef.current,
+      isPicking: () => navStateRef.current.pickerActive,
+      onPickingChange: setPickingState,
+    });
+    const { start: startPins, stop: stopPins } = pageNotes;
+    const startPicking = useCallback(() => {
+      if (navStateRef.current.pickerActive) return;
+      setPickingState(true);
+      void startPins().then((started) => {
+        if (!started) setPickingState(false);
+      });
+    }, [startPins, setPickingState]);
+    const stopPicking = useCallback(() => {
+      if (!navStateRef.current.pickerActive) return;
+      stopPins();
+      setPickingState(false);
+    }, [stopPins, setPickingState]);
 
     const updateNavState = useCallback(() => {
       const wv = webviewRef.current;
@@ -221,6 +317,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       // the box; main swaps in the port forward's local port when the
       // host's scan reports that port, and hands anything else back as is.
       remoteBrowserUrl.navigate(resolved);
+      setShownUrl(resolved);
       setUrl(resolved);
       fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
     }, [fireNavStateChange, remoteBrowserUrl]);
@@ -319,13 +416,14 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         window.electronAPI.webview.stop(paneId);
       },
       startPicker() {
-        if (navStateRef.current.pickerActive) return;
-        fireNavStateChange({ pickerActive: true });
-        window.electronAPI.webview.startPicker(paneId);
+        startPicking();
       },
       cancelPicker() {
-        if (!navStateRef.current.pickerActive) return;
-        window.electronAPI.webview.cancelPicker(paneId);
+        stopPicking();
+      },
+      togglePicker() {
+        if (navStateRef.current.pickerActive) stopPicking();
+        else startPicking();
       },
       navigate(target: string) {
         navigateTo(target);
@@ -367,6 +465,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         fireNavStateChange({ muted: newMuted });
         useAppStore.getState().setPaneAudioMuted(paneId, newMuted);
       },
+      toggleDevTools() {
+        if (navStateRef.current.devToolsOpen) {
+          void window.electronAPI.webview.closeDevTools(paneId);
+        } else {
+          void window.electronAPI.webview.openDevTools(paneId);
+        }
+      },
       stopRecording() {
         void window.electronAPI.webview.stopRecording(paneId);
       },
@@ -380,10 +485,15 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         onFocus: handleUrlFocus,
       },
       onSuggestionMouseDown: handleSuggestionMouseDown,
-    }), [paneId, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
+    }), [paneId, navigateTo, fireNavStateChange, openFindBar, startPicking, stopPicking, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
-    const remoteHostIdRef = useRef(remoteHostId);
-    remoteHostIdRef.current = remoteHostId;
+    const answerDialog = (dialog: PageDialog, ok: boolean, text?: string) => {
+      void window.electronAPI.webview.replyDialog(dialog.id, ok, text);
+      setDialogs((open) => open.filter((d) => d.id !== dialog.id));
+      // Back to the page, unless the user has moved on elsewhere in Manor.
+      const active = document.activeElement;
+      if (active && active.closest("[data-testid='page-dialog']")) webviewRef.current?.focus();
+    };
 
     useMountEffect(() => {
       const wv = webviewRef.current;
@@ -396,6 +506,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       /** Record `shown` — the URL as the pane remembers it — as the page. */
       const applyNavigation = (shown: string, actual: string) => {
         const blank = shown === "about:blank";
+        setShownUrl(shown);
         setUrl(blank ? "" : shown);
         setIsBlank(blank);
         setPaneUrl(paneId, shown);
@@ -416,48 +527,48 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       const onDidAttach = () => {
         const webContentsId = wv.getWebContentsId();
         // The host lets an agent's `navigate` reach the box's dev servers.
-        window.electronAPI.webview.register(paneId, webContentsId, remoteHostIdRef.current);
-      };
-
-      // Handle JavaScript dialogs (alert, confirm, prompt) from the guest page.
-      // Without this handler Electron silently dismisses them.
-      const onDialog = (e: Event) => {
-        const de = e as WebviewDialogEvent;
-        if (de.dialogType === "alert") {
-          window.alert(de.message);
-          de.returnValue = { action: "accept" };
-        } else if (de.dialogType === "confirm") {
-          const ok = window.confirm(de.message);
-          de.returnValue = { action: ok ? "accept" : "dismiss" };
-        } else if (de.dialogType === "prompt") {
-          const result = window.prompt(de.message, de.defaultPromptText);
-          de.returnValue =
-            result !== null
-              ? { action: "accept", text: result }
-              : { action: "dismiss" };
-        }
+        const registered = window.electronAPI.webview.register(
+          paneId,
+          webContentsId,
+          remoteHostIdRef.current,
+        );
+        if (!restoringDevToolsRef.current) return;
+        void registered
+          .then(() => window.electronAPI.webview.openDevTools(paneId))
+          .catch(() => false)
+          .then((opened) => {
+            if (opened || !restoringDevToolsRef.current) return;
+            restoringDevToolsRef.current = false;
+            forgetDevTools(paneId);
+          });
       };
 
       wv.addEventListener("did-navigate", onNavigate);
       wv.addEventListener("did-navigate-in-page", onNavigate);
       wv.addEventListener("page-title-updated", onTitleUpdate);
       wv.addEventListener("did-attach", onDidAttach);
-      wv.addEventListener("dialog", onDialog);
+      // The guest reports it straight to its element; no trip through main.
+      const onTargetUrl = (e: Event) => setTargetUrl((e as WebviewTargetUrlEvent).url);
+      wv.addEventListener("update-target-url", onTargetUrl);
+      // A link the old page reported never gets its "left" from it.
+      const onTargetPageGone = (e: Event) => {
+        if ((e as Event & { isMainFrame?: boolean }).isMainFrame === false) return;
+        setTargetUrl("");
+      };
+      wv.addEventListener("did-start-navigation", onTargetPageGone);
+      wv.addEventListener("render-process-gone", onTargetPageGone);
 
-      const unsubPickerResult = window.electronAPI.webview.onPickerResult(
-        (resultPaneId: string, result: PickedElementResult) => {
-          if (resultPaneId !== paneId) return;
-          fireNavStateChange({ pickerActive: false });
-          setPickedElement(paneId, result);
-          window.electronAPI.clipboard.writeText(formatPickedElement(result));
-          toast.success("Element copied to clipboard", { id: "picker-copied" });
+      const unsubDialog = window.electronAPI.webview.onDialog(
+        (dialogPaneId: string, dialog: PageDialog) => {
+          if (dialogPaneId !== paneId) return;
+          setDialogs((open) => [...open, dialog]);
+          nameBoxSite(dialog.origin);
         },
       );
-
-      const unsubPickerCancel = window.electronAPI.webview.onPickerCancel(
-        (cancelPaneId: string) => {
-          if (cancelPaneId !== paneId) return;
-          fireNavStateChange({ pickerActive: false });
+      const unsubDialogClosed = window.electronAPI.webview.onDialogClosed(
+        (dialogPaneId: string, dialogId: string) => {
+          if (dialogPaneId !== paneId) return;
+          setDialogs((open) => open.filter((d) => d.id !== dialogId));
         },
       );
 
@@ -491,6 +602,19 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         (sourcePaneId: string, openUrl: string, opts?: { background?: boolean }) => {
           if (sourcePaneId !== paneId) return;
           useAppStore.getState().addBrowserTab(openUrl, { background: opts?.background });
+        },
+      );
+
+      const unsubOpenInSplit = window.electronAPI.webview.onOpenInSplit(
+        (sourcePaneId: string, openUrl: string) => {
+          if (sourcePaneId !== paneId) return;
+          // As the terminal's link menu does: beside a wide pane, under a tall one.
+          useAppStore
+            .getState()
+            .splitPaneAt(paneId, splitDirectionBeside(containerRef.current), "second", {
+              contentType: "browser",
+              url: openUrl,
+            });
         },
       );
 
@@ -545,20 +669,51 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubDevToolsChanged = window.electronAPI.webview.onDevToolsChanged(
+        (devToolsPaneId: string, open: boolean) => {
+          if (devToolsPaneId !== paneId) return;
+          if (open) {
+            restoringDevToolsRef.current = false;
+          } else {
+            if (restoringDevToolsRef.current) return;
+            forgetDevTools(paneId);
+          }
+          setDevToolsOpen(open);
+          fireNavStateChange({ devToolsOpen: open });
+        },
+      );
+
+      // ⌥⌘I pressed in the page itself.
+      const unsubToggleDevTools = window.electronAPI.webview.onToggleDevTools(
+        (devToolsPaneId: string) => {
+          if (devToolsPaneId !== paneId) return;
+          if (navStateRef.current.devToolsOpen) {
+            void window.electronAPI.webview.closeDevTools(paneId);
+          } else {
+            void window.electronAPI.webview.openDevTools(paneId);
+          }
+        },
+      );
+
       return () => {
+        unsubDevToolsChanged();
+        unsubToggleDevTools();
         wv.removeEventListener("did-navigate", onNavigate);
         wv.removeEventListener("did-navigate-in-page", onNavigate);
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
-        wv.removeEventListener("dialog", onDialog);
+        wv.removeEventListener("update-target-url", onTargetUrl);
+        wv.removeEventListener("did-start-navigation", onTargetPageGone);
+        wv.removeEventListener("render-process-gone", onTargetPageGone);
         wv.removeEventListener("focus", onWebviewFocus);
         wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);
-        unsubPickerResult();
-        unsubPickerCancel();
+        unsubDialog();
+        unsubDialogClosed();
         unsubEscape();
         unsubFocusUrl();
         unsubNewWindow();
+        unsubOpenInSplit();
         unsubLoading();
         unsubFavicon();
         unsubAudioState();
@@ -570,8 +725,19 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     });
 
     return (
-      <div className={styles.container}>
-        <div className={styles.webviewContainer}>
+      <div
+        ref={(el) => {
+          // Open Link in Split picks its direction from this box's shape,
+          // and the DevTools split sizes against it.
+          containerRef.current = el;
+          splitRef.current = el;
+        }}
+        className={`${styles.container} ${devToolsOpen && dockSide === "right" ? styles.containerDockRight : ""}`}
+      >
+        <div
+          className={styles.webviewContainer}
+          style={devToolsOpen ? { flex: `${1 - dockFractions[dockSide]} 1 0` } : undefined}
+        >
           {isLoading && <div className={styles.loadingBar} />}
           <webview
             ref={webviewRef as React.RefObject<HTMLElement>}
@@ -594,11 +760,53 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             <div className={styles.emptyState}>
               Waiting for {remoteBrowserUrl.hostLabel ?? "the remote host"}…
             </div>
+          ) : loadProblem.problem ? (
+            <LoadProblemPage
+              problem={loadProblem.problem}
+              site={
+                loadProblem.problem.kind === "crashed"
+                  ? ""
+                  : siteOf(loadProblem.problem.url)
+              }
+              onRetry={loadProblem.retry}
+              onCancel={loadProblem.cancelWait}
+            />
           ) : (
-            isBlank && <div className={styles.emptyState}>Enter a URL to get started</div>
+            isBlank && <BlankPage workspaceKey={workspaceKey} onOpen={navigateTo} />
           )}
-          {isDragActive && <div className={styles.dragOverlay} />}
+          {targetUrl && !loadProblem.problem && (
+            <div className={styles.linkBubble} data-testid="browser-link-bubble">
+              {targetUrl}
+            </div>
+          )}
+          <PageNotesOverlay
+            pageNotes={pageNotes}
+            picking={picking}
+            pageUrl={shownUrl}
+            workspaceKey={workspaceKey}
+            webviewRef={webviewRef}
+          />
+          {dialogs[0] && (
+            <PageDialogOverlay
+              key={dialogs[0].id}
+              dialog={dialogs[0]}
+              site={siteOf(dialogs[0].origin)}
+              onAnswer={(ok, text) => answerDialog(dialogs[0], ok, text)}
+            />
+          )}
+          {(isDragActive || dockResizing) && <div className={styles.dragOverlay} />}
         </div>
+        {devToolsOpen && (
+          <DevToolsDock
+            paneId={paneId}
+            side={dockSide}
+            fraction={dockFractions[dockSide]}
+            splitRef={splitRef}
+            onFractionChange={setDockFraction}
+            onSideChange={setDockSide}
+            onResizingChange={setDockResizing}
+          />
+        )}
       </div>
     );
   },

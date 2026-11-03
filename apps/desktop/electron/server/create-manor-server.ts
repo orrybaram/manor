@@ -59,15 +59,17 @@ import { HostAdoption } from "../backend/host-adoption";
 import { createAgentService } from "../bridge/handlers/agents";
 import { killAllActivePushes } from "../bridge/handlers/branches-diffs";
 import { wireChatMirror } from "../bridge/handlers/chat";
+import { wireStatsBroadcast } from "../bridge/handlers/stats";
 import type { HandlerTable } from "../bridge/method";
 import { BridgeServer, type BridgeServerDeps } from "../bridge/server";
 import { ChatMirror } from "../chat-mirror/mirror";
 import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
+import { OpencodeDbSource } from "../chat-mirror/opencode-db-source";
 import { GitHubManager } from "../github";
 import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
-import { LayoutStore } from "../layout/layout-store";
+import { LayoutStore, workspaceLayoutOwner } from "../layout/layout-store";
 import { LinearManager } from "../linear";
 import { NotificationStore, type NotificationRecord } from "../notification-store";
 import { ProjectManager } from "../persistence";
@@ -83,7 +85,7 @@ import { RemoteDeviceStore } from "../remote-control/devices";
 import { PushManager, type VapidKeys } from "../remote-control/push";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
 import { createBroadcastBus, type BroadcastBus } from "../renderer-broadcast";
-import { StatsStore } from "../stats-store";
+import { StatsStore, type StatsHistory } from "../stats-store";
 import { countBusyAcross } from "../stats-signals";
 import { TerminalHostClient } from "../terminal-host/client";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -94,6 +96,9 @@ import { createWorkspaceOps } from "../workspace-ops";
 import { AutomationStore } from "../automations/automation-store";
 import { AutomationScheduler } from "../automations/scheduler";
 import { createFireRun } from "../automations/fire-run";
+import { createPaneSender } from "../automations/reuse-pane";
+import { chatSend } from "../bridge/handlers/chat";
+import { localCtx } from "../bridge/method";
 import { createRunWorkspacePruner } from "../automations/retention";
 import { automationOfAgent, isRunAgentBusy } from "../automations/run-agent";
 import { runNotification } from "../automations/notify";
@@ -316,6 +321,15 @@ export function createManorServer<D extends BridgeServerDeps>(
             // A host's own log (its automations' runs) is part of this
             // desktop's: told again whenever it changes.
             onNotificationsChanged: (): void => notifier.sendNotificationsUpdate(),
+            // An adopted host's own stats, summed into this desktop's totals.
+            // Before adoption its agents are the desktop's, counted here.
+            onStatsHistory: (hostId: string, history: unknown): void => {
+              if (projectManager.isHostAdopted(hostId)) {
+                statsStore.setHostHistory(hostId, history as StatsHistory);
+              }
+            },
+            statsResetDue: (hostId: string): boolean => statsStore.hostResetDue(hostId),
+            onStatsReset: (hostId: string): void => statsStore.hostWasReset(hostId),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
@@ -342,13 +356,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId), dataDir, {
     // Removing a worktree or a project tears its layout down first, whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
     // Read at call time: the store is built just below.
-    layout: {
-      remove: (key) => layoutStore.remove(key),
-      take: async (entries): Promise<void> => {
-        await layoutStore.adopt(entries, null);
-      },
-      release: (keys): Promise<void> => layoutStore.release(keys),
-    },
+    layout: workspaceLayoutOwner((): LayoutStore => layoutStore),
     // Setup and clone progress go to the server's renderers.
     publish: bus.publishTo,
     // Adopted hosts' projects, from their servers.
@@ -429,7 +437,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     // legacy Home entry dropped on load. Read at call time: the agent side
     // is built below.
     {
-      abandonForPanes: (panes) => agentService.abandonForPanes(panes),
+      abandonForPanes: (panes, ending) => agentService.abandonForPanes(panes, ending),
       moveToWorkspace: (paneIds, workspacePath) =>
         agentService.moveToWorkspace(paneIds, workspacePath),
     },
@@ -531,7 +539,23 @@ export function createManorServer<D extends BridgeServerDeps>(
       });
       notifier.sendNotificationsUpdate();
     },
+    // On the desktop a reset clears every remote host as well: the ones
+    // connected now, and each of the rest when it next connects.
+    ...(routing
+      ? {
+          hostIds: () =>
+            projectManager
+              .getHosts()
+              .flatMap(({ hostId }) => (projectManager.isHostAdopted(hostId) ? [hostId] : [])),
+          onReset: () => {
+            for (const proxy of routing.proxies()) proxy.syncStats();
+          },
+        }
+      : {}),
   });
+  // Every server says when its stats move: a host's is how the desktop
+  // knows to read its history again.
+  wireStatsBroadcast({ statsStore }, bus.publish);
   // The server's unseen flags and the notifications built on them: one of each per server, shared by the status pipeline, the handlers
   // and the broadcast.
   const unseen = new UnseenAgents();
@@ -727,7 +751,11 @@ export function createManorServer<D extends BridgeServerDeps>(
         getPaneHostId,
         onProjectsRemoved: () => notifyProjectsChanged(),
         // A window may now open its own stream to the host.
-        onAdopted: (hostId) => backendRegistry.adoptionChanged(hostId),
+        // Its stats now count here: read them rather than wait for a change.
+        onAdopted: (hostId) => {
+          backendRegistry.adoptionChanged(hostId);
+          routing?.proxy(hostId)?.syncStats();
+        },
         // The renderer keeps the agents the desktop held until it hears.
         onAgentsRemoved: (ids) => bus.publish("agents", "removed", [...ids]),
       })
@@ -755,6 +783,17 @@ export function createManorServer<D extends BridgeServerDeps>(
       workspaceOps,
       // Read at call time: `core.shared` is built below.
       startAgent: (workspacePath, options) => startAgentInWorkspace(core.shared, workspacePath, options),
+      sendToPane: createPaneSender({
+        agentManager,
+        agentStatus: agentStatusDriver,
+        lastStartedRun: (id) => automationStore.lastStartedRun(id),
+        linkRunAgent: (id, runId, agentId) => automationStore.linkRunAgent(id, runId, agentId),
+        layout: layoutStore,
+        // Read at call time, as above.
+        paneFacts: (paneId) => core.shared.backend.pty.getPaneFacts(paneId),
+        typeIntoPane: (paneId, text) => chatSend(localCtx(core.shared), paneId, text),
+        now: opts.automationClock?.now ?? Date.now,
+      }),
       pruneRunWorkspaces: createRunWorkspacePruner({
         runs: (id) => automationStore.runs(id),
         projectManager,
@@ -866,6 +905,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   // its mirror watches the pane, and `wireChatMirror` forwards the desktop's
   // subscriptions to it. This mirror reads this machine's transcripts only.
   const localTranscripts = new LocalTranscriptSource();
+  const opencodeTranscripts = new OpencodeDbSource();
   const chatMirror = new ChatMirror({
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
@@ -877,7 +917,8 @@ export function createManorServer<D extends BridgeServerDeps>(
         transcriptPath: agent.transcriptPath,
       };
     },
-    sourceFor: () => localTranscripts,
+    // opencode's "transcript" is its session's rows in opencode.db.
+    sourceFor: (agent) => (agent.agentKind === "opencode" ? opencodeTranscripts : localTranscripts),
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) => bridge.publish("chat", "entry", [paneId, entry], paneId),
     // Keyed by pane and task, so only that task's subscribers hear it.

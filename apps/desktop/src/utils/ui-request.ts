@@ -20,6 +20,8 @@ export type UiRequest =
   | { type: "rename-agent"; agentId: string }
   | { type: "merge-worktree"; projectId: string; path: string }
   | { type: "delete-worktree"; projectId: string; path: string }
+  /** Open the Move to Host dialog for a workspace; with no `hostId` it asks which host. */
+  | { type: "move-workspace-to-host"; projectId: string; path: string; hostId?: string }
   | { type: "remove-project"; projectId: string }
   | { type: "open-notifications" }
   | { type: "pane-search"; paneId: string }
@@ -33,7 +35,9 @@ export type UiRequest =
   /** Open Settings → Hosts, on `hostId`'s row when given. */
   | { type: "open-hosts-settings"; hostId?: string }
   /** Open Settings → Automations on one automation of `hostId`'s (a bell row's). */
-  | { type: "open-automation"; hostId: string; automationId: string };
+  | { type: "open-automation"; hostId: string; automationId: string }
+  /** Open Settings → Automations on a new, empty automation. */
+  | { type: "new-automation" };
 
 type Listener = (request: UiRequest) => void;
 

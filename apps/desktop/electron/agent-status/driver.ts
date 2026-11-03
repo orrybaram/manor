@@ -20,7 +20,12 @@
 import type { AgentHookEvent } from "../agent-hook-events";
 import type { AgentInfo } from "../agent-persistence";
 import type { PaneFacts } from "../terminal-host/types";
-import { applyStatusEffects, type EffectApplierDeps, type PaneStatusUpdate } from "./effects";
+import {
+  applyStatusEffects,
+  retirePaneAgent,
+  type EffectApplierDeps,
+  type PaneStatusUpdate,
+} from "./effects";
 import { initialPaneState, reconcile, stateFromSavedAgent } from "./reconciler";
 import type {
   Effect,
@@ -308,6 +313,31 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
     if (updated) deps.broadcastAgent(updated);
   }
 
+  /**
+   * A pane's root session whose Agent is recorded elsewhere — resumed in a
+   * new tab, its old record finished or pointing at a pane since lost — moves
+   * that Agent to this pane, retiring the one the pane had. Without it the
+   * pane has no Agent until the record is touched again, so no chat. Runs
+   * after the reconciler, which has just claimed or kept the root.
+   */
+  function claimResumedSession(paneId: string, event: AgentHookEvent, rootSessionId: string | null): void {
+    if (!event.sessionId || event.agentId !== null || event.sessionId !== rootSessionId) return;
+    const agent = agentManager.getAgentBySessionId(event.sessionId);
+    if (!agent || agent.paneId === paneId) return;
+    retirePaneAgent(paneId, deps);
+    const hostId = deps.getPaneHostId(paneId);
+    const updated = agentManager.updateAgent(agent.id, {
+      paneId,
+      status: "active",
+      completedAt: null,
+      ...(hostId && hostId !== agent.hostId ? { hostId } : {}),
+    });
+    if (updated) {
+      log(`[agent-status] pane=${paneId} took agent ${agent.id} (session ${event.sessionId})`);
+      deps.broadcastAgent(updated);
+    }
+  }
+
   function signal(paneId: string, sig: StatusSignal): ReconcileResult {
     const nowMs = sig.type === "tick" ? sig.nowMs : monoClock();
     // The pane's new session has started: its window is over, and the new
@@ -323,7 +353,10 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
       ctx.existingAgentAgeMs = agentMonotonicAgeMs(existingAgent);
     }
     const result = run(paneId, state, sig, ctx);
-    if (sig.type === "hook") captureTranscriptPath(sig.event);
+    if (sig.type === "hook") {
+      claimResumedSession(paneId, sig.event, result.state.rootSessionId);
+      captureTranscriptPath(sig.event);
+    }
 
     if (sig.type === "hook" && onHookEvent) {
       // Observers run last and cannot change what the reconciler did. A broken

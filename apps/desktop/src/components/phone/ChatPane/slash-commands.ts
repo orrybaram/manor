@@ -87,21 +87,21 @@ export function splitCommand(text: string): { name: string; args: string } | nul
   return match ? { name: match[1], args: (match[2] ?? "").trim() } : null;
 }
 
-/** Claude Code's `/clear` and its aliases: each starts a new session. */
-const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
-
 /**
  * What a sent command does to the chat: "menu" hands the pane to the terminal
  * "clear" leaves the conversation behind for a fresh one, null
- * is nothing. `lookup` finds the entry for a name (fetched list, then built-ins).
+ * is nothing. `lookup` finds the entry for a name (fetched list, then built-ins);
+ * `clearCommands` are the agent's that start a new session
+ * (`AgentChat.clearCommands`: Claude Code's `/clear` and its aliases).
  */
 export function commandEffect(
   command: { name: string; args: string } | null,
   lookup: (name: string) => ChatCommand | undefined,
+  clearCommands: readonly string[],
 ): "menu" | "clear" | null {
   if (!command) return null;
   if (opensMenu(lookup(command.name), command.args)) return "menu";
-  if (CLEAR_COMMANDS.has(command.name)) return "clear";
+  if (clearCommands.includes(command.name)) return "clear";
   return null;
 }
 

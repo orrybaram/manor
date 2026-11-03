@@ -85,6 +85,7 @@ if (typeof globalThis.window === "undefined") {
         hasGhosttyConfig: vi.fn().mockResolvedValue(false),
         preview: vi.fn().mockResolvedValue(null),
         allColors: vi.fn().mockResolvedValue({}),
+        catalog: vi.fn().mockResolvedValue({ themes: [], recent: [] }),
         onChanged: vi.fn(() => vi.fn()),
       },
     },

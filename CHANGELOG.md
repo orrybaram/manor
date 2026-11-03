@@ -1,5 +1,223 @@
 # Changelog
 
+## [0.26.2] - 2026-11-03
+
+### Improvements
+
+- A folder's workspace count in the sidebar now sits right after its name and hides when the folder is empty. A long name truncates before the count does, and a folder holding only subfolders still shows its subtree's total.
+
+## [0.26.1] - 2026-11-03
+
+### Features
+
+- **Settings › Prompts**
+  - The 11 messages Manor writes for agents are now editable, app-wide. Each opens in an editor with placeholders for live data, warnings and Reset to default.
+  - Edits reach each connected host. An edit that renders to nothing still sends the default, except for the session start hint, where blank means no hint.
+  - `--prompt-template` keeps its `{number}` syntax and still wins for that call.
+- **Agent chat**
+  - The "N agents" chip and a task's card now open one task view, and the chat stays put. It's a panel inside the pane on the desktop and one sheet on the phone.
+  - The agents chip stays as, for example, "3 agents done" until your next message.
+  - With the task panel open, Escape closes it. The next Escape stops the agent as before.
+  - Right-clicking a link in a desktop chat now offers what a terminal's link does: a browser tab or split, the default browser, or the clipboard.
+  - Settings › Font has a new Chat row with five bundled faces or any installed font. Messages and the composer follow it, while code, tool cards and status lines don't.
+- **Automations**
+  - A reused workspace can now send each run to the automation's agent pane, either fresh or keeping its context. New tab stays the default, and this applies to scheduled runs and Run now.
+  - Choose it with the new chip in the editor, or with `--pane` on `create-automation` and `update-automation`.
+  - A same-pane run skips while the agent is busy. Run history says when a run was sent to the agent or why it skipped.
+- The PR card now offers **Fix conflicts**, which hands a conflicted PR to the workspace's agent. It also appears on the phone's PR sheet.
+- A folder header in the sidebar now shows how many workspaces are in its subtree, whether it's open or collapsed.
+- `manor create-workspace --folder` files the new workspace in a named folder as it's created.
+
+### Fixes
+
+- **Agent chat**
+  - A new chat's first message shows as it's sent and stays on screen, instead of appearing, vanishing and appearing again.
+  - ⌘N into a new desktop chat, or switching back to a chat tab, focuses the composer so you can start typing.
+- Changing a preference now reaches open windows and the phone. A font picked on the desktop redraws an open phone without a reload.
+
+### Improvements
+
+- The chat's live line now shows dust rising beside a verb that a light passes over, with a timer that holds still. A finished turn settles into a still, left-aligned line in place of the house mark and its rule.
+- Queuing a merge, or a "Merges when ready" merge, lights a fuse around the button. The merge fill keeps creeping until the merge answers, a reopened queued card says Queued to merge, and reduced motion turns these effects off.
+- Terminal, Editor and Chat font rows now share one list, with each font shown in its own face. The list opens on your current choice.
+- "Fix with agent" on the Home dashboard now sends the same checks and threads briefs as the PR card, and starts nothing if it can't fetch one.
+- Settings › Appearance no longer has a Seasonal section. Halloween dust and cobwebs still appear Oct 25–Nov 1, and anyone who already turned them off stays off.
+
+## [0.26.0] - 2026-10-31
+
+### Features
+
+- **Agent chat on the desktop**
+  - Agent panes on the desktop can now show the same chat as the phone app. Switch to it from the pane's header, its menu, ⌘⇧M, or Toggle Chat View in the ⌘K palette.
+  - Codex, pi and opencode agents now get a chat as well as Claude. Their composers have no `/` menu, and you can't answer their question cards from the chat.
+  - opencode panes now get an agent status, through a plugin Manor installs in opencode's plugins directory.
+  - Settings › General › Agent Chat has a new **Show agent panes as chat** option, off by default. It opens desktop agent panes on their chat.
+  - Each pane remembers Chat or Terminal separately on the phone and the desktop, so one doesn't overwrite the other.
+  - ⌘N from a pane showing its chat opens the new agent on a chat too. From a terminal, the new agent opens as a terminal.
+- **Chat composer**
+  - Enter sends and Shift+Enter adds a new line. On touch screens, Enter adds a new line and ⌘/Ctrl+Enter sends.
+  - Pasted content folds into a "Pasted N lines" row that you can expand to see the paste.
+  - Images you paste, attach or drop show as thumbnails with a remove button. They upload to the agent's host and are sent as paths after your text. A message can contain only images.
+  - Send waits while an image is still uploading, and removing an image stops its upload.
+  - A prompt sent while the agent is working shows as **Queued** until it appears in the conversation or the turn ends.
+  - Stop and Send are now one button: Stop while the box is empty, Send otherwise. Esc stops a turn.
+  - An edit card's "Open in …" opens the file at its first changed line. When Manor is your editor, the file opens beside the chat.
+- **Chat status and turns**
+  - The chat's status line shows the branch, model and effort. It flags the branch if the agent's transcript says the agent isn't on it.
+  - While background agents run, the status line shows how many, for example "2 agents". Click it to list them, and click a row to jump to that agent's task card.
+  - While the agent works, the chat shows a changing verb and a timer, such as "Tending… 12s", instead of "Thinking".
+  - A reply the model thought about first shows "Thought for Ns" above it. Each finished turn ends with a divider showing how long it took and how many background agents are still running.
+- **Pull requests**
+  - The PR card's footer, on the desktop's hover card and the phone's PR sheet, can now merge the PR. The menu lists only the merge methods the repo allows.
+  - When checks or review are still pending, the button reads "Merge when ready". On a base branch with a merge queue, it reads "Add to merge queue". If the PR can't be merged, the button says why beneath it.
+  - The footer can also send the PR's failing checks or review comments to the workspace's agent. An agent that's busy is never interrupted: a new agent starts instead.
+  - New CLI commands do the same from the shell: `manor merge-pr`, `manor fix-pr-checks` and `manor address-pr-comments`.
+- **Themes**
+  - Settings › Theme is now a wall of tiles, each painted in its theme, with a filter rail beside it. You can make, edit, rename and delete your own themes. The editor recolours the app as you change colours.
+  - Themes can set their own accent colour. Custom themes are stored in `~/.manor/themes`, and the project theme picker lists Manor and your own themes.
+  - Manor now ships with its own built-in theme: warm soot and bone, with a cyan accent and cursor and yellow selection.
+  - Your last five themes are remembered. A theme only counts as recent once you close Settings on it, not when you click its tile while browsing.
+  - Arrow keys select the theme they land on. The wall sorts by name or by background colour from the same sliders menu as Tasks.
+  - The Settings window is larger.
+  - While a project's Settings page is open, it shows that project's theme.
+- The new-workspace dialog's prompt accepts pasted, attached or dropped images. They show as thumbnails, and the agent starts with their paths after your text.
+- Settings → App → Font lets you choose a font family and size for terminals, and separately for the file and diff editor, with a live sample. This is desktop only.
+- Pressing ⌘F in the file pane now opens a floating find widget that matches the terminal's search bar. It has Match Case, Whole Word and Regex toggles, a match count, and a replace row.
+
+### Fixes
+
+- **Agent chat**
+  - Resuming an agent in a new pane gives that pane its chat, before you send the first prompt.
+  - If you ran `/clear` or resumed a session while Manor wasn't running, the chat no longer stays on the old conversation after a restart.
+  - Right-click menus in the sidebar now appear on top of an open chat instead of behind it.
+- **Themes**
+  - Settings › Theme no longer squashes hundreds of themes into thin lines. Tiles keep their full height and the wall scrolls.
+  - A new theme is now named after the theme you picked, not the project's theme underneath it.
+- An agent's launch command now waits for the shell's first prompt, so an oh-my-zsh update question in `.zshrc` no longer swallows its first letter.
+- An agent that has gone idle keeps its icon in the sidebar instead of leaving a blank space where it was.
+- Lists, drawers and sheets that use arrow keys no longer draw a keyboard focus box around themselves.
+
+## [0.25.0] - 2026-10-30
+
+### Features
+
+- **Browser pane**
+  - Pick elements on a page to pin them there, each with its own note. **Send to…** hands all the pins to an agent in one prompt, with screenshots.
+  - DevTools open docked in the pane instead of in a window of their own. When the pane moves, they stay open on the same side and at the same size.
+  - A pane pointed at a dev server that isn't up yet waits for it and loads the page once the server is listening. This also works for a dev server on a remote host.
+  - A blank pane lists the dev servers running in its workspace. Click one to open it.
+  - A page that fails to load shows an error page with **Retry**, and a page that crashes shows **Reload**.
+  - Hovering over a link shows its URL in the pane's bottom-left corner.
+  - A page's right-click menu now has Back, Forward, Reload, link and editing items.
+- `manor create-workspace --wait` waits for the project's setup script to finish. It reports the script's exit code and gives an error if the script fails, times out or can't start. `get-project` now shows the project's start script.
+
+### Fixes
+
+- **Browser pane**
+  - Moving between pages inside a single-page app, such as Next.js routes, no longer reloads the page.
+  - A page's alert, confirm and prompt dialogs open over its own pane instead of freezing Manor.
+- A project's setup script now gets the main checkout's path in `ROOT_WORKTREE_PATH`. Scripts that copy files like `.env` from the main checkout now work.
+
+### Improvements
+
+- The Files drawer lists folders first, then files, with each group in alphabetical order.
+- Badges: Red Ink and Works on My Machine are now optional. They're still secret badges you can earn, but you no longer need them to complete the Grounds track or to earn Lord of the Manor, whose target drops from 39 to 37.
+
+## [0.24.3] - 2026-10-30
+
+### Fixes
+
+- Shells in Manor terminals keep finding the running Manor after a relaunch. Before, `manor` and the MCP tools could say "Cannot connect to Manor — is it running?" when another Manor sharing `~/.manor`, such as a dev build, quit.
+- Agents modal: In the session preview, a tool call with no command or path shows its name once instead of twice.
+
+### Improvements
+
+- Agents modal: The session preview folds each run of back-to-back tool calls into one summary line. Click the line to list the calls.
+
+## [0.24.2] - 2026-10-30
+
+### Features
+
+- **Move to Host**
+  - Move a workspace to another host from its menu (**Move to Host**) or the command palette. Manor rebuilds the workspace on the other host with its tabs and splits, then removes the old copy. Code travels through `origin`.
+  - Each agent restarts on the new host and picks up from a handoff of its conversation. A workspace moved onto a fresh host runs the project's start script there.
+  - A confirm dialog opens before the move starts, and a lane steps through the move as it runs. If a step fails, you can **Retry**.
+  - `manor move-workspace-to-host` moves a workspace to another host from the CLI.
+- **Stats**
+  - The Stats page and badges now count every adopted host's history together with the desktop's own. Badges are awarded once on the total, and only the desktop announces them.
+  - Reset clears stats on every machine. A host that was away is cleared when it next connects.
+- Settings → General → Code Editor has a **Manor / Other app** choice, and Manor is the default. Cmd-clicking a workspace file in a terminal opens it in the editor you chose.
+
+### Fixes
+
+- A file you open from Go to File or a terminal link now gets keyboard focus, so the file pane's shortcuts work right away. Before, your keys kept going to the terminal.
+
+### Improvements
+
+- File pane: The diff highlights behind changed lines and words are fainter, which makes the code easier to read. The gutter bars stay full colour.
+- New Workspace: Long folder and branch names stay on one row of smaller chips. The folder list caps its width and shows names up to 60 characters.
+
+## [0.24.1] - 2026-10-29
+
+### Features
+
+- **Automations**
+  - The command palette has an **Automations** group. **New Automation** opens Settings → Automations on an empty automation, each automation opens its page in Settings, and **Run Now: <name>** starts a run and shows a toast saying it started or why it was refused.
+  - The palette lists automations from This Mac and connected hosts, without waking a sleeping host. Remote automations show their host's name, and a project scope narrows the list. The palette also gains a **Settings: Automations** row.
+- **New Workspace**
+  - The New Workspace dialog is now a composer card. The workspace name is its title, above the branch it makes. The agent prompt box is always visible, with host, project, folder and branch chips along its foot.
+  - The branch chip picks a base to branch off or an existing branch to check out. The host chip's list ends with the set-up rows, such as **Set up on another host…**, and it names hosts as soon as they pair.
+
+### Fixes
+
+- When Manor is opened from the Dock or Finder, the shell now gets a UTF-8 character set. A prompt with multi-byte characters no longer leaves the first letter you type behind (`cclaude`). Only the character set changes, so message language and date formats stay the same, and a locale you set yourself always wins.
+
+### Improvements
+
+- Automations: Each automation in Settings → Automations is now a card that shows its full name over its schedule, project and agent. The next run shows as a pill, or Paused, above the last run's status.
+
+### Security
+
+- Fixes for several security issues found in an audit. Details follow in GitHub security advisories; update to this version.
+
+
+## [0.24.0] - 2026-10-29
+
+### Features
+
+- Automations: Agents can now start themselves on a schedule. An automation pairs a cron schedule and time zone with a project on a host, a prompt, an agent kind, and a new or reused workspace. Automations on a remote host run even while the desktop app is quit. Local ones run while Manor is open.
+- Automations: Settings → Automations lists each host's automations. Each automation's page lets you edit its schedule and target, edit its prompt and see its runs, and it has Run now, pause and delete. Missed times, overlapping runs and failures show in the run history with a reason.
+- Automations: You can list, create, edit, pause, resume, run and delete automations with the `manor` CLI and MCP tools, on this machine or on an adopted host.
+- Automations: A new-workspace run starts in the project's Automations folder and branches from origin's default branch, or from the local default branch if the repo has no origin. An automation can keep only its last N run workspaces (up to 20). It never removes one you renamed, moved, hid or opened a pane in, one whose agent is active or has an unread reply, or one with changes or unpushed commits that would be lost.
+- Automations: Runs that start or fail show in the notifications bell, which now merges every host's notifications, newest first. A run that fails to start sends a push notification, and tapping it opens the automation.
+- File pane: A new pane type for fixing what agents wrote, with a Files tree and an editor. Open a file with "Open File…" in the command palette, or right-click or Cmd/Ctrl-click a file path in terminal output. A path like `src/a.ts:12:3` jumps to that line.
+- File pane: Edit a file, save it with ⌘S, or make a new file. A file with no unsaved edits reloads by itself when it changes on disk. If it changes while you have unsaved edits, Manor asks what to do. Manor also asks before unsaved edits could be lost by moving, converting or closing the pane, closing a window, quitting or installing an update.
+- File pane: The Files tree, the gutter and the Changed by agents list mark what agents changed, and you can jump between edits. The file header names the agent that last wrote the open file.
+- File pane: The Files drawer sits beside the editor. Drag its edge to resize it, or drag it narrow to fold it into the strip. While the pane has focus, ⌘B shows or hides the drawer, ⌘⇧E goes to Files and ⌘⇧G goes to Changed by agents. You can move through the Files tree with the arrow keys, Home/End and Enter/Space.
+- File pane: Right-click a file in the Files tree to open it in your editor, reveal it, copy its path or relative path, rename it or delete it. Folders only have the open, reveal and copy items. Renaming the open file keeps it open in the pane under its new name.
+- ⌘P (Ctrl+P on Linux) opens **Go to File**, a fuzzy search of the active workspace's files. Your pick opens in a file pane. The command is also in the command palette and the File menu, and you can rebind it in Settings → Keybindings.
+- Source Control replaces the Diff pane. In the file pane it's the strip's second button, and it lists Staged changes and Changes as a folder tree, where you can stage, unstage or discard files. It can also show a branch's changes. Clicking a change opens that file's diff in the editor, where you can still edit and save, and Open file goes back to the plain file.
+- Source Control: Commit what's staged from the commit box, or push from Commit's menu.
+- Source Control: Select lines in a diff and click **+ Comment** to leave a review comment on them. Source Control lists the review's comments under the changes, with Send and Discard, and reviews go to agents on the workspace's host.
+- Everything that used to open a Diff pane now opens Source Control in a file pane. Saved Diff panes come back as Source Control panes, and the CLI and MCP tools still accept `diff`.
+- Phone: File panes open read-only and are sized for touch. In the Files tree, the phone offers only Copy Path and Copy Relative Path.
+
+### Fixes
+
+- You can split a panel into two again by dropping one of its tabs on the empty right half of its own tab bar. The drag tint and insertion line now end where the tabs do.
+- Opening a terminal on the phone no longer shrinks the desktop's terminal to phone width. The phone now always follows the desktop's grid.
+- Cmd+Shift+N (and Workspace → New Workspace…) opens the dialog on the host and folder you're in.
+- Moving a browser pane keeps it a browser pane. Before, it could turn into a terminal.
+- Diffs keep removed lines that start with `--`.
+- Phone: Working agents in the Agents drawer keep their place instead of reshuffling on every update.
+- Phone: When the desktop is quit, the phone still reloads projects from hosts it reaches directly. New workspaces on those hosts now show in the sidebar.
+
+### Improvements
+
+- The back and forward buttons now sit beside the notifications bell.
+- Cobwebs: The dust brush is much bigger, so a few swipes clear the dust off a panel.
+- The workspace context menu no longer has **Merge & Delete**. You can still open it from the command palette.
+
 ## [0.23.0] - 2026-10-28
 
 ### Features

@@ -263,10 +263,10 @@ describe("deriveMenuContext", () => {
     ]);
   });
 
-  it("reports no editor when the preference is unset", () => {
+  it("reports Manor as the editor when the preference is unset", () => {
     const context = deriveMenuContext(makeAppState(), [makeProject()], [], {
       defaultEditor: "",
     } as unknown as AppPreferences);
-    expect(context.editorName).toBeNull();
+    expect(context.editorName).toBe("Manor");
   });
 });

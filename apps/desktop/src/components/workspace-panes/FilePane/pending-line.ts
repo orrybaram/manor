@@ -1,6 +1,8 @@
 /**
  * A line a file pane should show once its file is open: asked for by a
  * terminal link (`src/foo.ts:12:3`) before the pane, or its file, has loaded.
+ * Without a line it only hands the editor the keyboard, as every open from
+ * elsewhere (a terminal link, Go to File) does.
  * The editor takes it once. It keeps no clock: whoever asked drops it when
  * the open it waits for won't happen (`clearLine`), so a request whose file
  * never opened (the swap bar's Cancel) doesn't jump a later open of it, and
@@ -10,8 +12,8 @@
 export type LineRequest = {
   /** Workspace-relative path the line is in. */
   path: string;
-  /** 1-based. */
-  line: number;
+  /** 1-based; absent, the cursor stays where it is. */
+  line?: number;
   /** 1-based; the line's start when absent. */
   col?: number;
 };

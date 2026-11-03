@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import { PICKER_SCRIPT } from "../picker-script";
 import { SYMBOLICATION_SCRIPT } from "../sourcemap-symbolication";
 import { errorMessage } from "../lib/errors";
+import { allowTabCapture } from "../permissions";
 import {
   recordingManager,
   startRendererRecording,
@@ -161,6 +162,8 @@ export const webviewRoutes: readonly Route[] = [
         return;
       }
 
+      // The capture's permission request arrives as the guest's own.
+      allowTabCapture(wc);
       const renderResult = await startRendererRecording(
         started.recordingId,
         paneId,

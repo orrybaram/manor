@@ -1,12 +1,15 @@
-import type { AgentKind, PreviewTurn } from "../../../electron.d";
+import { useState } from "react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import type { AgentKind } from "../../../electron.d";
 import { useAppStore } from "../../../store/app-store";
 import { cleanLiveTitle } from "../../../hooks/useAgentDisplay";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { getPlatform } from "../../../lib/keybindings";
 import { ChatMarkdown } from "../../phone/ChatPane/ChatMarkdown";
+import { summarizeTools } from "../../phone/ChatPane/chat-entries";
 import { modalRowTitle, type ModalRow } from "./agents-modal-list";
-import type { PreviewState } from "./session-preview";
+import { groupPreviewTurns, type PreviewItem, type PreviewState, type PreviewToolGroup } from "./session-preview";
 import styles from "./SessionPreview.module.css";
 
 /** How each Agent kind is named. */
@@ -103,7 +106,8 @@ export function SessionPreview(props: SessionPreviewProps) {
           )}
         </div>
       )}
-      <Conversation state={state} />
+      {/* Keyed so an opened tool group closes when the highlight moves on. */}
+      <Conversation key={row.id} state={state} />
     </div>
   );
 }
@@ -135,16 +139,17 @@ function Conversation({ state }: { state: PreviewState }) {
     </div>
   );
   if (turns.length === 0) return partialNote || <div className={styles.note}>No messages yet.</div>;
+  const items = groupPreviewTurns(turns);
   // The opening prompt comes from before the window the rest came from, so
   // the gap sits after it.
-  const gapAfter = turns[0].role === "user" && turns[0].first ? 1 : 0;
+  const gapAfter = items[0].role === "user" && items[0].first ? 1 : 0;
   return (
     <div className={styles.turns} data-testid="agents-modal-turns">
       {partialNote}
-      {turns.map((turn, i) => (
-        <PreviewTurnView key={i} turn={turn} gapBefore={truncated && i === gapAfter} />
+      {items.map((item, i) => (
+        <PreviewItemView key={i} item={item} gapBefore={truncated && i === gapAfter} />
       ))}
-      {truncated && gapAfter === turns.length && <EarlierHint />}
+      {truncated && gapAfter === items.length && <EarlierHint />}
     </div>
   );
 }
@@ -153,26 +158,60 @@ function EarlierHint() {
   return <div className={styles.gap}>Earlier messages not shown</div>;
 }
 
-function PreviewTurnView({ turn, gapBefore }: { turn: PreviewTurn; gapBefore: boolean }) {
+function PreviewItemView({ item, gapBefore }: { item: PreviewItem; gapBefore: boolean }) {
   const body =
-    turn.role === "user" ? (
+    item.role === "user" ? (
       <div className={styles.userTurn}>
-        {turn.first && <div className={styles.label}>First prompt</div>}
-        <div className={styles.bubble}>{turn.text}</div>
+        {item.first && <div className={styles.label}>First prompt</div>}
+        <div className={styles.bubble}>{item.text}</div>
       </div>
-    ) : turn.role === "assistant" ? (
+    ) : item.role === "assistant" ? (
       <div className={styles.assistantTurn}>
-        <ChatMarkdown source={turn.text} imagesAsText />
+        <ChatMarkdown source={item.text} imagesAsText />
       </div>
     ) : (
-      <div className={styles.toolTurn} title={`${turn.name} ${turn.summary}`}>
-        {turn.name} {turn.summary}
-      </div>
+      <ToolGroupView group={item} />
     );
   return (
     <>
       {gapBefore && <EarlierHint />}
       {body}
     </>
+  );
+}
+
+/**
+ * A run of tool calls as one line summing them up ("Ran 5 commands, used 6
+ * tools"); clicking it lists each call.
+ */
+function ToolGroupView({ group }: { group: PreviewToolGroup }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={styles.toolGroup} data-testid="agents-modal-tool-group">
+      <button
+        type="button"
+        className={styles.toolGroupLine}
+        aria-expanded={open}
+        onMouseDown={keepFocus}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={styles.toolGroupSummary}>
+          {summarizeTools(group.tools)
+            .map((part) => part.text)
+            .join(", ")}
+        </span>
+        <ChevronRight className={styles.toolGroupChevron} size={12} aria-hidden />
+      </button>
+      {open &&
+        group.tools.map((tool, i) => {
+          // A call with nothing to say about itself has its name as its summary.
+          const line = tool.summary === tool.name ? tool.name : `${tool.name} ${tool.summary}`;
+          return (
+            <div key={i} className={styles.toolTurn} title={line}>
+              {line}
+            </div>
+          );
+        })}
+    </div>
   );
 }

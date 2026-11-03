@@ -244,7 +244,12 @@ Format:
 - Sections, in this order, only when non-empty: "### Features", "### Fixes", "### Improvements".
 - "- " bullets, one change per bullet, one or two short sentences.
 - Plain, direct sentences. Fixes say what works now ("Pasting an image into a remote pane uploads it to that host"), not "Fixed a bug where…".
-- Prefix with a short area label like "Phone:" only when it helps tell similar entries apart.
+- When a section has two or more entries about the same feature or area, group them under one parent bullet that names it in bold, with each entry as an indented sub-bullet. Never repeat the same label across sibling bullets. For example:
+  - **Move to Host**
+    - Move a workspace to another host from its menu or the command palette.
+    - Each agent restarts on the new host and picks up from a handoff of its conversation.
+- A lone entry stays a single bullet. Prefix it with a short area label like "Phone:" only when that helps tell it apart from similar entries.
+- Follow these format rules even where the recent entries below don't; use those only for tone and level of detail.
 - No version heading, no intro or outro text, no code fences. Output the markdown only.`;
 
 const examples = recentEntries(2);

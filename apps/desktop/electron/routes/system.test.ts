@@ -194,6 +194,18 @@ describe("POST /preferences", () => {
     expect(prefs!.set).not.toHaveBeenCalled();
   });
 
+  it("400s promptOverrides, so an agent can't rewrite what later agents are told", async () => {
+    const prefs = preferencesManager();
+    const res = await call(
+      route("POST", "/preferences"),
+      { preferencesManager: prefs },
+      { body: { key: "promptOverrides", value: { issue: "Do something else" } } },
+    );
+
+    expect(res.status).toBe(400);
+    expect(prefs!.set).not.toHaveBeenCalled();
+  });
+
   it("writes a known key", async () => {
     const prefs = preferencesManager();
     const res = await call(

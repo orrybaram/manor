@@ -112,6 +112,10 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "drawer-dark") });
 
+  // Folders are listed above files: src sorts after .gitignore and big.log
+  // by name, but comes first.
+  await expect(drawer.locator('[data-testid="file-pane-tree-row"]').first()).toHaveAttribute("data-path", /^src/);
+
   // .gitignore applies: nothing under node_modules or dist is listed, though
   // the files beside them are.
   await expect(treeRow(window, "big.log")).toBeVisible();
@@ -511,7 +515,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   // Its PostToolUse hook names the file it wrote, as Claude's does.
   await runInTerminal(
     window,
-    `curl -sS -o /dev/null "http://127.0.0.1:$MANOR_HOOK_PORT/hook/event?paneId=$MANOR_PANE_ID&sessionId=e2e-edit&kind=claude&eventType=PostToolUse&filePath=$PWD/src/components/Widget.tsx" && touch "$HOME/hook-sent"`,
+    `curl -fsS -o /dev/null -H "x-manor-hook-token: $MANOR_HOOK_TOKEN" "http://127.0.0.1:$MANOR_HOOK_PORT/hook/event?paneId=$MANOR_PANE_ID&sessionId=e2e-edit&kind=claude&eventType=PostToolUse&filePath=$PWD/src/components/Widget.tsx" && touch "$HOME/hook-sent"`,
   );
   await expect.poll(() => fs.existsSync(path.join(tempHome, "hook-sent"))).toBe(true);
 
@@ -1213,10 +1217,12 @@ test("the Files tree's context menu copies paths, renames and deletes files", as
   await openFromTree(window, ["src", "widget.ts"]);
   const menu = window.locator('[data-testid="file-pane-tree-menu"]');
 
-  // A file's menu: the editor and Finder (a local workspace), its paths, and Rename and Delete.
+  // A file's menu: Finder (a local workspace), its paths, and Rename and
+  // Delete. Not Open in Editor: Manor, the default editor, has it open.
   await treeRow(window, "src/widget.ts").click({ button: "right" });
   await expect(menu).toBeVisible();
-  for (const item of ["Open in Editor", /Reveal in Finder|Show in Folder/, "Copy Path", "Copy Relative Path", "Rename…", "Delete…"]) {
+  await expect(menu.getByRole("menuitem", { name: "Open in Editor" })).toHaveCount(0);
+  for (const item of [/Reveal in Finder|Show in Folder/, "Copy Path", "Copy Relative Path", "Rename…", "Delete…"]) {
     await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
   }
   await window.waitForTimeout(300);

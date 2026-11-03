@@ -1174,6 +1174,16 @@ describe("reconcile — user signals", () => {
     });
   }
 
+  it("move: active Agent → completed, not abandoned; pane idle and forgets its root", () => {
+    const r = reconcile(activePane(), { type: "user", action: "move" }, ctx({ existingAgent: agent() }));
+    expect(r.status).toBe("idle");
+    expect(r.reason).toBe("workspace moved to another host");
+    expect(r.state.rootSessionId).toBeNull();
+    expect(persisted(r.effects)).toEqual([
+      { kind: "PersistAgentStatus", sessionId: "sess-1", transition: { to: "completed" } },
+    ]);
+  });
+
   it("markSeen → MarkSeen effect, status unchanged", () => {
     const r = reconcile(respondedPane(), { type: "user", action: "markSeen" }, ctx({ existingAgent: respondedAgent() }));
     expect(r.effects).toEqual([{ kind: "MarkSeen", agentId: "agent-1" }]);

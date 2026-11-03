@@ -66,6 +66,7 @@ import {
   projectsConvertMainToWorktree,
   projectsCreateWorkspaceFolder,
   projectsCreateWorktree,
+  projectsRunStartScript,
   projectsDeleteWorkspaceFolder,
   projectsGetAll,
   projectsGetSelectedIndex,
@@ -103,6 +104,9 @@ import {
   githubAssignIssue,
   githubCheckStatus,
   githubCloseIssue,
+  githubGetMergeOptions,
+  githubGetPrAgentPrompt,
+  githubMergePr,
   githubCreateIssue,
   githubGetAllIssues,
   githubGetIssueDetail,
@@ -150,8 +154,9 @@ import {
 } from "../bridge/handlers/files";
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
 import type { ProjectInfo } from "../projects/types";
-import type { Theme, ThemeColors } from "../theme";
+import { themeScheme, type Theme, type ThemeCatalog, type ThemeColors } from "../theme";
 import type {
   PtyAttachResult,
   PtyCreateOptions,
@@ -176,6 +181,7 @@ import {
   notificationsMarkAllRead,
   notificationsMarkRead,
 } from "../bridge/handlers/notifications";
+import { statsGetHistory, statsReset } from "../bridge/handlers/stats";
 import {
   automationsCreate,
   automationsGet,
@@ -195,7 +201,7 @@ import type { VapidKeys } from "../remote-control/push";
 import type { Adopt, AdoptionBundle } from "./adopt";
 import { answerOwnerRequest } from "./cli-relay";
 import type { ControlRelayResult } from "../terminal-host/control-relay-listener";
-import { assertAdoptionBundle, assertVapidKeys } from "./owner";
+import { assertAdoptionBundle, assertPromptOverrides, assertVapidKeys } from "./owner";
 import { assertOwned, type OwnershipState } from "./ownership";
 import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
 import type { HostWinsize } from "./winsize";
@@ -222,6 +228,8 @@ export interface HostServerDeps
   winsize: HostWinsize;
   /** This server's preferences: the defaults until the desktop syncs any. */
   preferences(): AppPreferences;
+  /** Store the desktop's edited prompts, for what this server builds itself. */
+  setPromptOverrides(overrides: PromptOverrides): void;
   /** The theme a phone draws terminals in: Manor's default. */
   theme(): Theme;
   /** This server's own relay room: pairing, devices, push. */
@@ -384,6 +392,24 @@ async function themeAllColors(): Promise<Record<string, ThemeColors>> {
   return {};
 }
 
+/** The one theme there is here, under the name `getSelectedName` gives. */
+async function themeCatalog(ctx: Ctx): Promise<ThemeCatalog> {
+  const theme = ctx.deps.theme();
+  return {
+    themes: [
+      {
+        name: "__default__",
+        displayName: "Catppuccin Mocha",
+        source: "builtin",
+        badge: "Default",
+        colors: theme,
+        scheme: themeScheme(theme.background),
+      },
+    ],
+    recent: [],
+  };
+}
+
 // ── the daemon ──
 
 /** The one host this server is, and whether its daemon is reachable. */
@@ -435,6 +461,12 @@ async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
 function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
   assertVapidKeys(keys);
   return ctx.deps.relay.setVapidKeys(keys);
+}
+
+/** The prompts edited on the desktop, whole. Replaces what this host held. */
+function hostServerSetPromptOverrides(ctx: Ctx, overrides: PromptOverrides): void {
+  assertPromptOverrides(overrides);
+  ctx.deps.setPromptOverrides(overrides);
 }
 
 /**
@@ -549,6 +581,7 @@ const METHODS = flatten({
     listRemoteBranches: method(projectsListRemoteBranches),
     canQuickMerge: method(projectsCanQuickMerge),
     createWorktree: method(owned(projectsCreateWorktree), { mutating: true }),
+    runStartScript: method(owned(projectsRunStartScript), { mutating: true }),
     // The desktop forwards these for its projects here.
     quickMergeWorktree: method(owned(projectsQuickMergeWorktree), { mutating: true }),
     convertMainToWorktree: method(owned(projectsConvertMainToWorktree), { mutating: true }),
@@ -575,6 +608,13 @@ const METHODS = flatten({
     markRead: method(notificationsMarkRead, { mutating: true }),
     markAllRead: method(notificationsMarkAllRead, { mutating: true }),
     clear: method(notificationsClear, { mutating: true }),
+  },
+  // This host's own usage stats, which the desktop reads to merge into its
+  // totals and clears with its own. The owner's alone: a phone reads the
+  // desktop's merged ones.
+  stats: {
+    getHistory: method(statsGetHistory, { localOnly: true }),
+    reset: method(statsReset, { mutating: true, localOnly: true }),
   },
   // This host's automations, which this server fires with the lid closed.
   // A device may read them, run one now and pause or resume one; making,
@@ -613,6 +653,9 @@ const METHODS = flatten({
     proxyImage: method(githubProxyImage),
     assignIssue: method(githubAssignIssue, { mutating: true }),
     closeIssue: method(githubCloseIssue, { mutating: true }),
+    getMergeOptions: method(githubGetMergeOptions),
+    mergePr: method(githubMergePr, { mutating: true }),
+    getPrAgentPrompt: method(githubGetPrAgentPrompt),
     createIssue: method(githubCreateIssue, { mutating: true }),
   },
   // A workspace's linked issues are project records; the rest of Linear is
@@ -688,6 +731,7 @@ const METHODS = flatten({
     hasGhosttyConfig: method(themeHasGhosttyConfig),
     preview: method(themePreview),
     allColors: method(themeAllColors),
+    catalog: method(themeCatalog),
   },
   hosts: {
     list: method(hostsList),
@@ -709,6 +753,7 @@ const METHODS = flatten({
     status: method(hostServerStatus, { localOnly: true }),
     resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    setPromptOverrides: method(hostServerSetPromptOverrides, { localOnly: true, mutating: true }),
     setLinearToken: method(hostServerSetLinearToken, { localOnly: true, secretFirstArg: true }),
     adopt: method(hostServerAdopt, { localOnly: true }),
     control: method(hostServerControl, { localOnly: true, mutating: true }),

@@ -68,6 +68,7 @@ describe("scrubbed transcript fixtures", () => {
       const golden = {
         turnState: parser.turnState(),
         contextTokens: parser.contextTokens(),
+        session: parser.sessionInfo(),
         skills: parser.skills().length,
         entries: parser.entries(),
       };
@@ -113,12 +114,18 @@ describe("scrubbed transcript fixtures", () => {
         for (const p of pushes) latest.set(p.id, p);
         const turn = latest.get("turn");
         const usage = latest.get("usage");
+        const session = latest.get("session");
         latest.delete("turn");
         latest.delete("usage");
+        latest.delete("session");
         return {
           entries: [...latest.values()],
           turnState: turn?.kind === "turn" ? turn.state : null,
           contextTokens: usage?.kind === "usage" ? usage.contextTokens : null,
+          session:
+            session?.kind === "session"
+              ? { model: session.model, effort: session.effort, gitBranch: session.gitBranch }
+              : null,
         };
       }
 
@@ -130,6 +137,7 @@ describe("scrubbed transcript fixtures", () => {
           entries: parser.entries(),
           turnState: parser.turnState(),
           contextTokens: parser.contextTokens(),
+          session: parser.sessionInfo(),
         });
 
         // Odd sizes, so cuts land mid-line and, in places, mid-character.

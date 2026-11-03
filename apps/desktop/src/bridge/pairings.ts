@@ -264,17 +264,28 @@ function fallbackName(list: StoredPairing[]): string {
 }
 
 /**
- * Add a pairing, or update the one for the same room (new key and token,
- * name kept) — a link never replaces the others — and mark it last used.
+ * A room's key never changes: the room is named for the identity the key
+ * belongs to, and "Reset relay address" makes a new room. A link, or a
+ * server, giving a stored room another key is someone else's, and is refused.
+ */
+function isRekey(existing: StoredPairing | undefined, serverKey: string): boolean {
+  return existing !== undefined && existing.serverKey !== serverKey;
+}
+
+/**
+ * Add a pairing, or update the one for the same room (new token, name kept)
+ * — a link never replaces the others — and mark it last used. A link with
+ * another key for a stored room changes nothing (`isRekey`).
  */
 export function upsertPairing(
   link: RelayCredentials,
   now: number = Date.now(),
 ): StoredPairing {
   const { roomId, serverKey, token } = link;
-  undeclineRoom(roomId);
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
+  if (existing && isRekey(existing, serverKey)) return existing;
+  undeclineRoom(roomId);
   // A token the host minted needs no ticket: one left from an earlier
   // single-use link for the room goes.
   const next: StoredPairing = existing
@@ -304,9 +315,10 @@ export function freshDeviceToken(): string {
  *   for the ticket the token was already redeemed with (`spentTicket`): a
  *   fresh token for a spent ticket would be refused, and would replace the
  *   one that works.
- * - **Any other ticket**: a fresh token (`mintToken`) goes with it, and the
- *   key is the link's. Name and the rest are kept, as `upsertPairing` keeps
- *   them; a new room is named "Host N".
+ * - **Any other ticket**: a fresh token (`mintToken`) goes with it. Name and
+ *   the rest are kept, as `upsertPairing` keeps them; a new room is named
+ *   "Host N".
+ * - **Another key for a stored room**: nothing changes (`isRekey`).
  */
 export function upsertTicketPairing(
   link: TicketLink,
@@ -314,9 +326,10 @@ export function upsertTicketPairing(
   mintToken: () => string = freshDeviceToken,
 ): StoredPairing {
   const { roomId, serverKey, ticket } = link;
-  undeclineRoom(roomId);
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
+  if (existing && isRekey(existing, serverKey)) return existing;
+  undeclineRoom(roomId);
   let next: StoredPairing;
   if (existing && (existing.ticket === ticket || existing.spentTicket === ticket)) {
     next = { ...existing, lastUsedAt: now };
@@ -369,6 +382,9 @@ export function linkPairing(
   const name = link.name.trim();
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
+  // A desktop speaks only for its hosts: never for a pairing the user made
+  // with a desktop (or one that has not said what it is), nor with another key.
+  if (existing && (existing.hostServer !== true || isRekey(existing, serverKey))) return;
   const next: StoredPairing = existing
     ? {
         ...(existing.token === token ? existing : withoutTicket(existing)),
@@ -429,7 +445,9 @@ export function recordPairingHello(
   updatePairing(roomId, (p) => ({
     ...p,
     name: name && !p.customName ? name : p.name,
-    hostServer: hello.hostServer,
+    // Once a host server, always one: a room's identity is a host's or a
+    // desktop's for good, and a host saying otherwise would become home.
+    hostServer: p.hostServer === true || hello.hostServer,
   }));
 }
 

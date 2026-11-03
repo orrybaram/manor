@@ -33,7 +33,7 @@ const folderHeader = (window: Page, name: string) =>
     .locator("[data-sidebar-row][aria-expanded]:not([data-testid])")
     .filter({ hasText: name });
 
-/** Workspace rows inside a folder's block (its header no longer shows a count). */
+/** Workspace rows inside a folder's block. */
 const folderMembers = (window: Page, name: string) =>
   folderHeader(window, name).locator("xpath=..").getByTestId("workspace-item");
 

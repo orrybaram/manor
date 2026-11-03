@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { PrInfo } from "../../../../lib/pr-info";
-import { formatContextTokens, runningChipLabel, statusLineModel } from "../chat-status-line";
+import {
+  branchChip,
+  formatContextTokens,
+  modelDisplayName,
+  agentsChipLabel,
+  runningChipLabel,
+  shortBranchName,
+  statusLineModel,
+} from "../chat-status-line";
 
 const URL = "https://github.com/o/r/pull/7";
 
@@ -106,9 +114,76 @@ describe("formatContextTokens", () => {
   });
 });
 
+describe("agentsChipLabel", () => {
+  it("counts the running, then what's done", () => {
+    expect(agentsChipLabel(1)).toBe("1 agent");
+    expect(agentsChipLabel(3)).toBe("3 agents");
+    expect(agentsChipLabel(1, 2)).toBe("1 agent · 2 done");
+    expect(agentsChipLabel(0, 1)).toBe("1 agent done");
+    expect(agentsChipLabel(0, 3)).toBe("3 agents done");
+    expect(agentsChipLabel(0, 0, 2)).toBe("2 agents");
+  });
+});
+
 describe("runningChipLabel", () => {
   it("shows the count only while something runs", () => {
     expect(runningChipLabel(0)).toBeNull();
     expect(runningChipLabel(3)).toBe("3 running");
+  });
+});
+
+describe("modelDisplayName", () => {
+  it("names a Claude model by family and version", () => {
+    expect(modelDisplayName("claude-opus-5-5")).toBe("Opus 5.5");
+    expect(modelDisplayName("claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(modelDisplayName("claude-haiku-5-5")).toBe("Haiku 5.5");
+    expect(modelDisplayName("claude-fable-5-1")).toBe("Fable 5.1");
+    expect(modelDisplayName("claude-opus-4")).toBe("Opus 4");
+  });
+
+  it("drops a date suffix and a context tag", () => {
+    expect(modelDisplayName("claude-haiku-4-5-20251001")).toBe("Haiku 4.5");
+    expect(modelDisplayName("claude-opus-5-5[1m]")).toBe("Opus 5.5");
+    expect(modelDisplayName("claude-sonnet-4-5-20250929[1m]")).toBe("Sonnet 4.5");
+  });
+
+  it("reads the older version-first ids", () => {
+    expect(modelDisplayName("claude-3-5-sonnet-20241022")).toBe("Sonnet 3.5");
+  });
+
+  it("shows anything else as written", () => {
+    expect(modelDisplayName("gpt-5.5-codex")).toBe("gpt-5.5-codex");
+    expect(modelDisplayName("claude-opus")).toBe("claude-opus");
+    expect(modelDisplayName("")).toBe("");
+  });
+});
+
+describe("shortBranchName", () => {
+  it("keeps the part after the last slash", () => {
+    expect(shortBranchName("feat/chat-session-info")).toBe("chat-session-info");
+    expect(shortBranchName("orry/feat/x")).toBe("x");
+    expect(shortBranchName("main")).toBe("main");
+    expect(shortBranchName("odd/")).toBe("odd/");
+  });
+});
+
+describe("branchChip", () => {
+  it("needs a workspace branch", () => {
+    expect(branchChip(undefined, "main")).toBeNull();
+    expect(branchChip("", "main")).toBeNull();
+  });
+
+  it("flags a transcript branch that differs", () => {
+    expect(branchChip("feat/x", "main")).toEqual({ branch: "feat/x", agentBranch: "main" });
+  });
+
+  it("does not flag an agreeing or missing transcript branch", () => {
+    expect(branchChip("feat/x", "feat/x")).toEqual({ branch: "feat/x", agentBranch: null });
+    expect(branchChip("Feat/X", "feat/x")).toEqual({ branch: "Feat/X", agentBranch: null });
+    expect(branchChip("feat/x", null)).toEqual({ branch: "feat/x", agentBranch: null });
+  });
+
+  it("does not flag a detached checkout, which the transcript names HEAD", () => {
+    expect(branchChip("73970ed", "HEAD")).toEqual({ branch: "73970ed", agentBranch: null });
   });
 });

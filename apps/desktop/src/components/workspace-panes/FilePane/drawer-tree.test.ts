@@ -73,11 +73,11 @@ describe("visibleTreeRows", () => {
     expect(rows.map((r) => `${"  ".repeat(r.depth)}${r.name}`)).toEqual([
       "apps",
       "  desktop",
-      // Folders and files sort together, as the shared tree sorts them.
-      "    package.json",
+      // Folders come before files, as the shared tree sorts them.
       "    src",
-      "      App.tsx",
       "      components/workspace-panes",
+      "      App.tsx",
+      "    package.json",
       "  relay/src",
       "docs",
       "README.md",

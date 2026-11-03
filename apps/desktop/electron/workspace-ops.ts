@@ -12,6 +12,7 @@
  * spawns nothing.
  */
 
+import type { PaneEnding } from "./layout/layout-store";
 import type {
   IssueSeed,
   LinkedIssue,
@@ -89,6 +90,11 @@ export interface CreateWorkspaceRequest {
    * result's `setup`. Omitted, create resolves once the script's tab exists.
    */
   awaitSetup?: { timeoutMs: number };
+  /**
+   * Leave the setup script for the caller to run with `runStartScript`
+   * once it has made the workspace ready (a move fast-forwards it first).
+   */
+  skipStartScript?: boolean;
 }
 
 export interface WorkspaceOps {
@@ -114,12 +120,23 @@ export interface WorkspaceOps {
     seeds: IssueSeed[],
     baseBranch?: string,
   ): Promise<WorkspaceFromIssue[]>;
+  /** `ending.moved`: the workspace moved to another host (see `PaneEnding`). */
   remove(
     projectId: string,
     worktreePath: string,
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
+    ending?: PaneEnding,
   ): Promise<void>;
+  /**
+   * Run `project`'s worktree start script in `workspacePath` and wait for
+   * it to end, up to `timeoutMs`. Null when the project has none.
+   */
+  runStartScript(
+    project: Pick<ProjectInfo, "hostId" | "worktreeStartScript">,
+    workspacePath: string,
+    opts: { timeoutMs: number; origin?: string | null },
+  ): Promise<SetupScriptEnd | null>;
   /** Address one removal step to the connection that asked for the removal. */
   publishRemoveProgress(origin: string | null, step: string): void;
   quickMerge(projectId: string, worktreePath: string): Promise<void>;
@@ -148,6 +165,9 @@ function recordLastUsedHost(
     );
   }
 }
+
+/** The longest a caller may have `projects.runStartScript` wait. */
+export const START_SCRIPT_MAX_WAIT_MS = 30 * 60_000;
 
 /** `ended`, or `timed-out` once `timeoutMs` passes first. */
 function within(ended: Promise<SetupScriptEnd>, timeoutMs: number): Promise<SetupScriptEnd> {
@@ -186,7 +206,7 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       );
       const workspacePath = created?.path ?? null;
 
-      if (project?.worktreeStartScript && workspacePath) {
+      if (project?.worktreeStartScript && workspacePath && !req.skipStartScript) {
         const args = [
           workspacePath,
           project.worktreeStartScript,
@@ -205,6 +225,20 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       return { project, workspacePath };
     },
 
+    async runStartScript(project, workspacePath, opts) {
+      if (!project.worktreeStartScript) return null;
+      let onEnd!: (end: SetupScriptEnd) => void;
+      const ended = new Promise<SetupScriptEnd>((resolve) => (onEnd = resolve));
+      await deps.runSetupScript(
+        workspacePath,
+        project.worktreeStartScript,
+        project.hostId,
+        opts.origin ?? null,
+        onEnd,
+      );
+      return within(ended, opts.timeoutMs);
+    },
+
     async createFromIssues(project, seeds, baseBranch) {
       const results = await pm.createWorkspacesFromIssues(project.id, seeds, baseBranch);
       const createdCount = results.filter((r) => !!r.worktreePath && !r.error).length;
@@ -216,8 +250,8 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       return results;
     },
 
-    async remove(projectId, worktreePath, deleteBranch, onProgress) {
-      await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress);
+    async remove(projectId, worktreePath, deleteBranch, onProgress, ending) {
+      await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress, ending);
       statsStore.record("worktreesRemoved");
       deps.notifyProjectsChanged();
     },

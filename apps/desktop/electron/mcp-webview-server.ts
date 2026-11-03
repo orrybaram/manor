@@ -3,7 +3,8 @@
  * (NOT inside Electron). Proxies Claude Code tool calls to the webview
  * HTTP server running inside Manor's Electron process.
  *
- * Discovery: reads port from ~/.manor/webview-server-port
+ * Discovery: reads port from ~/.manor/webview-server-port and its token from
+ * ~/.manor/webview-server-token; see `mcp/http-client.ts`.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";

@@ -156,6 +156,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.canQuickMerge": byProject(0),
   "projects.quickMergeWorktree": byProject(0),
   "projects.createWorktree": byProject(0),
+  "projects.runStartScript": byProject(0),
   "projects.convertMainToWorktree": byProject(0),
   "projects.listRemoteBranches": byProject(0),
   "projects.listLocalBranches": byProject(0),
@@ -173,6 +174,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.clone": "home",
   "projects.moveToHost": "home",
   "projects.transfer": "home",
+  "projects.moveWorkspaceToHostPreflight": "home",
+  "projects.moveWorkspaceToHost": "home",
   // Starts a box from a profile on this desktop.
   "projects.openInNewHost": "home",
   "projects.getOriginUrl": "home",
@@ -241,6 +244,9 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "github.proxyImage": "home",
   "github.assignIssue": byGhRepo(0),
   "github.closeIssue": byGhRepo(0),
+  "github.getMergeOptions": byGhRepo(0),
+  "github.mergePr": byGhRepo(0),
+  "github.getPrAgentPrompt": byGhRepo(0),
   "github.createIssue": "home",
   "github.uploadFeedbackImages": "home",
 

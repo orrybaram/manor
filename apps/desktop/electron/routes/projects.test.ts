@@ -76,9 +76,14 @@ function makeProjectManager(lastUsedHostId: string | null = "box") {
       hostId === "local"
         ? "this Mac"
         : (hosts.find((h) => h.hostId === hostId)?.spec.target ?? hostId),
-    createWorktree: vi.fn(async (projectId: string) =>
+    createWorktree: vi.fn(async (projectId: string, _name?: string, _opts?: { folderId?: string | null }) =>
       projects.find((p) => p.id === projectId) ?? null,
     ),
+    ensureTopLevelFolder: vi.fn((_projectId: string, name: string) => ({
+      id: `folder-${name}`,
+      name,
+      parentId: null,
+    })),
     createWorkspacesFromIssues: vi.fn(
       async (projectId: string, seeds: IssueSeed[]): Promise<WorkspaceFromIssue[]> =>
         seeds.map((seed) => ({
@@ -194,6 +199,30 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect(pm.getProjects).toHaveBeenCalledTimes(1);
   });
 
+  it("with wait, has the op await the setup script and answers how it ended", async () => {
+    const d = deps(pm);
+    const create_ = vi.fn(async (_req: unknown) => ({
+      project: project("solo", "local"),
+      workspacePath: "/local/feat",
+      setup: { status: "exited" as const, exitCode: 2 },
+    }));
+    (d as unknown as { workspaceOps: { create: typeof create_ } }).workspaceOps.create = create_;
+
+    const waited = await call(create, d, { projectId: "solo" }, { name: "feat", wait: true });
+    expect(create_.mock.calls[0]).toEqual([
+      expect.objectContaining({ awaitSetup: { timeoutMs: 8 * 60_000 } }),
+    ]);
+    expect((waited.body as { setup: unknown }).setup).toEqual({ status: "exited", exitCode: 2 });
+
+    create_.mockResolvedValueOnce({
+      project: project("solo", "local"),
+      workspacePath: "/local/feat",
+    } as never);
+    const quick = await call(create, d, { projectId: "solo" }, { name: "feat" });
+    expect(create_.mock.calls[1][0]).not.toHaveProperty("awaitSetup");
+    expect(quick.body).not.toHaveProperty("setup");
+  });
+
   it("accepts the local host id", async () => {
     await call(create, deps(pm), { projectId: "box-app" }, {
       name: "feat",
@@ -292,6 +321,37 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect((res.body as { error: string }).error).toBe(
       'Project "Solo" is on this Mac, not me@box, and isn\'t linked with a project there.',
     );
+  });
+
+  it("files the workspace in the named folder of the member it lands in", async () => {
+    const res = await call(create, deps(pm), { projectId: "local-app" }, {
+      name: "feat",
+      folder: "PR Screens",
+    });
+    expect(res.status).toBe(200);
+    expect(pm.ensureTopLevelFolder).toHaveBeenCalledWith("box-app", "PR Screens");
+    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
+    expect(pm.createWorktree.mock.calls[0][2]).toMatchObject({ folderId: "folder-PR Screens" });
+  });
+
+  it("makes no folder when none is named", async () => {
+    await call(create, deps(pm), { projectId: "solo" }, { name: "feat" });
+    expect(pm.ensureTopLevelFolder).not.toHaveBeenCalled();
+    expect(pm.createWorktree.mock.calls[0][2]?.folderId).toBeUndefined();
+  });
+
+  it.each([[""], ["   "], [3]])("refuses the folder %j, before creating anything", async (folder) => {
+    const res = await call(create, deps(pm), { projectId: "solo" }, { name: "feat", folder });
+    expect(res.status).toBe(400);
+    expect(pm.ensureTopLevelFolder).not.toHaveBeenCalled();
+    expect(pm.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("creates no workspace when the folder can't be made", async () => {
+    pm.ensureTopLevelFolder.mockReturnValueOnce(null as never);
+    const res = await call(create, deps(pm), { projectId: "solo" }, { name: "feat", folder: "X" });
+    expect(res.status).toBe(500);
+    expect(pm.createWorktree).not.toHaveBeenCalled();
   });
 });
 

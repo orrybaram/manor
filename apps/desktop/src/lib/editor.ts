@@ -1,5 +1,7 @@
 import { usePreferencesStore } from "../store/preferences-store";
 import { useAppStore } from "../store/app-store";
+import { toast } from "../toast";
+import { hasControlChars, shellQuote } from "./terminal-file-drop";
 
 const TERMINAL_EDITORS = new Set([
   "vi",
@@ -23,12 +25,30 @@ export function isTerminalEditor(cmd: string): boolean {
   return TERMINAL_EDITORS.has(base);
 }
 
+/**
+ * No editor command means Manor is the editor: a workspace file opens in a
+ * file pane, and anything else in the system's default app.
+ */
+export function editorIsManor(): boolean {
+  return !usePreferencesStore.getState().preferences.defaultEditor.trim();
+}
+
+/** The editor's name for menus and the palette. */
+export function editorName(defaultEditor: string): string {
+  return defaultEditor.trim() || "Manor";
+}
+
 export function openInEditor(dirPath: string): void {
   const { preferences } = usePreferencesStore.getState();
   const editor = preferences.defaultEditor;
 
   if (editor && preferences.editorIsTerminal) {
-    useAppStore.getState().addTerminalTab(`${editor} ${dirPath}`);
+    // The path is typed into a shell, and file names come from the repo.
+    if (hasControlChars(dirPath)) {
+      toast.error("This file's name has characters Manor won't type.", { id: "open-in-editor" });
+      return;
+    }
+    useAppStore.getState().addTerminalTab(`${editor} ${shellQuote(dirPath)}`);
     return;
   }
 

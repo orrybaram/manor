@@ -19,12 +19,12 @@ async function open(page: Page) {
 test.describe("desktop 1440", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("Download points at the latest .dmg with the desktop version", async ({ page }) => {
+  test("Download points at the .dmg of the version it names", async ({ page }) => {
     await open(page);
     const buttons = page.locator('a[href$=".dmg"]');
     await expect(buttons).toHaveCount(3);
     for (const b of await buttons.all()) {
-      await expect(b).toHaveAttribute("href", "https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg");
+      await expect(b).toHaveAttribute("href", `https://github.com/orrybaram/manor/releases/download/v${VERSION}/Manor-arm64.dmg`);
     }
     await expect(page.locator(".hero .meta")).toContainText(`v${VERSION}`);
     await expect(page.locator(".foot a.btn")).toContainText(`v${VERSION}`);

@@ -1,6 +1,8 @@
 /** Claude Code's transcript format, read through `TranscriptParser`. */
 
 import path from "node:path";
+import { CHAT_SUBMIT } from "../chat-keys";
+import { encodeChatMessage } from "../picker-keys";
 import { TranscriptParser } from "../transcript";
 import type { TranscriptAdapter } from "./types";
 
@@ -25,4 +27,7 @@ export const claudeAdapter: TranscriptAdapter = {
       `agent-${task.taskRef}.jsonl`,
     );
   },
+  // Text, then Enter on its own: in one write Claude Code can read the burst
+  // as a paste and the Enter as a new line.
+  promptWrites: (text) => [encodeChatMessage(text), CHAT_SUBMIT],
 };

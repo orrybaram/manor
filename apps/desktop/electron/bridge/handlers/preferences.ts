@@ -6,6 +6,7 @@ import {
 } from "../../renderer-broadcast";
 import type { DesktopDeps, ServerDeps } from "../../ipc/types";
 import { isSharedPreferenceKey, type AppPreferences } from "../../preferences";
+import { isPromptId, promptDefinition, promptProblems } from "../../../src/lib/prompts/catalog";
 import { method, type HandlerCtx } from "../method";
 import {
   MAIN_WINDOW_KEYBINDINGS,
@@ -24,7 +25,8 @@ export function preferencesGetAll(ctx: HandlerCtx<ServerDeps>): AppPreferences {
 
 /**
  * A `full` device may write preferences — all but `remoteControlOnLaunch`,
- * which only `remoteControl.setStartOnLaunch` writes (`isSharedPreferenceKey`).
+ * which only `remoteControl.setStartOnLaunch` writes, and `promptOverrides`,
+ * which only `preferencesSetPrompt` writes (`isSharedPreferenceKey`).
  */
 export function preferencesSet<K extends keyof AppPreferences>(
   ctx: HandlerCtx<ServerDeps>,
@@ -36,6 +38,28 @@ export function preferencesSet<K extends keyof AppPreferences>(
     throw new Error(`preferences.set cannot write '${key}'`);
   }
   ctx.deps.preferencesManager.set(key, value);
+}
+
+/**
+ * Settings › Prompts saving one prompt; null, or its default text, goes back
+ * to the default so a later change to that default reaches it. On the bridge
+ * and not `POST /preferences`: Settings can reach it, an agent's CLI can't.
+ */
+export function preferencesSetPrompt(
+  ctx: HandlerCtx<ServerDeps>,
+  id: string,
+  text: string | null,
+): void {
+  if (!isPromptId(id)) throw new Error(`preferences.setPrompt: unknown prompt '${String(id)}'`);
+  if (text !== null) {
+    assertString(text, "text");
+    const problems = promptProblems(id, text);
+    if (problems.empty) throw new Error(`preferences.setPrompt: '${id}' can't be blank`);
+    if (problems.tooLong) throw new Error(`preferences.setPrompt: '${id}' is too long`);
+  }
+  const { [id]: _previous, ...others } = ctx.deps.preferencesManager.get("promptOverrides");
+  const isDefault = text === null || text === promptDefinition(id).template;
+  ctx.deps.preferencesManager.set("promptOverrides", isDefault ? others : { ...others, [id]: text });
 }
 
 /** Through the server's sound sink: a server with no speaker plays nothing. */
@@ -103,12 +127,9 @@ export function keybindingsRunInMainWindow(
 /**
  * Wire the `preferences.changed` broadcast.
  *
- * `PreferencesManager.onChange` holds exactly one callback, so this is the
- * only place a preferences change can be observed — hence the bridge sink
- * here rather than a second subscription of its own. Every caller of
- * `preferencesSet` shares it, table and route alike. Not `register()`: this
- * subscription has to run once, at boot, the same way `wireStatsBroadcast`
- * and `wireRemoteControlStatus` do for their namespaces.
+ * Every caller of `preferencesSet` shares it, table and route alike. Not
+ * `register()`: this subscription has to run once, at boot, the same way
+ * `wireStatsBroadcast` and `wireRemoteControlStatus` do for their namespaces.
  */
 export function wirePreferencesBroadcast(
   deps: Pick<ServerDeps, "preferencesManager">,
@@ -136,6 +157,7 @@ export const preferences = {
   getAll: method(preferencesGetAll),
   // A `full` device may write preferences.
   set: method(preferencesSet, { mutating: true }),
+  setPrompt: method(preferencesSetPrompt, { mutating: true }),
   playSound: method(preferencesPlaySound),
 };
 

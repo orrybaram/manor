@@ -4,6 +4,7 @@ import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import {
   useAppStore,
   usePaneFilePath,
+  selectFocusedPaneOfActiveTab,
   selectHasPane,
   selectPaneContentType,
   selectPaneStartsOn,
@@ -21,6 +22,7 @@ import { LOCAL_HOST_ID, workspaceKey } from "../../../lib/workspace-key";
 import { getPlatform } from "../../../lib/keybindings";
 import { isWebApp } from "../../../lib/platform";
 import { useMountEffect } from "../../../hooks/useMountEffect";
+import { isNavRegionKeyboardFocused } from "../../../lib/focus-regions";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { fileTitle } from "../../../lib/pane-title";
@@ -188,6 +190,13 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       setNext(null);
     }
   }
+  // Opened with nothing in it (Open File…, Open Source Control), the pane
+  // takes the keyboard from whatever opened it, as a new terminal does; a
+  // file opened in it hands the editor the keyboard itself (`pendingLines`).
+  useMountEffect(() => {
+    if (filePath || isNavRegionKeyboardFocused()) return;
+    if (selectFocusedPaneOfActiveTab(useAppStore.getState()) === paneId) focusDrawer();
+  });
   // Asked again while mounted (Open Source Control over this pane).
   useMountEffect(() =>
     onSourceControlRequest(paneId, () => {

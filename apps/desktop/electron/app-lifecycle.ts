@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { layoutFile, manorDataDir } from "./paths";
+import { layoutFile, manorDataDir, sessionHintsFile } from "./paths";
+import { writeSessionHints } from "./session-hints";
 import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
@@ -27,9 +28,9 @@ import {
 } from "./remote-control/controller";
 import type { HostDeps } from "./ipc/types";
 import { createWindow, saveZoomLevel } from "./window";
+import { installPermissionPolicy } from "./permissions";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import { Notifier, playNotificationSound } from "./notifications";
-import { wireStatsBroadcast } from "./bridge/handlers/stats";
 import {
   wirePreferencesBroadcast,
   wireKeybindingsBroadcast,
@@ -357,6 +358,7 @@ export function initApp(devTitle: string | null): void {
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room.
       vapidKeys: () => core.relayStores.push.vapidKeys(),
+      promptOverrides: () => shared.preferencesManager.get("promptOverrides"),
       // What the desktop still holds for each host, handed to its server;
       // from then on it reads them through that server.
       adoption: core.hostAdoption,
@@ -386,6 +388,17 @@ export function initApp(devTitle: string | null): void {
     // connected.
     hostServerSync.start();
     hostLinks.start();
+
+    // The prompts edited in Settings: this computer's hook reads the session
+    // hints from a file, and each connected host gets the whole set.
+    let promptEdits = shared.preferencesManager.get("promptOverrides");
+    writeSessionHints(sessionHintsFile(), promptEdits);
+    shared.preferencesManager.onChange(({ promptOverrides }) => {
+      if (promptOverrides === promptEdits) return;
+      promptEdits = promptOverrides;
+      writeSessionHints(sessionHintsFile(), promptOverrides);
+      hostServerSync.promptOverridesChanged();
+    });
 
     // Remote control. Constructed here so the status sink and the
     // quit hook can see it; deliberately *not* started here — remote control is
@@ -493,8 +506,8 @@ export function initApp(devTitle: string | null): void {
   // that has to run once, at boot, and was never an `ipcMain.handle` — the
   // `wire*` broadcasts debounce or fan out a manager's `onChange` as a bridge
   // event, and `installPortEnricher` hands the port scanner its portless
-  // dressing. The chat mirror's is the server's own (`createManorServer`).
-  wireStatsBroadcast(ipcDeps);
+  // dressing. The chat mirror's and the stats broadcast are the server's own
+  // (`createManorServer`).
   wireAgentActivityBroadcast(ipcDeps);
   wirePreferencesBroadcast(ipcDeps);
   wireKeybindingsBroadcast(ipcDeps);
@@ -504,6 +517,9 @@ export function initApp(devTitle: string | null): void {
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
+    // Before any window or page exists to ask: Electron grants every
+    // permission until a handler is set.
+    installPermissionPolicy();
     // Decrypt the secrets the stores keep in memory before any window can ask
     // for them. A store that cannot be read stays unread (and its file
     // untouched) rather than keeping the app from starting.
@@ -517,6 +533,7 @@ export function initApp(devTitle: string | null): void {
       keybindingsManager,
       checkForUpdates,
       saveZoomLevel,
+      toggleFocusedPageDevTools: webviewIpc.toggleFocusedPageDevTools,
     });
 
     // A wake from sleep or an unlock can leave a remote host's connection up
@@ -552,18 +569,27 @@ export function initApp(devTitle: string | null): void {
     // inherits PATH at spawn. Kicked off before the sync bootstrap below so the
     // sockets can be listening while it runs. A server that fails to start is
     // logged and its port left unset; the daemon still connects without it.
-    const localServers = [
+    const localServers: {
+      name: string;
+      start: () => Promise<void>;
+      env: string;
+      port: () => number | null;
+      /** A token clients must send, published to child shells beside the port. */
+      token?: { env: string; value: () => string };
+    }[] = [
       {
         name: "agent hook server",
         start: () => agentHookServer.start(),
         env: "MANOR_HOOK_PORT",
         port: () => agentHookServer.hookPort,
+        token: { env: "MANOR_HOOK_TOKEN", value: () => agentHookServer.hookToken },
       },
       {
         name: "webview server",
         start: () => webviewServer.start(),
         env: "MANOR_WEBVIEW_PORT",
         port: () => webviewServer.serverPort,
+        token: { env: "MANOR_WEBVIEW_TOKEN", value: () => webviewServer.controlToken },
       },
       {
         name: "portless proxy",
@@ -596,6 +622,7 @@ export function initApp(devTitle: string | null): void {
       const server = localServers[i];
       if (result.status === "fulfilled") {
         process.env[server.env] = String(server.port());
+        if (server.token) process.env[server.token.env] = server.token.value();
       } else {
         console.error(`Failed to start ${server.name}:`, result.reason);
       }

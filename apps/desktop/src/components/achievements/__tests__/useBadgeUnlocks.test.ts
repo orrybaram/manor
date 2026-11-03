@@ -51,6 +51,15 @@ describe("diffUnlocks", () => {
     ]);
   });
 
+  it("skips badges awarded quietly, and the track they complete", () => {
+    const { regular: _skipped, ...before } = TENURE_COMPLETE;
+    const items = diffUnlocks(summary(before), {
+      ...summary({ ...TENURE_COMPLETE, "first-blood": AT }),
+      quietBadges: ["regular"],
+    });
+    expect(items).toEqual([{ kind: "badge", id: "first-blood" }]);
+  });
+
   it("detects a track completing after the badge toasts", () => {
     const items = diffUnlocks(
       summary({

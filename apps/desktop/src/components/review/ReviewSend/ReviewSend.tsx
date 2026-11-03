@@ -109,30 +109,76 @@ export function SendSplitButton({
           </Button>
         </Popover.Trigger>
       </span>
-      <Popover.Portal>
-        <Popover.Content
-          className={styles.menu}
-          side="top"
-          align="end"
-          sideOffset={6}
-          collisionPadding={8}
-        >
-          {agents.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onSelect={() => pick({ kind: "agent", agent })} />
-          ))}
-          {agents.length > 0 && <div className={styles.separator} />}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={styles.row}
-            onClick={() => pick({ kind: "new" })}
-          >
-            <Plus size={12} className={styles.rowIcon} />
-            <span className={styles.rowName}>New agent</span>
-          </Button>
-        </Popover.Content>
-      </Popover.Portal>
+      <AgentTargetMenu agents={agents} onPick={pick} />
     </Popover.Root>
+  );
+}
+
+/**
+ * The destinations a "Send to…" control offers, as a popover's content: each
+ * live agent in the workspace, then a new one, then whatever `children` adds
+ * under a separator (a browser pane's notes add Copy to clipboard).
+ */
+export function AgentTargetMenu({
+  agents,
+  onPick,
+  children,
+  testId,
+}: {
+  agents: AgentInfo[];
+  onPick: (target: ReviewTarget) => void;
+  children?: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <Popover.Portal>
+      <Popover.Content
+        className={styles.menu}
+        side="top"
+        align="end"
+        sideOffset={6}
+        collisionPadding={8}
+        data-testid={testId}
+      >
+        {agents.map((agent) => (
+          <AgentRow key={agent.id} agent={agent} onSelect={() => onPick({ kind: "agent", agent })} />
+        ))}
+        {agents.length > 0 && <div className={styles.separator} />}
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.row}
+          onClick={() => onPick({ kind: "new" })}
+        >
+          <Plus size={12} className={styles.rowIcon} />
+          <span className={styles.rowName}>New agent</span>
+        </Button>
+        {children && (
+          <>
+            <div className={styles.separator} />
+            {children}
+          </>
+        )}
+      </Popover.Content>
+    </Popover.Portal>
+  );
+}
+
+/** One more row in an `AgentTargetMenu`, after New agent. */
+export function AgentTargetMenuItem({
+  icon,
+  label,
+  onSelect,
+}: {
+  icon: ReactNode;
+  label: string;
+  onSelect: () => void;
+}) {
+  return (
+    <Button variant="ghost" size="sm" className={styles.row} onClick={onSelect}>
+      <span className={styles.rowIcon}>{icon}</span>
+      <span className={styles.rowName}>{label}</span>
+    </Button>
   );
 }
 

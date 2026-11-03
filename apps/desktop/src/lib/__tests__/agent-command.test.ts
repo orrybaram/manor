@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentCommandWithPrompt,
   agentCommandWithPromptFile,
+  flattenPrompt,
 } from "../agent-command";
 
 describe("agentCommandWithPromptFile", () => {
@@ -42,5 +43,11 @@ describe("agentCommandWithPrompt", () => {
     expect(agentCommandWithPrompt("claude", 'a\n\nsay "$x"')).toBe(
       `claude "a say \\"\\$x\\""`,
     );
+  });
+});
+
+describe("flattenPrompt", () => {
+  it("collapses newlines and bare carriage returns, which a harness reads as Enter", () => {
+    expect(flattenPrompt("one\n  two\r\nthree\rfour  \n")).toBe("one two three four");
   });
 });

@@ -21,6 +21,7 @@ import { useWorkspaceCommands } from "./useWorkspaceCommands";
 import { useCommands } from "./useCommands";
 import { useAgentCommands } from "./useAgentCommands";
 import { useCustomCommands } from "./useCustomCommands";
+import { useAutomationCommands } from "./useAutomationCommands";
 import { usePortsData } from "../ports/usePortsData";
 import { ProcessesView, KillAllFooter } from "./ProcessesView";
 import { StatsView } from "./StatsView";
@@ -326,6 +327,12 @@ export function CommandPalette(props: CommandPaletteProps) {
     enabled: open,
   });
 
+  const automationCommands = useAutomationCommands({
+    onClose: handleClose,
+    scopeProjectIds,
+    enabled: open,
+  });
+
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
       if (!isOpen) handleClose();
@@ -400,11 +407,18 @@ export function CommandPalette(props: CommandPaletteProps) {
         visible: customCommands.length > 0,
         items: customCommands,
       },
+      {
+        id: "automations",
+        heading: "Automations",
+        visible: true,
+        items: automationCommands,
+      },
       ...otherCommands,
     ];
   }, [
     agentCommands,
     customCommands,
+    automationCommands,
     scopedWorkspaceGroups,
     commandCategories,
   ]);

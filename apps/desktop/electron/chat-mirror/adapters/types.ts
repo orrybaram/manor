@@ -5,7 +5,13 @@
  * `ChatEntry` union.
  */
 
-import type { ChatEntry, ChatSkill, ChatTaskEntry, ChatTurnState } from "../transcript";
+import type {
+  ChatEntry,
+  ChatSessionInfo,
+  ChatSkill,
+  ChatTaskEntry,
+  ChatTurnState,
+} from "../transcript";
 
 /** The first and last few KiB of a line too long to read. */
 export interface OversizedRecord {
@@ -32,6 +38,11 @@ export interface TranscriptLineParser {
   contextTokens(): number | null;
   /** The main thread's turn as the transcript tells it; null until it says. */
   turnState(): ChatTurnState | null;
+  /**
+   * The session's model, effort and git branch as the transcript last told
+   * them; each null where this agent's transcript doesn't say.
+   */
+  sessionInfo(): ChatSessionInfo;
   skills(): ChatSkill[];
   hasSkillListing(): boolean;
 }
@@ -47,4 +58,10 @@ export interface TranscriptAdapter {
    * task entry. Null when the agent writes none, or this task has none.
    */
   childTranscriptPath(parentPath: string, task: ChatTaskEntry): string | null;
+  /**
+   * The PTY writes that type `text` into the agent's prompt and submit it,
+   * as one prompt even across lines. Sent in order with a pause between
+   * each (`chat.send`), so the last can land as its own keypress.
+   */
+  promptWrites(text: string): string[];
 }

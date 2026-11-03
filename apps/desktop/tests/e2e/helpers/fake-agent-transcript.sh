@@ -59,6 +59,7 @@ hook() {
   # -G with --data-urlencode: a GET whose query is built and escaped by curl,
   # because a transcript path is a file path, not a URL-safe token.
   curl -sS -o /dev/null -G "http://127.0.0.1:${MANOR_HOOK_PORT}/hook/event" \
+    -H "x-manor-hook-token: ${MANOR_HOOK_TOKEN:-}" \
     --data-urlencode "paneId=${MANOR_PANE_ID}" \
     --data-urlencode "sessionId=${session}" \
     --data-urlencode "kind=claude" \

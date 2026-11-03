@@ -19,6 +19,7 @@ const UNAVAILABLE_REF: BrowserPaneRef = {
   stop: noop,
   startPicker: noop,
   cancelPicker: noop,
+  togglePicker: noop,
   navigate: noop,
   focusUrlInput: noop,
   zoomIn: noop,
@@ -28,6 +29,7 @@ const UNAVAILABLE_REF: BrowserPaneRef = {
   stopFind: noop,
   toggleFindBar: noop,
   toggleMute: noop,
+  toggleDevTools: noop,
   stopRecording: noop,
   getUrlInputValue: () => "",
   urlInputHandlers: {

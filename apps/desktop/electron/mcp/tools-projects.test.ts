@@ -213,4 +213,332 @@ describe("create_workspace", () => {
     });
     expect(result.content[0].text).toContain('in project "App" (box-app on me@box)');
   });
+
+  it("passes --folder through to the route", async () => {
+    const http = fakeHttp({
+      post: async () => ({ id: "p1", name: "App", hostId: "local", host: "this Mac", workspaces: [] }),
+    });
+
+    await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", folder: "PR Screens" },
+      http,
+    );
+
+    expect(http.calls[0].body).toEqual({ name: "feat", folder: "PR Screens" });
+  });
+});
+
+describe("create_workspace's setup script", () => {
+  const created = (extra: Record<string, unknown>) => ({
+    id: "p1",
+    name: "tango",
+    hostId: "local",
+    host: "this Mac",
+    workspaces: [],
+    ...extra,
+  });
+
+  it("says no setup script ran, and how to set one, when the project has none", async () => {
+    const http = fakeHttp({ post: async () => created({ worktreeStartScript: null }) });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat" },
+      http,
+    );
+
+    const said = result.content[0].text!;
+    expect(said).toContain("This project has no setup script, so nothing was run");
+    expect(said).toContain("manor update-project --worktree-start-script");
+    expect(said).not.toContain("started");
+  });
+
+  it("names the script and its Setup tab when one is configured", async () => {
+    const http = fakeHttp({
+      post: async () => created({ worktreeStartScript: "bash scripts/setup-worktree.sh" }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat" },
+      http,
+    );
+
+    expect(http.calls[0].body).not.toHaveProperty("wait");
+    expect(result.content[0].text).toContain(
+      'The project\'s setup script (`bash scripts/setup-worktree.sh`) started in the new workspace\'s "Setup" tab',
+    );
+  });
+
+  it("with --wait, asks the route to wait and reports a clean exit", async () => {
+    const http = fakeHttp({
+      post: async () =>
+        created({ worktreeStartScript: "pnpm i", setup: { status: "exited", exitCode: 0 } }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", wait: true },
+      http,
+    );
+
+    expect(http.calls[0].body).toMatchObject({ name: "feat", wait: true });
+    expect(result.content[0].text).toContain("(`pnpm i`) finished with exit code 0.");
+  });
+
+  it("with --wait, fails when the script exits non-zero or is still running", async () => {
+    for (const [setup, said] of [
+      [{ status: "exited", exitCode: 3 }, "failed with exit code 3"],
+      [{ status: "timed-out" }, "still running when the wait ran out"],
+      [{ status: "failed", error: "host away" }, "could not start: host away"],
+    ] as const) {
+      const http = fakeHttp({ post: async () => created({ worktreeStartScript: "pnpm i", setup }) });
+      await expect(
+        projectsModule.handlers.create_workspace({ projectId: "p1", name: "feat", wait: true }, http),
+      ).rejects.toThrow(said);
+    }
+  });
+
+  it("with --wait and no script, succeeds and says nothing ran", async () => {
+    const http = fakeHttp({ post: async () => created({ worktreeStartScript: null }) });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", wait: true },
+      http,
+    );
+
+    expect(result.content[0].text).toContain("no setup script");
+  });
+});
+
+describe("get_project", () => {
+  it("shows the start script, or that there is none", async () => {
+    for (const [script, line] of [
+      ["bash scripts/setup-worktree.sh", "  start script: bash scripts/setup-worktree.sh"],
+      [null, "  start script: (none)"],
+    ] as const) {
+      const http = fakeHttp({
+        get: async () => ({
+          id: "p1",
+          name: "tango",
+          path: "/code/tango",
+          defaultBranch: "main",
+          worktreeStartScript: script,
+          workspaces: [],
+        }),
+      });
+      const result = await projectsModule.handlers.get_project({ projectId: "p1" }, http);
+      expect(result.content[0].text).toContain(line);
+    }
+  });
+});
+
+describe("move_workspace_to_host", () => {
+  const moveTo = (answer: Record<string, unknown>) =>
+    fakeHttp({ post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }) });
+  const run = async (http: Http, args: Record<string, unknown> = {}) => {
+    const result = await projectsModule.handlers.move_workspace_to_host(
+      { worktreePath: "/Users/me/app-feature", host: "box", ...args },
+      http,
+    );
+    return result.content[0].text!;
+  };
+
+  it("posts the path, host and keepSource, and prints where the workspace went", async () => {
+    const http = moveTo({
+      ok: true,
+      targetPath: "/home/me/.manor/worktrees/app/feature",
+      reused: false,
+      sourceRemoved: true,
+    });
+    const out = await run(http, { keepSource: false });
+    // Outside a Manor pane there is no caller's project: the route finds it by path.
+    expect(http.calls[0].path).toMatch(/^\/context/);
+    expect(http.calls.slice(1)).toEqual([
+      {
+        method: "POST",
+        path: "/workspaces/move-to-host",
+        body: { worktreePath: "/Users/me/app-feature", host: "box", keepSource: false },
+      },
+    ]);
+    expect(out).toBe(
+      [
+        "Moved workspace to me@box: /home/me/.manor/worktrees/app/feature",
+        "Removed /Users/me/app-feature from this machine; the branch is kept.",
+      ].join("\n"),
+    );
+  });
+
+  it("says when it reused the target's workspace and kept the source", async () => {
+    const out = await run(
+      moveTo({ ok: true, targetPath: "/home/me/feature", reused: true, sourceRemoved: false }),
+    );
+    expect(out).toContain("Moved workspace to me@box: /home/me/feature");
+    expect(out).toContain("already had on this branch");
+    expect(out).toContain("Kept /Users/me/app-feature on this machine.");
+  });
+
+  it("lists the dirty files of a refusal", async () => {
+    const out = await run(
+      moveTo({
+        ok: false,
+        refusals: [
+          {
+            code: "dirty",
+            files: [
+              { code: " M", path: "src/a.ts" },
+              { code: "??", path: "notes.md" },
+            ],
+          },
+          { code: "no-origin" },
+        ],
+      }),
+    );
+    expect(out).toBe(
+      [
+        "Can't move /Users/me/app-feature to me@box:",
+        "  Commit or discard 2 changed files first:",
+        "     M src/a.ts",
+        "    ?? notes.md",
+        "  The repository has no 'origin' remote to push the branch to.",
+        "Nothing was changed.",
+      ].join("\n"),
+    );
+  });
+
+  it("says to set the project up on the host first when the set up needs input", async () => {
+    const out = await run(
+      moveTo({ ok: false, needsInput: { reason: "no-origin", repoUrl: null, targetDir: "~/app" } }),
+    );
+    expect(out).toMatch(/set the project up on me@box first/);
+  });
+
+  it("names the failed step and its host, and that the source is as it was", async () => {
+    const out = await run(moveTo({ ok: false, step: "create", error: "branch not found" }));
+    expect(out).toBe(
+      [
+        "Couldn't move /Users/me/app-feature: Creating the workspace on me@box failed: branch not found",
+        "/Users/me/app-feature is still on this machine, as it was.",
+      ].join("\n"),
+    );
+    const push = await run(moveTo({ ok: false, step: "push", error: "rejected" }));
+    expect(push).toContain("Pushing the branch on this machine failed: rejected");
+  });
+
+  it("names the caller's own project when it has the workspace, as remove_workspace finds it", async () => {
+    const answer = { ok: true, targetPath: "/t", reused: false, sourceRemoved: true };
+    const ownsIt = fakeHttp({
+      get: async (path) =>
+        path.startsWith("/context")
+          ? { projectId: "p-local" }
+          : { id: "p-local", workspaces: [{ path: "/Users/me/app-feature" }] },
+      post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }),
+    });
+    await run(ownsIt);
+    expect(ownsIt.calls[1]).toMatchObject({ method: "GET", path: "/projects/p-local" });
+    expect(ownsIt.calls[2].body).toMatchObject({ projectId: "p-local" });
+
+    const elsewhere = fakeHttp({
+      get: async (path) =>
+        path.startsWith("/context") ? { projectId: "p-other" } : { id: "p-other", workspaces: [] },
+      post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }),
+    });
+    await run(elsewhere);
+    expect(elsewhere.calls[2].body).not.toHaveProperty("projectId");
+
+    const explicit = fakeHttp({ post: async () => ({ sourceHost: "a", targetHost: "b", ...answer }) });
+    await run(explicit, { projectId: "p-box" });
+    expect(explicit.calls).toEqual([
+      expect.objectContaining({ method: "POST", body: expect.objectContaining({ projectId: "p-box" }) }),
+    ]);
+  });
+
+  it("says this machine mid-sentence and This machine to start one", async () => {
+    const out = await run(
+      fakeHttp({
+        post: async () => ({
+          sourceHost: "me@box",
+          targetHost: "This machine",
+          ok: false,
+          refusals: [{ code: "target-dirty", files: [{ code: " M", path: "a.ts" }] }],
+        }),
+      }),
+    );
+    expect(out).toContain("Can't move /Users/me/app-feature to this machine:");
+    expect(out).toContain("  This machine already has this branch checked out, with 1 changed file:");
+  });
+});
+
+describe("merge_pr", () => {
+  it("posts the caller's workspace and says what the merge did", async () => {
+    const http = fakeHttp({
+      get: async (path) => (path.startsWith("/context") ? { projectId: "p1", workspacePath: "/repo/wt" } : {}),
+      post: async () => ({
+        number: 12,
+        method: "squash",
+        outcome: "merged",
+        removedWorkspace: "/repo/wt",
+      }),
+    });
+    const result = await projectsModule.handlers.merge_pr(
+      { projectId: "p1", workspacePath: "/repo/wt", deleteWorkspace: true },
+      http,
+    );
+    expect(http.calls).toEqual([
+      {
+        method: "POST",
+        path: "/projects/p1/workspaces/pr/merge",
+        body: { workspacePath: "/repo/wt", deleteWorkspace: true },
+      },
+    ]);
+    expect(result.content[0].text).toBe("Merged PR #12 (squash).\nRemoved workspace /repo/wt.");
+  });
+
+  it.each([
+    ["queued", "Added PR #12 to the merge queue.\nThe workspace stays until the PR lands."],
+    ["auto", "Auto-merge armed on PR #12 (squash).\nThe workspace stays until the PR lands."],
+  ])("for a %s PR keeps the workspace", async (outcome, expected) => {
+    const http = fakeHttp({
+      post: async () => ({ number: 12, method: "squash", outcome, removedWorkspace: null }),
+    });
+    const result = await projectsModule.handlers.merge_pr(
+      { projectId: "p1", workspacePath: "/repo/wt", deleteWorkspace: true },
+      http,
+    );
+    expect(result.content[0].text).toBe(expected);
+  });
+});
+
+describe("fix_pr_checks and address_pr_comments", () => {
+  it("print returns the brief alone", async () => {
+    const http = fakeHttp({ post: async () => ({ delivery: "printed", prompt: "Fix it." }) });
+    const result = await projectsModule.handlers.fix_pr_checks(
+      { projectId: "p1", workspacePath: "/repo/wt", print: true },
+      http,
+    );
+    expect(http.calls[0]).toMatchObject({
+      path: "/projects/p1/workspaces/pr/fix-checks",
+      body: { workspacePath: "/repo/wt", print: true },
+    });
+    expect(result.content[0].text).toBe("Fix it.");
+  });
+
+  it("names the agent it went to, or the new one's pane", async () => {
+    const sent = fakeHttp({
+      post: async () => ({ delivery: "sent", agentId: "a1", agentName: "fixer", paneId: "pane-2" }),
+    });
+    const sentResult = await projectsModule.handlers.address_pr_comments(
+      { projectId: "p1", workspacePath: "/repo/wt" },
+      sent,
+    );
+    expect(sent.calls[0]).toMatchObject({
+      path: "/projects/p1/workspaces/pr/address-comments",
+      body: { workspacePath: "/repo/wt" },
+    });
+    expect(sentResult.content[0].text).toBe("Sent to agent fixer in pane pane-2.");
+
+    const started = fakeHttp({ post: async () => ({ delivery: "started", paneId: "pane-9" }) });
+    const startedResult = await projectsModule.handlers.fix_pr_checks(
+      { projectId: "p1", workspacePath: "/repo/wt" },
+      started,
+    );
+    expect(startedResult.content[0].text).toBe("Started a new agent in pane pane-9.");
+  });
 });

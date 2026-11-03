@@ -9,6 +9,7 @@ import {
   hasHiddenPods,
   newHostTargets,
   transferTargets,
+  workspaceMoveTargets,
 } from "../transfer-targets";
 
 function host(hostId: string, status: HostStatusInfo["status"] = "connected"): HostStatusInfo {
@@ -166,6 +167,22 @@ describe("disambiguateHostLabels", () => {
       "repo (abc123)",
       "repo (def456)",
       "me@box",
+    ]);
+  });
+});
+
+describe("workspaceMoveTargets", () => {
+  it("lists every other host, including ones the project is already set up on", () => {
+    const a = { id: "a", hostId: "local", group: GROUP };
+    const targets = workspaceMoveTargets(a, hosts);
+    expect(targets.map((t) => [t.hostId, t.disabledReason])).toEqual([
+      ["box", null],
+      ["cloud", null],
+    ]);
+    const b = { id: "b", hostId: "box", group: GROUP };
+    expect(workspaceMoveTargets(b, hosts).map((t) => [t.hostId, t.disabledReason])).toEqual([
+      ["local", null],
+      ["cloud", null],
     ]);
   });
 });

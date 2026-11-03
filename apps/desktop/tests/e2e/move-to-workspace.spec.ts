@@ -14,6 +14,8 @@ import {
 } from "./fixtures";
 import { FAKE_AGENT, FAKE_AGENT_HUSH } from "./helpers/fake-agent";
 import {
+  localApiHeaders,
+  localApiUrl,
   postRoute,
   sendToSession,
   splitPane,
@@ -110,8 +112,9 @@ async function focusedPane(
   request: import("@playwright/test").APIRequestContext,
   tempHome: string,
 ): Promise<string | null> {
-  const port = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim();
-  const res = await request.get(`http://127.0.0.1:${port}/panes`);
+  const res = await request.get(localApiUrl(tempHome, "/panes"), {
+    headers: localApiHeaders(tempHome),
+  });
   return res.ok() ? ((await res.json()) as { focusedPaneId: string | null }).focusedPaneId : null;
 }
 
@@ -120,9 +123,9 @@ async function layoutOf(
   tempHome: string,
   workspacePath: string,
 ): Promise<string[]> {
-  const port = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim();
   const res = await request.get(
-    `http://127.0.0.1:${port}/panes?workspacePath=${encodeURIComponent(workspacePath)}`,
+    localApiUrl(tempHome, `/panes?workspacePath=${encodeURIComponent(workspacePath)}`),
+    { headers: localApiHeaders(tempHome) },
   );
   if (!res.ok()) return [];
   const snap = (await res.json()) as { tabs: { panes: { paneId: string }[] }[] };
@@ -288,8 +291,10 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     expect(ok).toContain(paneB);
     expect(await layoutOf(request, tempHome, beta)).toEqual([paneC, paneB]);
     const tabId = (await (async () => {
-      const port = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim();
-      const res = await request.get(`http://127.0.0.1:${port}/panes?workspacePath=${encodeURIComponent(beta)}`);
+      const res = await request.get(
+        localApiUrl(tempHome, `/panes?workspacePath=${encodeURIComponent(beta)}`),
+        { headers: localApiHeaders(tempHome) },
+      );
       const snap = (await res.json()) as { tabs: { tabId: string; panes: { paneId: string }[] }[] };
       return snap.tabs.find((t) => t.panes.some((p) => p.paneId === paneB))!.tabId;
     })());

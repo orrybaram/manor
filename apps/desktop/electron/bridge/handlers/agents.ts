@@ -7,7 +7,7 @@ import { paneContextBackfill } from "../../agent-status/effects";
 import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
-import type { AgentService, EndedPane } from "../../layout/layout-store";
+import type { AgentService, EndedPane, PaneEnding } from "../../layout/layout-store";
 import { byAgent, byPane, byWorkspaceKey, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
@@ -285,18 +285,21 @@ type AbandonDeps = Pick<
 function abandonAgentForPane(
   deps: AbandonDeps,
   { paneId, title }: EndedPane,
+  { moved }: PaneEnding,
 ): void {
   const { agentManager, statsStore, notifier, agentStatus } = deps;
   const agent = agentManager.getAgentByPaneId(paneId);
   if (!agent || agent.status !== "active") return;
-  for (const counter of killCounters(agent)) statsStore.record(counter);
+  // A moved Agent goes on on the other host: not a kill, and ended here
+  // rather than abandoned.
+  if (!moved) for (const counter of killCounters(agent)) statsStore.record(counter);
   // The name is not status: it stays here. It is written before the signal
   // so the reconciler's broadcast carries it.
   const nameUpdate = !agent.name && title ? cleanAgentTitle(title) : null;
   const named = nameUpdate ? agentManager.updateAgent(agent.id, { name: nameUpdate }) : null;
   // The lifecycle is the Status reconciler's to write: it moves
   // the Agent to 'abandoned', broadcasts it, and resets the pane's status.
-  const result = agentStatus.signal(paneId, { type: "user", action: "abandon" });
+  const result = agentStatus.signal(paneId, { type: "user", action: moved ? "move" : "abandon" });
   const persisted = result.effects.some(
     (e) => e.kind === "PersistAgentStatus" && e.sessionId === agent.agentSessionId,
   );
@@ -338,10 +341,10 @@ export function createAgentService(deps: AbandonDeps): Required<AgentService> {
         }
       }
     },
-    abandonForPanes(panes) {
+    abandonForPanes(panes, ending = {}) {
       for (const pane of panes) {
         try {
-          abandonAgentForPane(deps, pane);
+          abandonAgentForPane(deps, pane, ending);
         } catch (err) {
           console.error(`[agents] failed to abandon ${pane.paneId}:`, err);
         }

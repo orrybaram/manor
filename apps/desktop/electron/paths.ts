@@ -35,6 +35,14 @@ export function manorHomeDir(): string {
 
 // ── Data-dir getters ──
 
+/**
+ * Custom themes, one Ghostty-format file each. Under ~/.manor because the
+ * user is its other reader: they can drop theme files in by hand.
+ */
+export function customThemesDir(): string {
+  return path.join(manorHomeDir(), "themes");
+}
+
 export function projectsFile(): string {
   return path.join(manorDataDir(), "projects.json");
 }
@@ -157,11 +165,25 @@ export function hookJournalFile(): string {
 }
 
 /**
- * Manor desktop's hook server port (a bare port number). Read by the hook
- * script when `MANOR_HOOK_PORT_FILE` is unset.
+ * Manor desktop's hook server: `<port>\n<token>`, mode 0600, the same shape
+ * as `remoteHookPortFile()`. Read by the hook script when
+ * `MANOR_HOOK_PORT_FILE` is unset.
  */
 export function hookPortFile(): string {
   return path.join(manorHomeDir(), "hook-port");
+}
+
+/**
+ * The edited SessionStart hints the hook script reads: beside `hookPortFile()`,
+ * as the script finds them. See `electron/session-hints.ts`.
+ */
+export function sessionHintsFile(): string {
+  return path.join(manorHomeDir(), "session-hints.json");
+}
+
+/** The same for a host server, beside `remoteHookPortFile()`. */
+export function remoteSessionHintsFile(): string {
+  return path.join(remoteNamespaceDir(), "session-hints.json");
 }
 
 /**
@@ -314,6 +336,14 @@ export function hookScriptJsPath(): string {
 
 export function webviewServerPortFile(): string {
   return path.join(manorHomeDir(), "webview-server-port");
+}
+
+/**
+ * The webview server's per-launch token, mode 0600. Every request to that
+ * server sends it as `x-manor-control-token`.
+ */
+export function webviewServerTokenFile(): string {
+  return path.join(manorHomeDir(), "webview-server-token");
 }
 
 export function portlessProxyPortFile(): string {

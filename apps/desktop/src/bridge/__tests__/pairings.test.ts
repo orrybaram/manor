@@ -104,6 +104,36 @@ describe("pairings store", () => {
     expect(listPairings()).toHaveLength(2);
   });
 
+  it("never lets a desktop's link touch the user's own pairing, or give a room another key", () => {
+    const EVIL = base64urlEncode(new Uint8Array(32).fill(7));
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    recordPairingHello(A, { hostName: "My Mac", hostServer: false });
+    linkPairing({ roomId: A, serverKey: EVIL, token: "attacker", name: "x" }, 20);
+    linkPairing({ roomId: A, serverKey: KEY, token: "attacker", name: "x" }, 20);
+    expect(listPairings()[0]).toMatchObject({ serverKey: KEY, token: "desk" });
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    linkPairing({ roomId: B, serverKey: EVIL, token: "box-2", name: "me@box" }, 30);
+    expect(listPairings()[1]).toMatchObject({ serverKey: KEY, token: "box" });
+  });
+
+  it("refuses a link that gives a stored room another key", () => {
+    const EVIL = base64urlEncode(new Uint8Array(32).fill(7));
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    expect(upsertPairing({ roomId: A, serverKey: EVIL, token: "attacker" }, 20)).toMatchObject({
+      serverKey: KEY,
+      token: "desk",
+    });
+    upsertTicketPairing({ roomId: A, serverKey: EVIL, ticket: freshDeviceToken() }, 20);
+    expect(listPairings()[0]).toMatchObject({ serverKey: KEY, token: "desk", lastUsedAt: 10 });
+  });
+
+  it("keeps a host server a host, whatever its later hellos say", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    recordPairingHello(B, { hostName: "me@box", hostServer: false });
+    expect(listPairings()[1].hostServer).toBe(true);
+  });
+
   it("keeps a desktop's host rooms", () => {
     upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
     recordPairingHosts(A, { h1: B, h2: null });

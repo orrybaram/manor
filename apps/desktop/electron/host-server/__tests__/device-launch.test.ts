@@ -94,10 +94,10 @@ describe("a device on a host server that owns its host", () => {
     );
     expect(session?.cwd).toBe(wsPath);
 
-    // Its launch line waits for the shell's first output, and is typed then.
+    // Its launch line waits for the shell's first prompt, and is typed then.
     const shell = ptySubprocess();
     expect(shell.typed()).toBe("");
-    shell.output("$ ");
+    shell.output(`\x1b]7;file://host${wsPath}\x07$ `);
     await eventually(
       () => shell.typed(),
       (typed) => typed.includes("claude"),

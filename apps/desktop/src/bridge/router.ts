@@ -245,6 +245,10 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
+function isBadge(record: unknown): boolean {
+  return isPlainObject(record) && record.kind === "badge-unlocked";
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -1016,7 +1020,10 @@ export function createRouter(
     const answers: Answer[] = [];
     for (const entry of set.list()) {
       const value = notificationLogs.get(entry.id);
-      if (value) answers.push({ entry, value });
+      if (!value) continue;
+      // The trophy room shows home's stats alone: another server's badge
+      // counts its own history, and would announce one home has had for weeks.
+      answers.push({ entry, value: isHome(entry) ? value : value.filter((record) => !isBadge(record)) });
     }
     const out = mergeRecords(answers) as unknown[];
     const at = (record: unknown): number => {

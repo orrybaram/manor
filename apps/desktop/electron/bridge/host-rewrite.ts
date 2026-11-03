@@ -35,12 +35,31 @@ export function keyFor(hostId: string, bare: string): WorkspaceKey | null {
   }
 }
 
-/** A record with the host's `local` as this host's id. */
+/**
+ * A record with this host's id for whatever host id it names. A host only
+ * speaks for itself: one naming another host, or none, must not be read as
+ * the desktop's own (`local`) or another adopted host's.
+ */
 export function toDesktop<T>(hostId: string, value: T): T {
-  if (isPlainObject(value) && value.hostId === LOCAL_HOST_ID) {
-    return { ...value, hostId };
-  }
+  if (isPlainObject(value) && "hostId" in value) return { ...value, hostId };
   return value;
+}
+
+/**
+ * One of the host's own records (a project, agent or notification) with
+ * this host's id, stamped even when the host left it out: a missing id
+ * reads as `local` downstream, which would run its terminals and scripts
+ * on the desktop.
+ */
+export function hostRecord<T>(hostId: string, value: T): T {
+  return isPlainObject(value) ? { ...value, hostId } : value;
+}
+
+/** A project's shape: what `projects.*` answers with when it answers one. */
+function isProjectRecord(value: unknown): boolean {
+  return (
+    isPlainObject(value) && typeof value.id === "string" && Array.isArray(value.workspaces)
+  );
 }
 
 /**
@@ -113,8 +132,9 @@ export function keyAutomationPaths(
 /**
  * The host's answer in the desktop's form: `layout.getAll` rekeyed,
  * `layout.getLastActive` keyed, an automation's workspace paths keyed
- * (`keyAutomationPaths`), and anything else with `hostId: "local"`
- * stamped — a record, or each record of a list.
+ * (`keyAutomationPaths`), and anything else with this host's id stamped
+ * — a record, or each record of a list; a project always, any other
+ * record where it names a host.
  */
 export function toDesktopResult(
   hostId: string,
@@ -140,6 +160,8 @@ export function toDesktopResult(
   }
   const answer =
     ns === "automations" ? keyAutomationPaths(result, (path) => keyFor(hostId, path)) : result;
-  if (Array.isArray(answer)) return answer.map((item) => toDesktop(hostId, item));
-  return toDesktop(hostId, answer);
+  const stamp = (item: unknown) =>
+    ns === "projects" && isProjectRecord(item) ? hostRecord(hostId, item) : toDesktop(hostId, item);
+  if (Array.isArray(answer)) return answer.map(stamp);
+  return stamp(answer);
 }

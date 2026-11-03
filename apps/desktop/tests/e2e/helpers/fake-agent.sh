@@ -24,7 +24,7 @@ session="e2e-$$"
 hook() {
   [ -n "${MANOR_HOOK_PORT:-}" ] || return 0
   [ -n "${MANOR_PANE_ID:-}" ] || return 0
-  curl -sS -o /dev/null \
+  curl -sS -o /dev/null -H "x-manor-hook-token: ${MANOR_HOOK_TOKEN:-}" \
     "http://127.0.0.1:${MANOR_HOOK_PORT}/hook/event?paneId=${MANOR_PANE_ID}&sessionId=${session}&kind=claude&eventType=$1${2:+&notificationKind=$2}" \
     || true
 }
@@ -63,9 +63,22 @@ while IFS= read -r -n 1 char; do
   # An empty read is a newline; bash strips its own delimiter.
   if [ -z "$char" ] || [ "$char" = $'\r' ]; then
     [ -n "$line" ] || continue
+    # With FAKE_AGENT_CLEARS set, "/clear" does what a real agent's does: this
+    # session ends, and a new one starts in the same process, with no turn.
+    if [ -n "${FAKE_AGENT_CLEARS:-}" ] && [ "$line" = "/clear" ]; then
+      hook SessionEnd
+      session="e2e-$$-$RANDOM"
+      hook SessionStart
+      [ -n "${FAKE_AGENT_LOG:-}" ] && printf '%s\n' "$line" >> "$FAKE_AGENT_LOG"
+      line=""
+      continue
+    fi
     hook UserPromptSubmit
     retitle
     printf 'received: %s\n' "$line"
+    # Every message whole, one per line, for a test that asserts on what was
+    # typed rather than on a wrapped terminal row.
+    [ -n "${FAKE_AGENT_LOG:-}" ] && printf '%s\n' "$line" >> "$FAKE_AGENT_LOG"
     # A long reply on demand, so a test can check what a full screen of output
     # does to the reader's scroll position.
     if [ "$line" = "spam" ]; then

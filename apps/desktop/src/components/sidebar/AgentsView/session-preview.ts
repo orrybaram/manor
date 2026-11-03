@@ -1,4 +1,4 @@
-import type { SessionPreview, SessionRef } from "../../../electron.d";
+import type { PreviewTurn, SessionPreview, SessionRef } from "../../../electron.d";
 import { sessionIdentity, type ModalRow } from "./agents-modal-list";
 
 /**
@@ -51,6 +51,28 @@ export function createLru<V>(max: number): {
       while (map.size > max) map.delete(map.keys().next().value as string);
     },
   };
+}
+
+type ToolTurn = Extract<PreviewTurn, { role: "tool" }>;
+
+/** A run of back-to-back tool calls, drawn as one line that opens to list them. */
+export type PreviewToolGroup = { role: "tools"; tools: ToolTurn[] };
+
+export type PreviewItem = Exclude<PreviewTurn, ToolTurn> | PreviewToolGroup;
+
+/** The preview's turns with each run of consecutive tool calls folded into one group. */
+export function groupPreviewTurns(turns: readonly PreviewTurn[]): PreviewItem[] {
+  const items: PreviewItem[] = [];
+  for (const turn of turns) {
+    if (turn.role !== "tool") {
+      items.push(turn);
+      continue;
+    }
+    const last = items[items.length - 1];
+    if (last?.role === "tools") last.tools.push(turn);
+    else items.push({ role: "tools", tools: [turn] });
+  }
+  return items;
 }
 
 /** What the preview pane shows for the highlighted row. */

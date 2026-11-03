@@ -1,40 +1,69 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
 import { useRef, useState } from "react";
+import type { ChatSessionInfo } from "../../../electron.d";
+import type { LayoutMode } from "../../../hooks/useLayoutMode";
+import { agentChat } from "../../../lib/agent-chat";
 import { uploadPastedImage } from "../../../lib/paste-image-upload";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import { ImageAttachments } from "../../ui/ImageAttachments/ImageAttachments";
+import { useImageAttachments } from "../../ui/ImageAttachments/useImageAttachments";
+import type { TaskItem } from "./chat-entries";
 import styles from "./ChatPane.module.css";
 import { ChatStatusLine } from "./ChatStatusLine";
 import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
-import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
-import { useImageAttach, type ComposerSnapshot } from "./useImageAttach";
+import {
+  clearStartingPrompt,
+  markChatStarting,
+  noteSentPrompt,
+  noteStartingPrompt,
+  startMenuHandoff,
+} from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ChatComposerProps = {
   paneId: string;
-  /** Claude is mid-turn: offer Stop. */
+  /** The pane's **Agent kind**: what the composer calls the agent and which
+   *  `/` menu it offers (`agentChat`). */
+  agentKind: string | null;
+  /** The agent is mid-turn: offer Stop. */
   busy: boolean;
   /** The transcript the chat shows, which a `/clear` leaves behind. Absent
    *  while the chat is already fresh. */
   transcript?: string;
   /** The session's context size, for the status line. */
   contextTokens?: number | null;
-  /** Tasks running in the chat, for the status line's chip. */
-  runningTasks?: number;
+  /** The chat's tasks, for the status line's running and agents chips. */
+  tasks?: readonly TaskItem[];
+  /** Bring a task's card into view: from the status line's running chip. */
+  onRevealTask?: (id: string) => void;
+  /** When your last message landed, which the agents chip counts finishes from. */
+  lastMessageAt?: string | null;
+  /** The agents chip was clicked. */
+  onToggleAgents?: () => void;
+  /** The task view is open. */
+  taskViewOpen?: boolean;
+  /** It's beside the composer, so Esc closes it instead of stopping the agent. */
+  taskViewDocked?: boolean;
+  /** The session's model, effort and transcript branch, for the status line. */
+  session?: ChatSessionInfo | null;
+  /** The pane's layout, which orders the status line's chips. */
+  layout?: LayoutMode;
 };
 
 /**
  * The chat's input: typed text goes to the pane's PTY as a
- * prompt (`chat.send`), and Stop is Esc (`chat.interrupt`).
+ * prompt (`chat.send`), and Stop is the agent's interrupt keys
+ * (`chat.interrupt`; Esc for Claude).
  *
- * One round button inside the field sends, and turns into Stop while Claude
- * works. Typing mid-turn turns it back into Send, which Claude Code queues,
- * with a smaller Stop beside it.
+ * One round button inside the field sends, and turns into Stop while the
+ * agent works. Typing mid-turn turns it back into Send, which Claude Code
+ * queues; Esc still stops.
  *
- * Typing `/` at the start opens the command menu. Sending a
+ * Typing `/` at the start opens the command menu, for an agent that has one. Sending a
  * command that opens a TUI menu (`commandEffect`) hands the pane to the
  * terminal, where that menu is, until it closes. Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
@@ -44,35 +73,33 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, busy, transcript, contextTokens, runningTasks } = props;
+  const { paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, lastMessageAt, onToggleAgents, taskViewOpen, taskViewDocked, session, layout } =
+    props;
+  const chatOf = agentChat(agentKind);
 
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // The latest text and caret, for an upload that finishes after more typing.
-  const latest = useRef<ComposerSnapshot>({ text: "", caret: 0 });
 
   // Called back from a row of the `/` menu or choice sheet, after this render.
   const slash = useSlashCommands(paneId, text, caret, {
     fill: (nextText, nextCaret) => fill(nextText, nextCaret),
     send: (sent) => sendText(sent),
-  });
+  }, chatOf.commands);
   const level = slash.level;
 
-  const { uploading, pasteImage, attachButton } = useImageAttach({
-    upload: (file) => uploadPastedImage(paneId, file),
-    inputRef,
-    latestRef: latest,
-    fill: (nextText, nextCaret) => fill(nextText, nextCaret),
+  const images = useImageAttachments({
+    upload: (file, signal) => uploadPastedImage(paneId, file, { signal }),
     setError,
+    buttonClassName: styles.composerAttach,
   });
 
-  const canSend = text.trim().length > 0 && !sending && !uploading;
+  const canSend =
+    (text.trim().length > 0 || images.hasImages) && !sending && !images.uploading;
 
   const update = (nextText: string, nextCaret: number) => {
-    latest.current = { text: nextText, caret: nextCaret };
     setText(nextText);
     setCaret(nextCaret);
     slash.sync(nextText, nextCaret);
@@ -92,15 +119,21 @@ export function ChatComposer(props: ChatComposerProps) {
     focusAt(nextCaret);
   };
 
-  const sendText = (sent: string) => {
+  const sendText = (sent: string, afterSent?: () => void) => {
     setSending(true);
     setError(null);
+    // A fresh chat has no transcript to show this for a moment yet. A command
+    // may never write a line that ends the wait, so it isn't drawn.
+    const echoed = transcript === undefined && splitCommand(sent) === null;
+    if (echoed) noteStartingPrompt(paneId, sent);
     window.electronAPI.chat.send(paneId, sent).then(
       () => {
         update("", 0);
+        afterSent?.();
         setSending(false);
         const command = splitCommand(sent);
-        const effect = commandEffect(command, slash.lookup);
+        const effect = commandEffect(command, slash.lookup, chatOf.clearCommands);
+        noteSentPrompt(paneId, sent, busy && effect === null);
         if (effect === "menu" && command) {
           startMenuHandoff(paneId, command.name, transcript ?? null);
         } else if (effect === "clear" && transcript) {
@@ -108,6 +141,7 @@ export function ChatComposer(props: ChatComposerProps) {
         }
       },
       () => {
+        if (echoed) clearStartingPrompt(paneId);
         setError("Couldn't send. Try again, or use the terminal.");
         setSending(false);
       },
@@ -116,16 +150,17 @@ export function ChatComposer(props: ChatComposerProps) {
 
   const send = () => {
     if (!canSend) return;
-    sendText(text.trimEnd());
+    const { message, sent } = images.takeMessage(text);
+    sendText(message, sent);
   };
 
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
-      setError("Couldn't stop Claude. Try the terminal.");
+      setError(`Couldn't stop ${chatOf.name}. Try the terminal.`);
     });
   };
 
-  const mode = busy && !text.trim() ? "stop" : "send";
+  const mode = busy && !text.trim() && !images.hasImages ? "stop" : "send";
 
   return (
     <div className={styles.composer} data-keyboard-lift data-testid="chat-composer">
@@ -133,21 +168,21 @@ export function ChatComposer(props: ChatComposerProps) {
       {level?.kind === "commands" && (
         <SlashCommandMenu level={level} skillsKnown={slash.skillsKnown} />
       )}
-      {uploading && (
-        <div className={styles.composerHint} data-testid="chat-composer-uploading">
-          Uploading image…
-        </div>
-      )}
       {error && <div className={styles.composerError}>{error}</div>}
-      <div className={styles.composerField}>
-        {attachButton}
+      <div className={styles.composerField} {...images.dropProps}>
+        <ImageAttachments
+          attachments={images.attachments}
+          onRemove={images.remove}
+          className={styles.composerImages}
+        />
+        {images.attachButton}
         <EmojiTextarea
           ref={inputRef}
           className={styles.composerInput}
           value={text}
           rows={1}
-          placeholder="Type / for commands"
-          aria-label="Message Claude"
+          placeholder={chatOf.commands === "claude" ? "Type / for commands" : `Message ${chatOf.name}`}
+          aria-label={`Message ${chatOf.name}`}
           data-testid="chat-composer-input"
           aria-expanded={level !== null}
           aria-controls={level?.listboxId}
@@ -157,7 +192,7 @@ export function ChatComposer(props: ChatComposerProps) {
           onChange={(e) => {
             update(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
-          onPaste={pasteImage}
+          onPaste={images.pasteImage}
           onSelect={(e) => {
             const el = e.currentTarget;
             if (el.selectionStart !== caret) update(el.value, el.selectionStart);
@@ -191,30 +226,30 @@ export function ChatComposer(props: ChatComposerProps) {
                 return;
               }
             }
-            // A hardware keyboard's ⌘/Ctrl+Enter sends; a plain Enter is a
-            // new line, as on a phone's own keyboard.
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // Mid-turn, Esc stops the agent, which the button doesn't
+            // offer while there's text to send. An open task panel goes
+            // first: the key bubbles up to `ChatPane`, which closes it.
+            if (e.key === "Escape" && busy && !taskViewDocked) {
+              e.preventDefault();
+              stop();
+              return;
+            }
+            // Enter sends and Shift+Enter is a new line. On a touch screen,
+            // whose keyboard has no Shift+Enter, Enter is a new line and
+            // ⌘/Ctrl+Enter or the button sends.
+            if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+            const touch = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+            if (e.metaKey || e.ctrlKey || (!touch && !e.shiftKey && !e.altKey)) {
               e.preventDefault();
               send();
             }
           }}
         />
-        {busy && mode === "send" && (
-          <Button
-            variant="ghost"
-            className={styles.composerStopSmall}
-            aria-label="Stop Claude"
-            onClick={stop}
-            data-testid="chat-stop"
-          >
-            <Square size={10} fill="currentColor" />
-          </Button>
-        )}
         {mode === "stop" ? (
           <Button
             variant="primary"
             className={`${styles.composerButton} ${styles.composerButtonStop}`}
-            aria-label="Stop Claude"
+            aria-label={`Stop ${chatOf.name}`}
             onClick={stop}
             data-testid="chat-stop"
           >
@@ -233,7 +268,16 @@ export function ChatComposer(props: ChatComposerProps) {
           </Button>
         )}
       </div>
-      <ChatStatusLine contextTokens={contextTokens} runningTasks={runningTasks} />
+      <ChatStatusLine
+        contextTokens={contextTokens}
+        tasks={tasks}
+        onRevealTask={onRevealTask}
+        lastMessageAt={lastMessageAt}
+        onToggleAgents={onToggleAgents}
+        taskViewOpen={taskViewOpen}
+        session={session}
+        layout={layout}
+      />
     </div>
   );
 }

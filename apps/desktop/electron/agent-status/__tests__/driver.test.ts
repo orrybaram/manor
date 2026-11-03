@@ -585,6 +585,43 @@ describe("driver — lifecycle (ported)", () => {
       `broadcast:${active[0].id}:active/thinking`,
     ]);
   });
+  it("a resumed session in a new pane moves its Agent there, so the pane gets its chat", () => {
+    t.agentManager.seed({
+      agentSessionId: "s1",
+      paneId: null,
+      status: "completed",
+      completedAt: "2026-10-05T10:00:00Z",
+      transcriptPath: "/t/s1.jsonl",
+    });
+    t.driver.hook(sessionStart({ sessionId: "s1", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("s1")).toMatchObject({
+      paneId: "pane-2",
+      status: "active",
+      completedAt: null,
+      transcriptPath: "/t/s1.jsonl",
+    });
+    expect(t.broadcastAgent).toHaveBeenLastCalledWith(expect.objectContaining({ paneId: "pane-2" }));
+  });
+
+  it("a session resumed over another pane's Agent retires that one", () => {
+    t.agentManager.seed({ agentSessionId: "s1", paneId: null, status: "completed" });
+    t.driver.hook(userPromptSubmit({ sessionId: "other", paneId: "pane-2" }));
+    t.driver.hook(sessionStart({ sessionId: "s1", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("other")).toMatchObject({ paneId: null, status: "completed" });
+    const onPane = t.agentManager.getActiveAgents().filter((a) => a.paneId === "pane-2");
+    expect(onPane.map((a) => a.agentSessionId)).toEqual(["s1"]);
+  });
+
+  it("a child session's hook leaves its saved Agent where it is", () => {
+    t.agentManager.seed({ agentSessionId: "child", paneId: null, status: "completed" });
+    t.driver.hook(userPromptSubmit({ sessionId: "root", paneId: "pane-2" }));
+    t.driver.hook(preToolUse({ sessionId: "child", paneId: "pane-2" }));
+
+    expect(t.agentManager.getAgentBySessionId("child")!.paneId).toBeNull();
+  });
+
   it("a session handoff with no pane context inherits the retired Agent's project", () => {
     t.agentManager.seed({
       agentSessionId: "old",
@@ -924,6 +961,56 @@ describe("driver — restores pane status from saved agents (main restart)", () 
     // The new session claims the pane (and the old Agent is retired).
     expect(t.driver.getPaneState("pane-2")!.rootSessionId).toBe("s-new");
     expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
+  });
+
+  it("a prompt from another session before the restored root speaks is the pane's new root (a missed /clear)", () => {
+    const t = build();
+    t.agentManager.seed({
+      agentSessionId: "s-old",
+      paneId: "pane-1",
+      lastAgentStatus: "responded",
+      transcriptPath: "/t/s-old.jsonl",
+    });
+    // Resync restores the saved root before any hook arrives.
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s-old");
+
+    t.driver.hook({ ...userPromptSubmit({ sessionId: "s-new" }), transcriptPath: "/t/s-new.jsonl" });
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s-new");
+    expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
+    expect(t.agentManager.getAgentBySessionId("s-new")).toMatchObject({
+      paneId: "pane-1",
+      status: "active",
+      lastAgentStatus: "thinking",
+      transcriptPath: "/t/s-new.jsonl",
+    });
+    expect(last(t.published)).toMatchObject({ status: "thinking" });
+  });
+
+  it("once the restored root has spoken, another session's prompt between turns stays a child's", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "responded" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
+    t.driver.hook(stop({ sessionId: "s1" }));
+
+    t.driver.hook(userPromptSubmit({ sessionId: "s2" }));
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s1");
+    expect(t.agentManager.getAgentBySessionId("s2")).toBeNull();
+  });
+
+  it("a hook from the restored root's subagent counts as the root speaking", () => {
+    const t = build();
+    t.agentManager.seed({ agentSessionId: "s1", paneId: "pane-1", lastAgentStatus: "working" });
+    t.driver.signal("pane-1", { type: "paneFacts", facts: facts({ name: "claude", kind: "claude" }) });
+    t.driver.hook({ ...preToolUse({ sessionId: "s1" }), agentId: "sub-1" });
+
+    t.driver.hook(userPromptSubmit({ sessionId: "s2" }));
+
+    expect(t.driver.getPaneState("pane-1")!.rootSessionId).toBe("s1");
+    expect(t.agentManager.getAgentBySessionId("s2")).toBeNull();
   });
 });
 

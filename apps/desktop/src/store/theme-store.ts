@@ -24,12 +24,16 @@ export interface Theme {
   brightMagenta: string;
   brightCyan: string;
   brightWhite: string;
+  /** The app's accent. Optional: without one the accent is `blue`. */
+  accent?: string;
 }
 
 interface ThemeState {
   theme: Theme | null;
   selectedThemeName: string;
   projectThemeOverride: string | null;
+  /** The project whose Settings page is open: its theme shows while it is. */
+  settingsProjectId: string | null;
   loadTheme: () => Promise<void>;
   setTheme: (name: string) => Promise<void>;
   applyProjectTheme: (themeName: string | null) => Promise<void>;
@@ -60,7 +64,7 @@ export function applyCssVars(theme: Theme) {
   root.style.setProperty("--text-primary", withAlpha(theme.foreground, 0.7));
   root.style.setProperty("--text-selected", theme.foreground);
   root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));
-  root.style.setProperty("--accent", theme.blue);
+  root.style.setProperty("--accent", theme.accent ?? theme.blue);
 
   // Palette colors
   root.style.setProperty("--red", theme.red);
@@ -139,6 +143,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: null,
   selectedThemeName: "__ghostty__",
   projectThemeOverride: null,
+  settingsProjectId: null,
 
   loadTheme: async () => applyServerTheme(await fetchServerTheme()),
 

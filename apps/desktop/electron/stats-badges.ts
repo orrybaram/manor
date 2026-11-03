@@ -13,6 +13,8 @@ export interface BadgeDef {
   id: string;
   title: string;
   description: string;
+  /** Not needed for Lord of the Manor. */
+  optional?: boolean;
   earned: (s: StatsSummary) => boolean;
 }
 
@@ -245,12 +247,14 @@ export const BADGES: readonly BadgeDef[] = [
     id: "red-ink",
     title: "Red Ink",
     description: "Had changes requested on 10 PRs.",
+    optional: true,
     earned: (s) => (s.allTime.prChangesRequested ?? 0) >= 10,
   },
   {
     id: "works-on-my-machine",
     title: "Works on My Machine",
     description: "Had CI fail on 25 PRs.",
+    optional: true,
     earned: (s) => (s.allTime.prChecksFailed ?? 0) >= 25,
   },
   // Reads `s.badges`, so it lands on the commit after the last other badge.
@@ -259,7 +263,10 @@ export const BADGES: readonly BadgeDef[] = [
     title: "Lord of the Manor",
     description: "Earned every other badge.",
     earned: (s) =>
-      BADGES.every((b) => b.id === "platinum" || s.badges[b.id] !== undefined),
+      BADGES.every(
+        (b) =>
+          b.id === "platinum" || b.optional || s.badges[b.id] !== undefined,
+      ),
   },
 ];
 

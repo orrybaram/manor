@@ -12,7 +12,9 @@ import Link from "lucide-react/dist/esm/icons/link";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Server from "lucide-react/dist/esm/icons/server";
 import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
+import MessageSquareText from "lucide-react/dist/esm/icons/message-square-text";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { useThemeStore } from "../../../store/theme-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -22,6 +24,7 @@ import { IntegrationsPage } from "../IntegrationsPage";
 import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
 import { AutomationsPage, type AutomationTarget } from "../AutomationsPage/AutomationsPage";
+import { PromptsPage } from "../PromptsPage/PromptsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -35,6 +38,7 @@ import {
   type SettingsSearchResult,
 } from "./settings-search";
 import { SettingsJumpContext, SettingsNavContext, type GoToSettings } from "./settings-nav";
+import { useRecentThemesOnClose } from "./theme-recents";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -76,6 +80,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const { open, onClose, initialProjectId, initialPage, initialSection, initialAutomation } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
+  useRecentThemesOnClose(open);
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
@@ -277,6 +282,15 @@ export function SettingsModal(props: SettingsModalProps) {
     }
   }
 
+  // Show the open project page's theme; a group's members share one.
+  const themedProjectId = open
+    ? (currentProject?.id ?? currentGroupMembers[0]?.id ?? null)
+    : null;
+  useEffect(() => {
+    useThemeStore.setState({ settingsProjectId: themedProjectId });
+    return () => useThemeStore.setState({ settingsProjectId: null });
+  }, [themedProjectId]);
+
   const isCurrentPage = (target: SettingsPage) =>
     pageKey(target) === pageKey(page);
 
@@ -434,6 +448,16 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-prompts"
+                    className={`${styles.navItem} ${page.type === "prompts" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "prompts" ? "page" : undefined}
+                    onClick={() => setPage({ type: "prompts" })}
+                  >
+                    <MessageSquareText size={14} />
+                    <span>Prompts</span>
+                  </button>
+
+                  <button
                     className={styles.navGroupHeader}
                     onClick={() => setProjectsExpanded((v) => !v)}
                   >
@@ -483,6 +507,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "hosts" && <HostsPage />}
                   {page.type === "devices" && <DevicesPage />}
                   {page.type === "automations" && <AutomationsPage onClose={onClose} target={initialAutomation} />}
+                  {page.type === "prompts" && <PromptsPage />}
                   {page.type === "group" && currentGroup && currentGroupMembers.length > 0 && (
                     <ProjectSettingsPage
                       key={currentGroup.id}

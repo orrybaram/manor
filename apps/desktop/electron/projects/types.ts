@@ -434,10 +434,11 @@ export interface RemoteProjects {
   /** Whether `hostId`'s projects live on its server: a new one goes there. */
   owns(hostId: string): boolean;
   /**
-   * `projects.<method>(...args)` on `hostId`'s server, arguments and answer
-   * in the desktop's form. Rejects while the host is away.
+   * `<ns>.<method>(...args)` on `hostId`'s server (`ns` is `projects`
+   * unless given), arguments and answer in the desktop's form. Rejects
+   * while the host is away.
    */
-  call(hostId: string, method: string, args: unknown[]): Promise<unknown>;
+  call(hostId: string, method: string, args: unknown[], ns?: string): Promise<unknown>;
   /**
    * Hand what this desktop holds for `hostId` — `projectIds`, and its
    * `<hostId>:*` layout — to that host's server, then let go of it

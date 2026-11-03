@@ -33,6 +33,14 @@ export interface MenuActions {
   checkForUpdates: () => void;
   openExternal: (url: string) => void;
   revealDataFolder: () => void;
+  /**
+   * The focused page's docked DevTools, or else — when Manor's own UI has
+   * focus and its focused pane is a browser — that pane's; or else the
+   * focused window's own. Decided by the webContents that has focus, not
+   * by the focused pane alone: a click into another pane's DevTools, or into
+   * Manor's own DevTools, doesn't move the focused pane.
+   */
+  toggleDevTools: (browserPaneFocused: boolean) => void;
 }
 
 interface CmdOptions {
@@ -71,6 +79,17 @@ export function buildMenuTemplate(
   /** The display-only accelerator for a keybinding id, if it has one. */
   const accelFor = (id: string): string | undefined =>
     bindings[id] ? comboToAccelerator(bindings[id], platform) : undefined;
+
+  // Not `role: "toggleDevTools"`: that always toggles Manor's own DevTools,
+  // even with a browser pane focused, where the shortcut (the role's own,
+  // and on a Mac `browser-devtools`'s too, which this accelerator beats)
+  // should mean that page's DevTools.
+  const toggleDevToolsItem: MenuItemConstructorOptions = {
+    label: "Toggle Developer Tools",
+    accelerator: isMac ? "Alt+Cmd+I" : "Ctrl+Shift+I",
+    click: () =>
+      actions.toggleDevTools(context?.focusedPane?.contentType === "browser"),
+  };
 
   /** A menu item that fires a renderer command, with its shortcut displayed. */
   const cmd = (
@@ -240,7 +259,7 @@ export function buildMenuTemplate(
               submenu: [
                 { role: "reload" },
                 { role: "forceReload" },
-                { role: "toggleDevTools" },
+                toggleDevToolsItem,
               ],
             } as MenuItemConstructorOptions,
           ]),
@@ -422,7 +441,7 @@ export function buildMenuTemplate(
       { label: "Reveal Data Folder", click: () => actions.revealDataFolder() },
       // Dev builds have this under View › Developer.
       ...(isPackaged
-        ? [{ role: "toggleDevTools" } as MenuItemConstructorOptions]
+        ? [toggleDevToolsItem]
         : []),
       SEPARATOR,
       cmd("ghosts", "Ghosts!?"),

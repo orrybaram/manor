@@ -1,8 +1,9 @@
+import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { AutomationView } from "../../../lib/automation-views";
 import { CUSTOM_SCHEDULE, describeCron, timezoneLabel } from "../../../lib/cron-describe";
 import { useProjectStore } from "../../../store/project-store";
-import { AGENT_KIND_LABEL, lastRunText, relativeWhen, zoneNote } from "./automation-text";
+import { AGENT_KIND_LABEL, lastRunText, relativeWhen } from "./automation-text";
 import { RunStatus } from "./RunHistory";
 import type { AutomationHost, HostListState } from "./useAutomations";
 import styles from "./AutomationsPage.module.css";
@@ -32,9 +33,9 @@ function hostLine(host: AutomationHost, state: HostListState | undefined): strin
 
 /**
  * The automations of every host, a group per host in the Hosts page's
- * order: name, schedule, next and last run. A host with none is left out;
- * one that can't be read says so. A row is a button that opens the
- * automation's page; the header only labels the columns for sight.
+ * order, each a card: name, then schedule, project and agent; next run and
+ * last run on the right. A host with none is left out; one that can't be
+ * read says so. A card is a button that opens the automation's page.
  */
 export function AutomationList(props: AutomationListProps) {
   const { hosts, lists, onOpen } = props;
@@ -61,13 +62,6 @@ export function AutomationList(props: AutomationListProps) {
 
   return (
     <div className={styles.table} data-testid="automations-list">
-      <div className={`${styles.cols} ${styles.headRow}`} aria-hidden>
-        <span>Name</span>
-        <span>Schedule</span>
-        <span>Next</span>
-        <span className={styles.alignEnd}>Last run</span>
-        <span />
-      </div>
       {count === 0 && (
         <div className={styles.groupLine}>
           No automations yet. An automation starts an agent on a schedule, in a new workspace or one
@@ -86,14 +80,18 @@ export function AutomationList(props: AutomationListProps) {
             {host.local && <span className={styles.groupNote}> · runs only while Manor is open</span>}
           </div>
           {line && <div className={styles.groupLine}>{line}</div>}
-          {automations.map((a) => (
-            <Row
-              key={a.id}
-              automation={a}
-              projectName={projects.find((p) => p.id === a.projectId)?.name ?? "Missing project"}
-              onOpen={() => onOpen(host.hostId, a.id)}
-            />
-          ))}
+          {automations.length > 0 && (
+            <div className={styles.cards}>
+              {automations.map((a) => (
+                <Row
+                  key={a.id}
+                  automation={a}
+                  projectName={projects.find((p) => p.id === a.projectId)?.name ?? "Missing project"}
+                  onOpen={() => onOpen(host.hostId, a.id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -106,53 +104,39 @@ function Row(props: { automation: AutomationView; projectName: string; onOpen: (
   const next = a.nextRunAt ?? a.nextRuns[0] ?? null;
   const tz = a.schedule.timezone;
   const description = describeCron(a.schedule.cron);
-  const note = zoneNote(tz);
+  // Upcoming times read in the schedule's zone; the pill's tooltip names it.
+  const zone = `${timezoneLabel(tz)} time`;
 
   // Spans throughout: a button holds only phrasing content.
   return (
     <button
       type="button"
-      className={`${styles.row} ${styles.cols} ${a.enabled ? "" : styles.paused}`}
+      className={`${styles.row} ${a.enabled ? "" : styles.paused}`}
       data-testid={`automations-row-${a.id}`}
       onClick={onOpen}
     >
-      <span className={`${styles.cell} ${styles.cellName}`}>
+      <span className={styles.badge} aria-hidden>
+        <CalendarClock size={15} />
+      </span>
+      <span className={styles.cellName}>
         <span className={styles.name}>{a.name}</span>
         <span className={styles.sub}>
-          {projectName} · {AGENT_KIND_LABEL[a.agentKind]}
-        </span>
-      </span>
-      <span className={`${styles.cell} ${styles.cellSchedule}`}>
-        <span className={styles.when}>
-          {description}
-          {/* The Next column is hidden on a phone: say Paused here. */}
-          {!a.enabled && <span className={styles.phoneOnly}> · Paused</span>}
-        </span>
-        <span className={styles.sub}>
           {description === CUSTOM_SCHEDULE ? (
-            <>
-              <span className={styles.mono}>{a.schedule.cron}</span> · {timezoneLabel(tz)}
-            </>
+            <span className={styles.mono}>{a.schedule.cron}</span>
           ) : (
-            timezoneLabel(tz)
-          )}
+            description
+          )}{" "}
+          · {projectName} · {AGENT_KIND_LABEL[a.agentKind]}
         </span>
       </span>
-      {/* In the schedule's own zone, which the Schedule cell already names;
-          the note is only a tooltip here, for want of room. */}
-      <span
-        className={`${styles.cell} ${styles.cellNext} ${styles.next}`}
-        title={a.enabled && next && note ? note : undefined}
-      >
+      <span className={styles.cellWhen}>
         {!a.enabled ? (
-          <span className={styles.never}>Paused</span>
+          <span className={styles.pill}>Paused</span>
         ) : next ? (
-          relativeWhen(next, new Date(), tz)
-        ) : (
-          <span className={styles.never}>—</span>
-        )}
-      </span>
-      <span className={`${styles.cell} ${styles.cellLast} ${styles.alignEnd}`}>
+          <span className={styles.pill} title={zone}>
+            {relativeWhen(next, new Date(), tz)}
+          </span>
+        ) : null}
         {last ? <RunStatus status={last} /> : <span className={styles.never}>Never run</span>}
       </span>
       <span className={styles.chevron} aria-hidden>

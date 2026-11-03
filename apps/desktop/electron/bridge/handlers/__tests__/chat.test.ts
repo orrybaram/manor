@@ -1,13 +1,76 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { localCtx } from "../../method";
+import { ChatMirror } from "../../../chat-mirror/mirror";
 import { chatTaskKey } from "../../../chat-mirror/task-key";
+import type { AgentKind } from "../../../terminal-host/types";
 import { chatInterrupt, chatKey, chatSend, wireChatMirror } from "../chat";
 
-function setup() {
+/** Panes p1 and p2 run Claude unless `kinds` says otherwise; p0 has no agent. */
+function setup(kinds: Record<string, AgentKind> = {}) {
   const write = vi.fn();
-  const ctx = localCtx({ backend: { pty: { write } } } as never);
+  const chatMirror = new ChatMirror({
+    agentForPane: (paneId) =>
+      paneId === "p0"
+        ? null
+        : { hostId: "local", agentKind: kinds[paneId] ?? "claude", transcriptPath: null },
+    write: () => {},
+    publish: () => {},
+    publishTask: () => {},
+    sourceFor: () => {
+      throw new Error("not read");
+    },
+  });
+  const ctx = localCtx({ backend: { pty: { write } }, chatMirror } as never);
   return { write, ctx };
 }
+
+describe("chat.send and chat.interrupt per agent kind", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("types a Claude prompt as LF-joined text, then Enter after a pause", async () => {
+    vi.useFakeTimers();
+    const { write, ctx } = setup();
+    const sent = chatSend(ctx, "p1", "one\r\ntwo");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(write.mock.calls).toEqual([["p1", "one\ntwo"]]);
+    await vi.advanceTimersByTimeAsync(120);
+    await sent;
+    expect(write.mock.calls).toEqual([
+      ["p1", "one\ntwo"],
+      ["p1", "\r"],
+    ]);
+  });
+
+  it("types into a pane with no agent yet as Claude's", async () => {
+    vi.useFakeTimers();
+    const { write, ctx } = setup();
+    const sent = chatSend(ctx, "p0", "hi");
+    await vi.advanceTimersByTimeAsync(1000);
+    await sent;
+    await chatInterrupt(ctx, "p0");
+    expect(write.mock.calls).toEqual([
+      ["p0", "hi"],
+      ["p0", "\r"],
+      ["p0", "\x1b"],
+    ]);
+  });
+
+  it("stops Claude with one Esc and opencode with two", async () => {
+    vi.useFakeTimers();
+    const { write, ctx } = setup({ p2: "opencode" });
+    await chatInterrupt(ctx, "p1");
+    const stop = chatInterrupt(ctx, "p2");
+    await vi.advanceTimersByTimeAsync(1000);
+    await stop;
+    expect(write.mock.calls).toEqual([
+      ["p1", "\x1b"],
+      ["p2", "\x1b"],
+      ["p2", "\x1b"],
+    ]);
+  });
+});
 
 describe("chat.key", () => {
   const cases: [string, string][] = [

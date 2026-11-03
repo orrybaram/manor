@@ -1,5 +1,6 @@
 import type { PrComment } from "./lib/pr-info";
 import type { HostId } from "./lib/hosts";
+import type { PromptOverrides } from "./lib/prompts/catalog";
 import type { BridgeApi } from "../electron/bridge/contract";
 import type { InvokeFrame, ResultFrame } from "../electron/bridge/types";
 import type { NativeApi } from "../electron/preload";
@@ -20,6 +21,8 @@ export interface AppPreferences {
   defaultEditor: string;
   editorIsTerminal: boolean;
   diffOpensInNewPanel: boolean;
+  /** Desk agent panes open on the chat unless they chose otherwise. */
+  deskChatByDefault: boolean;
   /** Days to retain non-active agents. Set to 0 to disable pruning. */
   agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
@@ -34,8 +37,26 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Terminal font family; empty means the bundled Nerd Font. */
+  terminalFontFamily: string;
+  /** Terminal font size in px. */
+  terminalFontSize: number;
+  /** File and diff editor font family; empty means the system monospace. */
+  editorFontFamily: string;
+  /** File and diff editor font size in px. */
+  editorFontSize: number;
+  /** Chat message font family; empty means the system font. */
+  chatFontFamily: string;
+  /** Chat message font size in px on the desk; a phone keeps its own. */
+  chatFontSize: number;
   /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
   remoteControlOnLaunch: boolean;
+  /** The PR card's "Delete workspace after merge" tick box, as last left. */
+  deleteWorkspaceAfterMerge: boolean;
+  /** Workspaces to remove once their queued PR merges: PR URL by workspace key. */
+  mergeCleanups: Record<string, string>;
+  /** Read-only here: set through `preferences.setPrompt`. */
+  promptOverrides: PromptOverrides;
 }
 
 export type AgentLifecycleStatus =
@@ -165,6 +186,8 @@ export interface StatsSummary {
   dailyPrsMerged: { day: string; count: number }[];
   /** badgeId -> ISO awarded-at. */
   badges: Record<string, string>;
+  /** Badges awarded quietly (a host's backlog): in `badges`, but no toast. */
+  quietBadges?: string[];
   enabled: boolean;
 }
 
@@ -525,6 +548,14 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
+/** Moving a workspace to another host: its preflight and progress. */
+export type {
+  WorkspaceMovePreflight,
+  WorkspaceMoveRefusal,
+  WorkspaceMoveStep,
+  WorkspaceMoveStepId,
+} from "../electron/projects/workspace-host-move";
+
 /** A Session in an agent CLI's own store on a host: `sessions.list`'s rows. */
 export type { SessionSummary } from "../electron/sessions/types";
 /** `sessions.transcript`'s answer: a Session's last turns, for the Agents modal's preview. */
@@ -549,6 +580,7 @@ export type {
   ChatDiffHunk,
   ChatEntry,
   ChatPush,
+  ChatSessionInfo,
   ChatSkill,
   ChatTaskEntry,
   ChatTurnState,

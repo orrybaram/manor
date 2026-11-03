@@ -19,9 +19,14 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { hostSpecLabel } from "../backend/providers/recipes";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
+import { runWorkspaceMove } from "../bridge/handlers/projects";
+import { hostDisplayName } from "../projects/host-records";
+import type { WorkspaceMoveResult } from "../projects/workspace-host-move";
 import { startAgentInWorkspace } from "./agents";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
 import type { Json, RouteContext, ServerRoute, ServerRouteDeps } from "./types";
+import { issuePrompt } from "../../src/lib/issue-prompt";
+import type { PromptOverrides } from "../../src/lib/prompts/catalog";
 
 type Ctx = RouteContext<ServerRouteDeps>;
 
@@ -359,6 +364,14 @@ function parseLinkedIssue(value: unknown): LinkedIssue | null {
 }
 
 /**
+ * How long `POST /projects/:id/workspaces { wait: true }` waits for the
+ * setup script before answering `timed-out`. Under the ten minutes the
+ * desktop gives a forwarded write (`host-routing`'s `LONG_CALL_TIMEOUT_MS`),
+ * which also covers the fetch and the worktree.
+ */
+const CREATE_SETUP_WAIT_MS = 8 * 60_000;
+
+/**
  * `ProjectUpdatableFields`' keys, kept in sync by the `satisfies` check —
  * `POST /projects/:projectId/update` copies only these off the body, so an
  * unrelated field (or a typo) is silently ignored rather than smuggled into
@@ -383,14 +396,16 @@ const UPDATABLE_PROJECT_FIELDS = [
 function renderPrompt(
   template: string | undefined,
   ws: WorkspaceFromIssue,
+  overrides: PromptOverrides,
 ): string {
   if (template) {
+    // Function replacers: a string one would expand `$&` written in the issue.
     return template
-      .replace(/\{number\}/g, String(ws.number))
-      .replace(/\{title\}/g, ws.title)
-      .replace(/\{body\}/g, ws.body ?? "");
+      .replace(/\{number\}/g, () => String(ws.number))
+      .replace(/\{title\}/g, () => ws.title)
+      .replace(/\{body\}/g, () => ws.body ?? "");
   }
-  return `Work on GitHub issue #${ws.number}: ${ws.title}.\n\n${ws.body ?? ""}`;
+  return issuePrompt(`GitHub issue #${ws.number}`, ws.title, ws.body, overrides);
 }
 
 /**
@@ -519,7 +534,7 @@ async function batchCreateWorkspaces(
     }
     if (ws.worktreePath && launch) {
       const result = await startAgentInWorkspace(deps, ws.worktreePath, {
-        prompt: renderPrompt(promptTemplate, ws),
+        prompt: renderPrompt(promptTemplate, ws, deps.preferencesManager.get("promptOverrides")),
         hostId: project.hostId,
       });
       entry.started = result.ok;
@@ -598,6 +613,13 @@ export const projectRoutes: ServerRoute[] = [
       const body = await readBody();
       const project = resolveCreateTarget(ctx, pm, named, projects, body);
       if (!project) return;
+      const { folder } = body;
+      if (folder !== undefined && (typeof folder !== "string" || !folder.trim())) {
+        json(400, { error: "'folder' must be a folder name" });
+        return;
+      }
+      // Sent on as it came: a folder name, unlike an id, means the same thing
+      // in every member of a linked group.
       if (await createOnHost(ctx, project, "workspaces", body)) return;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
@@ -609,6 +631,12 @@ export const projectRoutes: ServerRoute[] = [
         });
         return;
       }
+      const folderId =
+        folder === undefined ? undefined : pm.ensureTopLevelFolder(project.id, folder)?.id;
+      if (folder !== undefined && !folderId) {
+        json(500, { error: `Could not make the folder "${folder}"` });
+        return;
+      }
       const baseBranch =
         typeof body.baseBranch === "string" ? body.baseBranch : undefined;
       const useExistingBranch =
@@ -617,15 +645,19 @@ export const projectRoutes: ServerRoute[] = [
           : undefined;
       const ops = ctx.deps.workspaceOps;
       // The op starts `worktreeStartScript` on the server, as it does for
-      // the UI: no window need be open.
-      const { project: updated } = await ops.create({
+      // the UI: no window need be open. `wait` holds the answer until the
+      // script's shell exits, and the answer says how (`setup`).
+      const wait = body.wait === true;
+      const { project: updated, setup } = await ops.create({
         projectId: project.id,
         name,
         branch,
         baseBranch,
         useExistingBranch,
+        folderId,
+        ...(wait && { awaitSetup: { timeoutMs: CREATE_SETUP_WAIT_MS } }),
       });
-      json(200, updated && withHostLabel(pm, updated));
+      json(200, updated && { ...withHostLabel(pm, updated), ...(setup && { setup }) });
     }, { here: HERE }),
   },
 
@@ -896,6 +928,94 @@ export const projectRoutes: ServerRoute[] = [
       await deps.projectManager.resyncDefaultBranches();
       deps.notifyProjectsChanged();
       json(200, { ok: true });
+    },
+  },
+];
+
+/** `POST /workspaces/move-to-host`'s answer: the move's, with both hosts named. */
+export type WorkspaceMoveAnswer = WorkspaceMoveResult & {
+  /** The source's host, as the sidebar names it ("This machine" for local). */
+  sourceHost: string;
+  /** The target's host id and its name, the same way. */
+  targetHostId: string;
+  targetHost: string;
+};
+
+/**
+ * The CLI's and MCP's `move_workspace_to_host`: move the workspace at
+ * `worktreePath` to `host` (a host id, an ssh target, or a label as listings
+ * show it), as the sidebar's Move to Host does. The project is the one with a
+ * workspace at that path; `projectId` picks one when two hosts have it.
+ * Answers when the move ends, 200 with its result: a refusal or a failed step
+ * is the move's answer, not an HTTP error.
+ *
+ * The desktop's alone (`./index.ts` lists it, `./server-routes.ts` does not):
+ * the move reaches both hosts from here, so a host server has no part in it.
+ */
+export const workspaceMoveRoutes: ServerRoute[] = [
+  {
+    method: "POST",
+    path: "/workspaces/move-to-host",
+    async handler({ deps, json, readBody }) {
+      const body = await readBody();
+      const { worktreePath, host, keepSource, projectId } = body;
+      if (typeof worktreePath !== "string" || !worktreePath) {
+        json(400, { error: "Missing 'worktreePath' string in request body" });
+        return;
+      }
+      if (typeof host !== "string" || !host) {
+        json(400, { error: "Missing 'host' string in request body" });
+        return;
+      }
+      if (keepSource !== undefined && typeof keepSource !== "boolean") {
+        json(400, { error: "'keepSource' must be a boolean" });
+        return;
+      }
+      if (projectId !== undefined && typeof projectId !== "string") {
+        json(400, { error: "'projectId' must be a string" });
+        return;
+      }
+      const pm = deps.projectManager;
+      const owners = (await pm.getProjects()).filter(
+        (p) =>
+          (projectId === undefined || p.id === projectId) &&
+          p.workspaces.some((ws) => ws.path === worktreePath),
+      );
+      if (owners.length === 0) {
+        json(404, { error: `Workspace not found: ${worktreePath}` });
+        return;
+      }
+      if (owners.length > 1) {
+        const list = owners.map((p) => `${p.id} (${p.name} on ${hostDisplayName(pm, p.hostId)})`);
+        json(400, {
+          error: `More than one project has a workspace at ${worktreePath}: ${list.join(", ")}. Pass projectId.`,
+        });
+        return;
+      }
+      const resolved = resolveHostArg(pm, host);
+      if (!resolved.ok) {
+        json(400, {
+          error:
+            resolved.reason === "unknown"
+              ? `Unknown host '${host}'.`
+              : `'${host}' names more than one host. Pass the host id instead.`,
+        });
+        return;
+      }
+      const [project] = owners;
+      const result = await runWorkspaceMove(deps, {
+        projectId: project.id,
+        path: worktreePath,
+        targetHostId: resolved.hostId,
+        keepSource: keepSource === true,
+      });
+      const answer: WorkspaceMoveAnswer = {
+        ...result,
+        sourceHost: hostDisplayName(pm, project.hostId),
+        targetHostId: resolved.hostId,
+        targetHost: hostDisplayName(pm, resolved.hostId),
+      };
+      json(200, answer);
     },
   },
 ];

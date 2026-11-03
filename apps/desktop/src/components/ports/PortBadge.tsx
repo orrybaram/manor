@@ -3,7 +3,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
 import { isRemoteHost } from "../../lib/hosts";
-import { killPortWithToast, forwardedUrl } from "../../lib/port-forward-open";
+import { killPortWithToast, forwardedUrl, portUrl } from "../../lib/port-forward-open";
 import { openExternal } from "../../lib/open-external";
 import { useAppStore } from "../../store/app-store";
 import { isHomePath } from "../../lib/home-path";
@@ -24,9 +24,7 @@ export function PortBadge(props: PortBadgeProps) {
   // The Dashboard has no tabs to open a browser in.
   const canOpenInTab = useAppStore((s) => !isHomePath(s.activeWorkspacePath));
 
-  const url = port.hostname
-    ? `http://${port.hostname}`
-    : `http://localhost:${port.port}`;
+  const url = portUrl(port);
 
   // A remote host's port is reached through a port forward:
   // main swaps in the forward's local port before the URL is opened.

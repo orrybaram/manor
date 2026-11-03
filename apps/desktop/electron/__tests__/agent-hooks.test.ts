@@ -9,12 +9,27 @@ import { parseAgentHookEvent } from "../agent-hook-events";
 import { ClaudeConnector } from "../agent-connectors";
 import type { AgentHookEvent } from "../agent-hook-events";
 
+function hookPortFile(): string {
+  return path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
+}
+
+/** The token the running server published on the port file's second line. */
+function hookToken(): string {
+  return fs.readFileSync(hookPortFile(), "utf-8").split("\n")[1] ?? "";
+}
+
+/**
+ * GET `reqPath` the way the hook script does: with the token from the port
+ * file, unless `headers` says otherwise.
+ */
 function httpGet(
   port: number,
-  path: string,
+  reqPath: string,
+  headers?: http.OutgoingHttpHeaders,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.get(`http://127.0.0.1:${port}${path}`, (res) => {
+    const sent = headers ?? { "x-manor-hook-token": hookToken() };
+    const req = http.get(`http://127.0.0.1:${port}${reqPath}`, { headers: sent }, (res) => {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => resolve({ status: res.statusCode!, body }));
@@ -145,6 +160,13 @@ describe("AgentHookServer", () => {
       expect(parsedPort).toBe(server.hookPort);
     });
 
+    it("writes `<port>\\n<token>` readable only by this user", () => {
+      const [port, token] = fs.readFileSync(hookPortFile(), "utf-8").split("\n");
+      expect(port).toBe(String(server.hookPort));
+      expect(token).toMatch(/^[0-9a-f]{64}$/);
+      expect(fs.statSync(hookPortFile()).mode & 0o777).toBe(0o600);
+    });
+
     it("does not leave .tmp file after atomic write", () => {
       const portFilePath = path.join(process.env.HOME || os.homedir(), ".manor", "hook-port");
       const tmpPath = `${portFilePath}.tmp`;
@@ -187,6 +209,49 @@ describe("AgentHookServer", () => {
       await server.start();
       server.setRelay(relay);
       expect(server.hookPort).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Request checks", () => {
+    const event = "/hook/event?paneId=abc&eventType=Stop&kind=claude";
+
+    it("refuses a request with no token, without relaying it", async () => {
+      const res = await httpGet(server.hookPort, event, {});
+      expect(res.status).toBe(401);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("refuses a request with the wrong token", async () => {
+      const res = await httpGet(server.hookPort, event, { "x-manor-hook-token": "0".repeat(64) });
+      expect(res.status).toBe(401);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("refuses a Host other than this listener's loopback address", async () => {
+      const res = await httpGet(server.hookPort, event, {
+        Host: "example.com",
+        "x-manor-hook-token": hookToken(),
+      });
+      expect(res.status).toBe(403);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("refuses any request that carries an Origin, even with the token", async () => {
+      const res = await httpGet(server.hookPort, event, {
+        Origin: "https://example.com",
+        "x-manor-hook-token": hookToken(),
+      });
+      expect(res.status).toBe(403);
+      expect(relayFn).not.toHaveBeenCalled();
+    });
+
+    it("accepts localhost as the Host", async () => {
+      const res = await httpGet(server.hookPort, event, {
+        Host: `localhost:${server.hookPort}`,
+        "x-manor-hook-token": hookToken(),
+      });
+      expect(res.status).toBe(200);
+      expect(relayFn).toHaveBeenCalledTimes(1);
     });
   });
 

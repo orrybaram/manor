@@ -25,8 +25,8 @@ async function latestReleaseVersion(): Promise<string> {
 
 /**
  * Fills `%MANOR_VERSION%` in index.html with the version the Download button
- * hands out: the .dmg link always points at the latest release, so the label
- * follows the latest release too.
+ * hands out: its label and its .dmg link both name the latest release. The
+ * release workflow redeploys the site once a release is published.
  *
  * - `SITE_DOWNLOAD_VERSION=x.y.z` (not MANOR_VERSION: Manor sets that in its own terminal panes) pins it (the e2e spec does, so it runs offline).
  * - Otherwise a build asks GitHub; the dev server just uses the checkout.

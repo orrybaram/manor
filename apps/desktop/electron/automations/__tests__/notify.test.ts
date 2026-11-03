@@ -18,6 +18,7 @@ describe("runNotification", () => {
       body: "Started Claude in Morning triage · Oct 29 09:00",
       target: { type: "automation", automationId: "auto-1" },
     });
+    expect(runNotification(TRIAGE, { outcome: "started", sentToPane: true }, "main")?.body).toMatch(/^Sent to .* in main$/);
     expect(runNotification({ ...TRIAGE, agentKind: "codex" }, { outcome: "started" }, null)?.body).toBe(
       "Started Codex",
     );

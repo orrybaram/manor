@@ -61,9 +61,9 @@ function readInput(argv, stdin) {
 const HOOK_TOKEN_HEADER = "x-manor-hook-token";
 
 /**
- * Read a hook port file: the port on the first line and, for a remote
- * daemon's listener, its token on the second. Manor desktop's file holds
- * just the port. Returns null if the file is missing or has no valid port.
+ * Read a hook port file: the port on the first line and the listener's token
+ * on the second (Manor desktop's and a remote daemon's alike). Returns null
+ * if the file is missing or has no valid port.
  */
 function readPortFile(portFile) {
   let raw;
@@ -85,8 +85,8 @@ function readPortFile(portFile) {
  * Resolve where to send the hook: the port file named by
  * MANOR_HOOK_PORT_FILE (set in a remote Manor daemon's panes), else
  * ~/.manor/hook-port (Manor desktop's, always fresh), falling back to the
- * MANOR_HOOK_PORT env var. Returns `{ port, token }` (token null when the
- * listener wants none) or null.
+ * MANOR_HOOK_PORT and MANOR_HOOK_TOKEN env vars Manor desktop gives its
+ * panes. Returns `{ port, token }` (token null when none is known) or null.
  *
  * Keep in sync with hookPortFile() / remoteHookPortFile() in electron/paths.ts.
  */
@@ -98,7 +98,7 @@ function resolveHookTarget(env, homeDir) {
   const envPort = env.MANOR_HOOK_PORT;
   if (envPort) {
     const n = parseInt(envPort, 10);
-    if (!isNaN(n) && n > 0) return { port: n, token: null };
+    if (!isNaN(n) && n > 0) return { port: n, token: env.MANOR_HOOK_TOKEN || null };
   }
   return null;
 }
@@ -110,12 +110,39 @@ function resolvePort(env, homeDir) {
 }
 
 /**
- * Returns the SessionStart hint appropriate for the environment.
- * If MANOR_CONTROL_PORT_FILE is set, this terminal is on a remote host
- * and gets the remote variant. Otherwise, it's a local terminal.
+ * The hints edited in Settings › Prompts, from the file Manor keeps beside
+ * this pane's hook port file. Keep in sync with sessionHintsFile() /
+ * remoteSessionHintsFile() in electron/paths.ts. Nothing here may fail a
+ * session: anything unreadable counts as no edits.
  */
-function getSessionStartHint(env) {
-  return env.MANOR_CONTROL_PORT_FILE ? REMOTE_SESSION_START_HINT : SESSION_START_HINT;
+function readEditedHints(env, homeDir) {
+  const portFile =
+    env.MANOR_HOOK_PORT_FILE || path.join(homeDir, ".manor", "hook-port");
+  try {
+    const parsed = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(portFile), "session-hints.json"), "utf-8"),
+    );
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Returns the SessionStart hint appropriate for the environment, or null when
+ * the user blanked it. If MANOR_CONTROL_PORT_FILE is set, this terminal is on
+ * a remote host and gets the remote variant. Otherwise, it's a local terminal.
+ */
+function getSessionStartHint(env, homeDir = os.homedir()) {
+  const remote = Boolean(env.MANOR_CONTROL_PORT_FILE);
+  const hint = remote ? REMOTE_SESSION_START_HINT : SESSION_START_HINT;
+  const edited = readEditedHints(env, homeDir)[remote ? "sessionHintRemote" : "sessionHint"];
+  if (typeof edited !== "string") return hint;
+  if (!edited.trim()) return null;
+  return {
+    ...hint,
+    hookSpecificOutput: { ...hint.hookSpecificOutput, additionalContext: edited },
+  };
 }
 
 /**
@@ -331,8 +358,8 @@ async function main(opts) {
     // regardless of whether forwarding above succeeded, failed, or was
     // skipped, so the hint is never lost to an unrelated failure.
     if (paneId && eventType === "SessionStart" && kind === "claude") {
-      const hint = getSessionStartHint(env);
-      stdout.write(`${JSON.stringify(hint)}\n`);
+      const hint = getSessionStartHint(env, homeDir);
+      if (hint) stdout.write(`${JSON.stringify(hint)}\n`);
     }
   }
 }
@@ -346,6 +373,8 @@ module.exports = {
   extractNotificationKind,
   extractWrittenFile,
   getSessionStartHint,
+  SESSION_START_HINT,
+  REMOTE_SESSION_START_HINT,
 };
 
 // Run as a CLI when invoked directly (not when imported by tests).

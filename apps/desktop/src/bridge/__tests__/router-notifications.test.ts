@@ -134,6 +134,29 @@ describe("the bell across servers", () => {
     ]);
   });
 
+  it("takes a badge from home alone: another server's stats are not the trophy room's", async () => {
+    const badge = { kind: "badge-unlocked", target: { type: "stats", badgeId: "fleet" } };
+    const home = fakeServer({
+      "notifications.getAll": () => [record("d1", "2026-10-09T08:00:00.000Z", badge)],
+    });
+    const box = fakeServer({
+      "notifications.getAll": () => [
+        record("b2", "2026-10-30T04:02:00.000Z", badge),
+        record("b1", "2026-10-29T09:00:00.000Z"),
+      ],
+    });
+    const api = createRouter(desktopWithHost(home, box), resolver);
+    const changed = vi.fn();
+    api.notifications.onChanged(changed);
+
+    expect((await api.notifications.getAll()).map((n) => n.id)).toEqual(["b1", "d1"]);
+    box.emit("notifications.changed", [
+      record("b3", "2026-10-30T05:00:00.000Z", badge),
+      record("b1", "2026-10-29T09:00:00.000Z"),
+    ]);
+    expect(changed.mock.lastCall?.[0].map((n: { id: string }) => n.id)).toEqual(["b1", "d1"]);
+  });
+
   it("tells the listener again when a server leaves the set", async () => {
     const home = fakeServer({
       "notifications.getAll": () => [record("d1", "2026-10-29T08:00:00.000Z")],

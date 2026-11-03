@@ -73,6 +73,8 @@ export interface BrowserCommandTarget {
   reload(): void;
   goBack(): void;
   goForward(): void;
+  toggleDevTools(): void;
+  togglePicker(): void;
 }
 
 /** The active surface, resolved back to its owning project and workspace. */
@@ -96,6 +98,8 @@ export interface SharedCommandContext {
   activePanelId(): string | null;
   activeTabId(): string | null;
   focusedPaneId(): string | null;
+  /** Flip an agent pane between its chat and its terminal; nothing for a pane with no chat. */
+  togglePaneChat(paneId: string): void;
   copyToClipboard(text: string, label: string): void;
   startNewAgent(): void;
   /** Move the active panel's selected tab to the next panel, wrapping. */
@@ -375,6 +379,17 @@ export const COMMANDS: readonly CommandDef[] = [
     run: (ctx) => ctx.app().focusPrevPane(),
   },
   {
+    id: "toggle-pane-chat",
+    label: "Toggle Chat View",
+    category: "terminal",
+    defaultCombo: metaCombo("m", true), // Cmd+Shift+M, Ctrl+Shift+M off mac
+    scope: "any",
+    run: (ctx) => {
+      const paneId = ctx.focusedPaneId();
+      if (paneId) ctx.togglePaneChat(paneId);
+    },
+  },
+  {
     id: "history-back",
     label: "Navigate Back",
     category: "app",
@@ -581,6 +596,22 @@ export const COMMANDS: readonly CommandDef[] = [
       const paneId = ctx.focusedBrowserPaneId();
       if (paneId) ctx.requestUi({ type: "pane-search", paneId });
     },
+  },
+  {
+    id: "browser-devtools",
+    label: "Toggle Browser DevTools",
+    category: "browser",
+    defaultCombo: metaCombo("i", false, true), // ⌥⌘I, Ctrl+Alt+I off mac
+    scope: "any",
+    run: (ctx) => ctx.focusedBrowser()?.toggleDevTools(),
+  },
+  {
+    id: "browser-pick",
+    label: "Pick Elements to Send to an Agent",
+    category: "browser",
+    defaultCombo: metaCombo("c", true), // Cmd+Shift+C, Ctrl+Shift+C off mac
+    scope: "any",
+    run: (ctx) => ctx.focusedBrowser()?.togglePicker(),
   },
   {
     // No `run`: the focused terminal handles its own search, so the key must
@@ -850,6 +881,17 @@ export const COMMANDS: readonly CommandDef[] = [
       if (!project || !path) return;
       ctx.ensureSidebarVisible();
       ctx.requestUi({ type: "delete-worktree", projectId: project.id, path });
+    },
+  },
+  {
+    id: "move-workspace-to-host",
+    label: "Move Workspace to Host",
+    category: "workspace",
+    scope: "primary",
+    run: (ctx) => {
+      // The dialog asks which host.
+      const { project, path } = ctx.active();
+      if (project && path) ctx.requestUi({ type: "move-workspace-to-host", projectId: project.id, path });
     },
   },
   {

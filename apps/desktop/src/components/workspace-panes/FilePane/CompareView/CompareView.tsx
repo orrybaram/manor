@@ -26,16 +26,16 @@ const readOnly: Extension = [
 /** The merge view's colours, from manor's tokens: removed red, added green. */
 const compareTheme = EditorView.theme({
   "&.cm-merge-a .cm-changedLine, .cm-deletedChunk": {
-    backgroundColor: "color-mix(in srgb, var(--red) 12%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--red) 6%, transparent)",
   },
   "&.cm-merge-b .cm-changedLine, .cm-insertedLine": {
-    backgroundColor: "color-mix(in srgb, var(--green) 12%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--green) 7%, transparent)",
   },
   "&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText": {
-    background: "color-mix(in srgb, var(--red) 30%, transparent)",
+    background: "color-mix(in srgb, var(--red) 14%, transparent)",
   },
   "&.cm-merge-b .cm-changedText": {
-    background: "color-mix(in srgb, var(--green) 30%, transparent)",
+    background: "color-mix(in srgb, var(--green) 14%, transparent)",
   },
   ".cm-collapsedLines": {
     backgroundColor: "var(--surface)",

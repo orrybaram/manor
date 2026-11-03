@@ -25,5 +25,7 @@ export function layoutPaneContext(
   if (key === null) return undefined;
   const { hostId, path: workspacePath } = parseWorkspaceKey(key);
   const project = projectManager.workspaceProject(hostId, workspacePath);
-  return project ? { ...project, workspacePath } : undefined;
+  if (!project) return undefined;
+  const { projectId, projectName, agentCommand } = project;
+  return { projectId, projectName, agentCommand, workspacePath };
 }

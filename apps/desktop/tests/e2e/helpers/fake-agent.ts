@@ -14,6 +14,12 @@ export const FAKE_AGENT = path.join(__dirname, "fake-agent.sh");
 /** Printed once at startup. Assert on this to know the session is live. */
 export const FAKE_AGENT_BANNER = "fake-agent ready";
 
+/**
+ * Set this in the fake agent's environment to a file path and it appends
+ * every message it receives there, whole, one per line.
+ */
+export const FAKE_AGENT_LOG_ENV = "FAKE_AGENT_LOG";
+
 /** Prefix the fake agent echoes back for anything sent to it. */
 export const FAKE_AGENT_ECHO = "received:";
 
@@ -80,3 +86,13 @@ export const FAKE_CHAT_OPTIONS = ["Option 1", "Option 2", "Option 3"] as const;
  * hook never comes: what a lost Stop hook looks like.
  */
 export const FAKE_CHAT_LOSE_STOP = "lose the stop hook";
+
+/**
+ * `fake-agent-kind.sh`: a Codex, pi or opencode session's hooks, nothing
+ * else. It reports `<kind>`, a session id and a transcript the test put in
+ * place, so the pane gets an Agent of that kind whose chat reads it.
+ *
+ * Arguments: `<kind> <session id> <transcript path> [title]`. Run it with
+ * `bash`, so the file needs no exec bit.
+ */
+export const FAKE_AGENT_KIND = path.join(__dirname, "fake-agent-kind.sh");

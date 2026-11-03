@@ -37,6 +37,7 @@ import RadioTower from "lucide-react/dist/esm/icons/radio-tower";
 import Server from "lucide-react/dist/esm/icons/server";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import Settings from "lucide-react/dist/esm/icons/settings";
+import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
 import SquareArrowOutUpRight from "lucide-react/dist/esm/icons/square-arrow-out-up-right";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -61,6 +62,7 @@ import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
 import { HOME_PATH, isHomePath } from "../../lib/home-path";
 import { find } from "../../lib/workspace-directory";
+import { editorName } from "../../lib/editor";
 import styles from "./CommandPalette.module.css";
 
 interface UseCommandsParams {
@@ -277,6 +279,11 @@ export function useCommands({
       { command: "next-pane" },
       { command: "prev-pane" },
       {
+        command: "toggle-pane-chat",
+        icon: <MessageSquare size={14} />,
+        keywords: ["chat", "conversation", "terminal", "transcript", "view", "agent"],
+      },
+      {
         command: "open-file",
         icon: <FileCode size={14} />,
         keywords: ["file", "open", "editor", "code", "tree", "browse"],
@@ -427,8 +434,7 @@ export function useCommands({
       };
     });
 
-    const editorName =
-      usePreferencesStore.getState().preferences.defaultEditor || undefined;
+    const editor = editorName(usePreferencesStore.getState().preferences.defaultEditor);
 
     // The active workspace's own actions, as in the native Workspace menu.
     const workspaceItems: CommandItem[] = fromTable([
@@ -499,6 +505,13 @@ export function useCommands({
                     label: "Delete Worktree…",
                     icon: <Trash2 size={14} />,
                     keywords: ["delete", "remove", "worktree", "branch"],
+                    closeFirst: true as const,
+                  },
+                  {
+                    command: "move-workspace-to-host",
+                    label: "Move Workspace to Host…",
+                    icon: <Server size={14} />,
+                    keywords: ["move", "host", "remote", "server", "pod", "transfer", "workspace"],
                     closeFirst: true as const,
                   },
                 ]),
@@ -572,8 +585,8 @@ export function useCommands({
         {
           command: "open-in-editor",
           icon: <ExternalLink size={14} />,
-          keywords: ["code", ...(editorName ? [editorName] : [])],
-          suffix: editorName ? <span className={styles.editorBadge}>{editorName}</span> : undefined,
+          keywords: ["code", editor],
+          suffix: <span className={styles.editorBadge}>{editor}</span>,
         },
       ]),
       {
@@ -733,6 +746,13 @@ export function useCommands({
           "recipe",
         ],
         action: openSettingsPage("hosts"),
+      },
+      {
+        id: "settings-automations",
+        label: "Settings: Automations",
+        icon: <CalendarClock size={14} />,
+        keywords: ["settings", "automations", "schedule", "cron", "scheduled"],
+        action: openSettingsPage("automations"),
       },
       {
         id: "settings-remote",

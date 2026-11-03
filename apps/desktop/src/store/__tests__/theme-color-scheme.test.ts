@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import { themeColorScheme } from "../theme-store";
+import { applyCssVars, themeColorScheme } from "../theme-store";
 import type { Theme } from "../theme-store";
 
 function theme(background: string): Theme {
@@ -40,5 +41,21 @@ describe("themeColorScheme", () => {
   it("reads light from a light background", () => {
     expect(themeColorScheme(theme("#eff1f5"))).toBe("light");
     expect(themeColorScheme(theme("#ffffff"))).toBe("light");
+  });
+});
+
+// The accent was always the theme's blue; a theme can now name its own.
+describe("applyCssVars accent", () => {
+  const accent = () =>
+    document.documentElement.style.getPropertyValue("--accent");
+
+  it("uses the theme's accent when it has one", () => {
+    applyCssVars({ ...theme("#11110a"), accent: "#ffe800" });
+    expect(accent()).toBe("#ffe800");
+  });
+
+  it("falls back to blue without one", () => {
+    applyCssVars(theme("#1e1e2e"));
+    expect(accent()).toBe("#89b4fa");
   });
 });

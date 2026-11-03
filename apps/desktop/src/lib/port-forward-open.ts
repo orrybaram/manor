@@ -1,6 +1,16 @@
+import type { ActivePort } from "../electron.d.ts";
 import { toast } from "../toast";
 import { useHostStore } from "../store/host-store";
 import { hostLabel } from "./hosts";
+
+/**
+ * The URL a detected port opens at: its portless hostname if it has one,
+ * else `localhost:<port>`. For a remote host's port, the box's own URL;
+ * `forwardedUrl` turns it into one this machine can load.
+ */
+export function portUrl(port: ActivePort): string {
+  return port.hostname ? `http://${port.hostname}` : `http://localhost:${port.port}`;
+}
 
 /**
  * `url` — the box's own `localhost:<port>` URL — through its port forward on

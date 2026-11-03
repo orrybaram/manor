@@ -13,7 +13,27 @@ export const FONT_FAMILY = [
   "monospace",
 ].join(", ");
 
-const DEFAULT_FONT_SIZE = 13;
+export const DEFAULT_FONT_SIZE = 13;
+
+/** The range a font size preference is held to, terminal and editor alike. */
+export const FONT_SIZE_MIN = 8;
+export const FONT_SIZE_MAX = 32;
+
+/** `size` held to {@link FONT_SIZE_MIN}–{@link FONT_SIZE_MAX}, or `fallback` if it is not a number. */
+export function clampFontSize(size: unknown, fallback: number): number {
+  if (typeof size !== "number" || !Number.isFinite(size)) return fallback;
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(size)));
+}
+
+/**
+ * The terminal's font stack with `family` in front, or the bundled stack alone
+ * for an empty one. The bundled Meslo stays behind the chosen font so the
+ * glyphs it lacks, Nerd Font icons above all, still draw.
+ */
+export function terminalFontFamily(family: string): string {
+  const name = family.replace(/["\\]/g, "").trim();
+  return name ? `"${name}", ${FONT_FAMILY}` : FONT_FAMILY;
+}
 
 export function terminalOptions(
   overrides: Partial<ITerminalOptions> = {},

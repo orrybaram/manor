@@ -13,7 +13,7 @@ import {
 import { pendingLines } from "../components/workspace-panes/FilePane/pending-line";
 import type { PaneNode, SplitDirection } from "./layout/pane-tree";
 import type { WorkspaceLayout } from "./layout/workspace-layout";
-import type { WorkspaceKey } from "./workspace-key";
+import { parseWorkspaceKey, type ParsedWorkspaceKey, type WorkspaceKey } from "./workspace-key";
 
 /** Where in the file to put the cursor, 1-based. */
 type At = { line?: number; col?: number };
@@ -39,6 +39,12 @@ function placeOf(layouts: Record<string, WorkspaceLayout>, paneId: string) {
   return null;
 }
 
+/** The host and path of the workspace `paneId` is in, or null when no layout has it. */
+export function workspaceOfPane(paneId: string): ParsedWorkspaceKey | null {
+  const place = placeOf(useAppStore.getState().workspaceLayouts, paneId);
+  return place ? parseWorkspaceKey(place.workspaceKey) : null;
+}
+
 /**
  * A file pane in the same tab as `paneId`, other than it: the one an open
  * from that pane reuses. A tab is one workspace's, so it is that pane's
@@ -59,12 +65,12 @@ export function splitDirectionBeside(el: HTMLElement | null): SplitDirection {
 }
 
 /**
- * Ask `paneId` to show `at.line` once it has `path` open, and drop the ask
+ * Ask `paneId` to show `at.line`, or with none just to take the keyboard,
+ * once it has `path` open, and drop the ask
  * once it can't: the pane opens another file instead, or its swap bar stops
  * asking to open `path` without opening it (Cancel, or a save that failed).
  */
 function requestLine(paneId: string, path: string, at: At): void {
-  if (!at.line) return;
   const request = pendingLines.request(paneId, { path, line: at.line, col: at.col });
   let shown = selectPaneFilePath(useAppStore.getState(), paneId);
   let asking = useOpenFileStore.getState().byPane[paneId]?.pendingOpen === path;
@@ -176,5 +182,6 @@ export function openFileInActiveWorkspace(path: string): void {
       return;
     }
   }
-  app.addFileTab(path);
+  const opened = app.addFileTab(path);
+  if (opened) requestLine(opened.paneId, path, {});
 }

@@ -13,8 +13,8 @@ import { useAppStore } from "../../../../store/app-store";
 import { useProjectStore } from "../../../../store/project-store";
 import { clearRecords, toastStore } from "../../../../toast/toast-store";
 import { useLaunchedSessions } from "../../../../store/launched-sessions-store";
+import { hasControlChars } from "../../../../lib/terminal-file-drop";
 import {
-  hasControlChars,
   inFolder,
   placeLaunch,
   planRowAction,

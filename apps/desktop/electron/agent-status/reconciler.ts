@@ -33,7 +33,8 @@
  *      in progress its activity shows on the pane — thinking / working, and
  *      requires_input so a subagent's permission prompt is visible. A child
  *      lowers only a prompt it raised itself. Never persists and never ends
- *      a turn.
+ *      a turn. Except: while a root restored after a restart has sent no
+ *      hook, a child's prompt replaces it (main missed a `/clear`).
  *  H5  Root session: first hook makes the pane hook-driven. SubagentStart /
  *      SubagentStop bookkeeping without an `agent_id` (key `tool:<id>`, else
  *      `__fallback_N`); active hook → create or update the Agent.
@@ -77,6 +78,8 @@
  * User signals (`reconcileUser`)
  *  U1  abandon / end: an active Agent's lifecycle becomes `abandoned`; pane →
  *      idle and forgets its root.
+ *  U1a move: as U1, but the lifecycle becomes `completed`: the Agent goes on
+ *      on another host, so here it ended rather than was abandoned.
  *  U2  markSeen: clears the Agent's unseen flags; status unchanged.
  */
 
@@ -188,6 +191,7 @@ export function initialPaneState(paneId: string): PaneAgentState {
     children: new Set(),
     phase: "none",
     hookDriven: false,
+    rootRestored: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
     openToolCalls: 0,
@@ -231,6 +235,7 @@ export function stateFromSavedAgent(
     ...initial,
     rootSessionId: sessionId,
     hookDriven: true,
+    rootRestored: true,
     kind: agent.agentKind,
     lastHookAt: nowMs,
   };
@@ -258,6 +263,7 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
     children: new Set(),
     phase: "none",
     hookDriven: false,
+    rootRestored: false,
     activeSubagents: new Set(),
     finishedSubagents: new Set(),
     openToolCalls: 0,
@@ -409,11 +415,16 @@ export function reconcile(
 // ── Hooks ──
 
 function reconcileHook(
-  state: PaneAgentState,
+  saved: PaneAgentState,
   event: AgentHookEvent,
   ctx: ReconcileContext,
 ): ReconcileResult {
   const { sessionId, type } = event;
+  // Any hook from a restored root, a subagent's included, shows it is alive.
+  const state =
+    saved.rootRestored && sessionId === saved.rootSessionId
+      ? { ...saved, rootRestored: false }
+      : saved;
   const { existingAgent, nowMs } = ctx;
   const hookLabel = `${type} hook`;
 
@@ -490,6 +501,19 @@ function reconcileHook(
 
   // H4 — child session. A root exists and this is a different session.
   if (state.rootSessionId !== null && state.rootSessionId !== sessionId) {
+    // A root restored after a restart that has not spoken since may be gone:
+    // main missed the SessionStart of a `/clear` or resume. A child prompts
+    // only inside the root's turn, so this prompt is the pane's new root.
+    if (state.rootRestored && type === "UserPromptSubmit") {
+      const replaced: PaneAgentState = {
+        ...withoutRoot(state),
+        rootSessionId: sessionId,
+        hookDriven: true,
+        kind: event.agentKind,
+      };
+      const next = reconcileRootHook(replaced, event, sessionId, ctx);
+      return { ...next, reason: `${next.reason} (replaces the restored root)` };
+    }
     return reconcileChildHook(state, event, sessionId);
   }
 
@@ -1039,10 +1063,17 @@ function reconcileUser(
 
   // `agents:abandonForPane` and `/sessions/end` both move only an *active*
   // Agent to `abandoned`; one that completed or errored keeps that outcome.
-  const reason = action === "abandon" ? "pane closed by the user" : "session ended by the user";
+  // A move ends it `completed`: it goes on on the other host.
+  const reason =
+    action === "abandon"
+      ? "pane closed by the user"
+      : action === "move"
+        ? "workspace moved to another host"
+        : "session ended by the user";
+  const to = action === "move" ? "completed" : "abandoned";
   const effects: Effect[] =
     agent && agent.status === "active"
-      ? [{ kind: "PersistAgentStatus", sessionId: agent.agentSessionId, transition: { to: "abandoned" } }]
+      ? [{ kind: "PersistAgentStatus", sessionId: agent.agentSessionId, transition: { to } }]
       : [];
   const next = { ...withStatus(withoutRoot(state), "idle", reason), kind: null };
   return result(state, next, reason, effects);

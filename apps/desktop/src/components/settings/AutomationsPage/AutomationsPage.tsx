@@ -18,11 +18,8 @@ type View =
   | { kind: "detail"; hostId: string; id: string; linked?: boolean }
   | { kind: "new" };
 
-/** An automation to open the page on, e.g. from a bell row. */
-export interface AutomationTarget {
-  hostId: string;
-  automationId: string;
-}
+/** An automation to open the page on, e.g. from a bell row; `new` opens a new one. */
+export type AutomationTarget = { hostId: string; automationId: string } | "new";
 
 type AutomationsPageProps = {
   /** Closes Settings: opening a run's agent leaves for its pane. */
@@ -35,9 +32,9 @@ type AutomationsPageProps = {
 };
 
 function viewOf(target: AutomationTarget | null | undefined): View {
-  return target
-    ? { kind: "detail", hostId: target.hostId, id: target.automationId, linked: true }
-    : { kind: "list" };
+  if (!target) return { kind: "list" };
+  if (target === "new") return { kind: "new" };
+  return { kind: "detail", hostId: target.hostId, id: target.automationId, linked: true };
 }
 
 /**

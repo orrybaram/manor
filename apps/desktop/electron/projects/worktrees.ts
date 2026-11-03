@@ -4,6 +4,7 @@
  * through the project's own host.
  */
 
+import type { PaneEnding } from "../layout/layout-store";
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -306,6 +307,7 @@ export async function removeWorktree(
   worktreePath: string,
   deleteBranch?: boolean,
   onProgress?: (step: string) => void,
+  ending?: PaneEnding,
 ): Promise<void> {
   const project = ctx.find(projectId);
   if (!project) return;
@@ -315,7 +317,8 @@ export async function removeWorktree(
   // shells killed, agents abandoned — and every renderer drops its layout.
   // The one teardown for every way a worktree is removed: the
   // sidebar, quick merge, the CLI and MCP all come through this function.
-  ctx.layout?.remove(workspaceKey(project.hostId, worktreePath));
+  // A moved workspace's Agents go on elsewhere: `ending.moved` says so.
+  ctx.layout?.remove(workspaceKey(project.hostId, worktreePath), ending);
 
   const progress = onProgress ?? (() => {});
 

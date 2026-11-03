@@ -68,6 +68,7 @@ function Toast({ item, view }: { item: UnlockItem; view: ToastView }) {
     <div
       className={styles.toast}
       role="status"
+      data-floats-over-panes
       aria-label={`${view.eyebrow}: ${view.name}`}
       data-tier={view.tier}
       data-kind={item.kind}

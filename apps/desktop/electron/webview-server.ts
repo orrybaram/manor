@@ -12,23 +12,41 @@
  * only what a route handler cannot own itself: the HTTP listener's lifecycle,
  * console-message capture, and the pane→`WebContents` lookup those routes
  * reach through `HostDeps.webviewPanes`.
+ *
+ * Only Manor's own local clients get through: each request must name this
+ * listener by its loopback `Host`, carry no `Origin`, and send the per-launch
+ * token (`CONTROL_TOKEN_HEADER`) published in `webviewServerTokenFile()` and,
+ * to child shells, as `MANOR_WEBVIEW_TOKEN`. A POST or DELETE must also
+ * declare a JSON body.
  */
 
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { PIN_REPORT_PREFIX } from "./page-pins-script";
 import { webContents } from "electron";
-import { webviewServerPortFile } from "./paths";
+import { writeFileAtomic } from "./lib/fs-atomic";
+import { isJsonContentType, mintToken, refuseLoopbackRequest } from "./lib/loopback-guard";
+import { webviewServerPortFile, webviewServerTokenFile } from "./paths";
 import { handleControlRequest } from "./routes";
 import type { ConsoleEntry, HostDeps } from "./routes/types";
 
 const MAX_CONSOLE_ENTRIES = 200;
 
 const PORT_FILE = webviewServerPortFile();
+const TOKEN_FILE = webviewServerTokenFile();
+
+/**
+ * The request header carrying the token. The same name the remote control
+ * relay uses (`electron/terminal-host/control-relay-listener.ts`), so
+ * `electron/mcp/http-client.ts` sends one header to either.
+ */
+export const CONTROL_TOKEN_HEADER = "x-manor-control-token";
 
 export class WebviewServer {
   private server: http.Server | null = null;
   private port = 0;
+  private token = "";
   /** paneId → buffered console entries. Part of `HostDeps.webviewPanes`. */
   readonly consoleLogs: Map<string, ConsoleEntry[]> = new Map();
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
@@ -50,6 +68,11 @@ export class WebviewServer {
     return this.port;
   }
 
+  /** This launch's token; empty until `start()` has listened. */
+  get controlToken(): string {
+    return this.token;
+  }
+
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
@@ -67,6 +90,9 @@ export class WebviewServer {
         const addr = this.server!.address();
         if (addr && typeof addr === "object") {
           this.port = addr.port;
+          this.token = mintToken();
+          // Token first: a client that reads the new port must find its token.
+          writeFileAtomic(TOKEN_FILE, this.token, { mode: 0o600 });
           fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });
           fs.writeFileSync(PORT_FILE, String(this.port));
         }
@@ -84,10 +110,20 @@ export class WebviewServer {
 
     this.server?.close();
     this.server = null;
+    // Only if the port file still names this listener: another Manor
+    // sharing ~/.manor (a relaunch, a dev build) may have rewritten both
+    // since, and its shells' only way back to it is these files.
     try {
-      fs.unlinkSync(PORT_FILE);
+      if (fs.readFileSync(PORT_FILE, "utf-8").trim() !== String(this.port)) return;
     } catch {
-      // File may not exist; ignore
+      // Port file gone or unreadable; the token file may still be ours.
+    }
+    for (const file of [PORT_FILE, TOKEN_FILE]) {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // File may not exist; ignore
+      }
     }
   }
 
@@ -118,6 +154,8 @@ export class WebviewServer {
     ) => {
       const entries = this.consoleLogs.get(paneId);
       if (!entries) return;
+      // The pins' own reports (webview-pins.ts) are Manor's, not the page's.
+      if (message.startsWith(PIN_REPORT_PREFIX)) return;
 
       entries.push({
         timestamp: new Date().toISOString(),
@@ -131,6 +169,12 @@ export class WebviewServer {
       }
     };
 
+    // The page-dialog shim's synchronous request (webview-dialogs.ts) needs no
+    // filtering here: Chromium reports "[Deprecation] Synchronous
+    // XMLHttpRequest on the main thread…" as a DevTools issue
+    // (`Audits.issueAdded`), not a console message, so it never reaches this
+    // event (checked on Electron 44). DevTools' Issues panel lists it, at
+    // `manor-page-dialogs.js`.
     wc.on("console-message", listener);
     this.consoleListeners.set(paneId, () => {
       if (!wc.isDestroyed()) {
@@ -176,6 +220,33 @@ export class WebviewServer {
     req: http.IncomingMessage,
     res: http.ServerResponse,
   ): Promise<void> {
+    // JSON helper
+    const json = (status: number, body: unknown) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+
+    const refusal = refuseLoopbackRequest(req, {
+      port: this.port,
+      tokenHeader: CONTROL_TOKEN_HEADER,
+      token: this.token,
+    });
+    if (refusal) {
+      req.resume();
+      json(refusal.status, { error: refusal.error });
+      return;
+    }
+
+    const method = req.method ?? "GET";
+    if (
+      (method === "POST" || method === "DELETE") &&
+      !isJsonContentType(req.headers["content-type"])
+    ) {
+      req.resume();
+      json(415, { error: "Content-Type must be application/json" });
+      return;
+    }
+
     if (!req.url) {
       res.writeHead(404);
       res.end();
@@ -183,13 +254,6 @@ export class WebviewServer {
     }
 
     const url = new URL(req.url, "http://127.0.0.1");
-    const method = req.method ?? "GET";
-
-    // JSON helper
-    const json = (status: number, body: unknown) => {
-      res.writeHead(status, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(body));
-    };
 
     // Parse JSON body helper
     const readBody = (): Promise<Record<string, unknown>> => {

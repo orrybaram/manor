@@ -212,7 +212,7 @@ describe("dispatch", () => {
 
     expect(http.get).toHaveBeenCalledWith("/projects/abc");
     expect(io.stdout).toBe(
-      "abc: Manor\n  path: /code/manor\n  default branch: main\n  workspaces (0):\n",
+      "abc: Manor\n  path: /code/manor\n  default branch: main\n  start script: (none)\n  workspaces (0):\n",
     );
     expect(io.stderr).toBe("");
   });
@@ -273,6 +273,34 @@ describe("dispatch", () => {
     expect(io.stderr).toContain("--tail-lines");
     expect(io.stderr).toContain("number");
     expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it("derives move-workspace-to-host and prints the new workspace", async () => {
+    const io = captureIo();
+    const http = fakeHttp({
+      post: async () => ({
+        ok: true,
+        targetPath: "/home/me/feature",
+        reused: false,
+        sourceRemoved: false,
+        sourceHost: "This machine",
+        targetHost: "me@box",
+      }),
+    });
+    expect(
+      await runCli(
+        ["move-workspace-to-host", "--worktree-path", "/ws", "--host", "box", "--keep-source"],
+        http,
+        io.io,
+      ),
+    ).toBe(0);
+    expect(http.post).toHaveBeenCalledWith(
+      "/workspaces/move-to-host",
+      { worktreePath: "/ws", host: "box", keepSource: true },
+      expect.any(Number),
+    );
+    expect(io.stdout).toContain("Moved workspace to me@box: /home/me/feature");
+    expect(io.stdout).toContain("Kept /ws on this machine.");
   });
 
   it("sends false for the --no- form of a boolean flag", async () => {

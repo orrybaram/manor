@@ -8,13 +8,26 @@ import {
   resolveProjectId,
   resolveWorkspacePath,
 } from "./context";
-import type { ToolDef, ToolModule } from "./types";
+import type { Http, ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
 /** Shared by every tool that takes an optional, inferrable project. */
 const PROJECT_ID_PROP = {
   type: "string",
   description: "Project ID. Defaults to the project this agent is running in.",
+} as const;
+
+/** The workspace whose branch's PR the PR tools act on. */
+const PR_WORKSPACE_PROP = {
+  type: "string",
+  description:
+    "Filesystem path of the workspace whose branch has the PR. Defaults to the workspace this agent is running in.",
+} as const;
+
+/** `fix_pr_checks`' and `address_pr_comments`' `print`. */
+const PR_PRINT_PROP = {
+  type: "boolean",
+  description: "Only return the brief; send it to no agent.",
 } as const;
 
 /**
@@ -61,6 +74,69 @@ export interface ProjectInfo {
   host?: string;
   /** Its linked-project group, as `GET /projects` lists it. */
   group?: ProjectGroupListing | null;
+}
+
+/**
+ * How a new workspace's setup script ended, on a create sent with `wait`
+ * (the server's `SetupScriptEnd`): its shell exited (null code: killed),
+ * it could not start, or it was still running when the wait ran out.
+ */
+type SetupEnd =
+  | { status: "exited"; exitCode: number | null }
+  | { status: "failed"; error: string }
+  | { status: "timed-out" };
+
+/** What `manor update-project` takes to set the start script. */
+const SET_START_SCRIPT_HINT =
+  "Set one with `manor update-project --worktree-start-script '<command>'`.";
+
+/**
+ * What `create_workspace` says about the setup script: none configured, started
+ * (its tab closes when it ends, so say where to look), or, with `wait`, how it
+ * ended. `failed`: a waited-for script that did not exit 0, which makes the
+ * create an error.
+ */
+function setupNote(
+  script: string | null | undefined,
+  setup: SetupEnd | undefined,
+  waited: boolean,
+): { note: string; failed: boolean } {
+  if (!script?.trim()) {
+    return {
+      note: `This project has no setup script, so nothing was run in the new workspace. ${SET_START_SCRIPT_HINT}`,
+      failed: false,
+    };
+  }
+  const quoted = `\`${script.trim()}\``;
+  if (!waited || !setup) {
+    return {
+      note: `The project's setup script (${quoted}) started in the new workspace's "Setup" tab, which closes when the script exits. Pass --wait to wait for it and get its exit code.`,
+      failed: false,
+    };
+  }
+  switch (setup.status) {
+    case "exited":
+      if (setup.exitCode === 0) {
+        return { note: `The project's setup script (${quoted}) finished with exit code 0.`, failed: false };
+      }
+      return {
+        note:
+          setup.exitCode === null
+            ? `The project's setup script (${quoted}) was killed before it finished.`
+            : `The project's setup script (${quoted}) failed with exit code ${setup.exitCode}.`,
+        failed: true,
+      };
+    case "failed":
+      return {
+        note: `The project's setup script (${quoted}) could not start: ${setup.error}`,
+        failed: true,
+      };
+    case "timed-out":
+      return {
+        note: `The project's setup script (${quoted}) was still running when the wait ran out; it goes on in the workspace's "Setup" tab.`,
+        failed: true,
+      };
+  }
 }
 
 /** One member of a linked-project group: a project on one host. */
@@ -123,6 +199,144 @@ function formatProjectListing(projects: ProjectInfo[]): string {
   return lines.join("\n");
 }
 
+// ── Moving a workspace to another host ──
+
+/** What `POST /workspaces/move-to-host` answers (`WorkspaceMoveAnswer`). */
+type WorkspaceMoveAnswer = {
+  sourceHost: string;
+  targetHost: string;
+} & (
+  | {
+      ok: true;
+      targetPath: string;
+      reused: boolean;
+      sourceRemoved: boolean;
+    }
+  | { ok: false; refusals: MoveRefusal[] }
+  | { ok: false; needsInput: { reason: string; repoUrl: string | null; targetDir: string } }
+  | { ok: false; step: string; error: string }
+);
+
+type MoveRefusal = { code: string; files?: Array<{ code: string; path: string }> };
+
+/** A move's step, as the error names it. */
+const MOVE_STEP_LABELS: Record<string, string> = {
+  push: "Pushing the branch",
+  setUp: "Setting the project up",
+  create: "Creating the workspace",
+  setupScript: "Running the setup script",
+  restore: "Restoring the tabs",
+  agents: "Starting the agents",
+  removeSource: "Removing the old workspace",
+};
+
+/** Why a move was refused, as a line (and the files, for a dirty tree). */
+function formatMoveRefusal(r: MoveRefusal, targetHost: string): string {
+  // Where the host's name starts the sentence.
+  const TargetHost = targetHost === "this machine" ? "This machine" : targetHost;
+  const files = (r.files ?? []).map((f) => `    ${f.code} ${f.path}`);
+  const count = (n: number) => `${n} changed file${n === 1 ? "" : "s"}`;
+  switch (r.code) {
+    case "dirty":
+      return [`  Commit or discard ${count(files.length)} first:`, ...files].join("\n");
+    case "target-dirty":
+      return [
+        `  ${TargetHost} already has this branch checked out, with ${count(files.length)}:`,
+        ...files,
+      ].join("\n");
+    case "no-origin":
+      return "  The repository has no 'origin' remote to push the branch to.";
+    case "main-workspace":
+      return "  It is the project's main workspace; only other workspaces move.";
+    case "same-host":
+      return `  It is already on ${targetHost}.`;
+    case "detached":
+      return "  It is not on a branch (detached HEAD).";
+    case "target-main-on-branch":
+      return `  The project's main checkout on ${targetHost} is on this branch.`;
+    case "target-cannot-fast-forward":
+      return `  ${TargetHost}'s checkout of this branch has commits this one doesn't, so it can't be fast-forwarded.`;
+    default:
+      return `  ${r.code}`;
+  }
+}
+
+/** A host's name mid-sentence: "this machine", or the remote host's name as it is. */
+function midSentence(host: string): string {
+  return host === "This machine" ? "this machine" : host;
+}
+
+/** `move_workspace_to_host`'s text for each way a move ends. */
+export function formatWorkspaceMove(worktreePath: string, answer: WorkspaceMoveAnswer): string {
+  const sourceHost = midSentence(answer.sourceHost);
+  const targetHost = midSentence(answer.targetHost);
+  if (answer.ok) {
+    const lines = [`Moved workspace to ${targetHost}: ${answer.targetPath}`];
+    if (answer.reused) lines.push(`Used the workspace ${targetHost} already had on this branch.`);
+    lines.push(
+      answer.sourceRemoved
+        ? `Removed ${worktreePath} from ${sourceHost}; the branch is kept.`
+        : `Kept ${worktreePath} on ${sourceHost}.`,
+    );
+    return lines.join("\n");
+  }
+  if ("refusals" in answer) {
+    return [
+      `Can't move ${worktreePath} to ${targetHost}:`,
+      ...answer.refusals.map((r) => formatMoveRefusal(r, targetHost)),
+      "Nothing was changed.",
+    ].join("\n");
+  }
+  if ("needsInput" in answer) {
+    return `Can't move ${worktreePath}: set the project up on ${targetHost} first (Set up on… in the sidebar), then move it again. Nothing was changed.`;
+  }
+  const label = MOVE_STEP_LABELS[answer.step] ?? answer.step;
+  // The push and the removal run on the source; every other step on the target.
+  const onSource = answer.step === "push" || answer.step === "removeSource";
+  const left =
+    answer.step === "removeSource"
+      ? `The workspace is on ${targetHost} now; ${worktreePath} may still be on ${sourceHost}.`
+      : `${worktreePath} is still on ${sourceHost}, as it was.`;
+  return `Couldn't move ${worktreePath}: ${label} on ${onSource ? sourceHost : targetHost} failed: ${answer.error}\n${left}`;
+}
+
+/**
+ * The project a move names: the one given, else the caller's own as
+ * `remove_workspace` finds it (`resolveProjectId`), when that project has the
+ * workspace — so an agent in a linked group's workspace names its own host's
+ * member. Otherwise none, and the route finds the project by the path.
+ */
+async function moveProjectId(
+  http: Http,
+  projectId: string | undefined,
+  worktreePath: string,
+): Promise<string | undefined> {
+  if (projectId) return projectId;
+  try {
+    const own = await resolveProjectId(http);
+    if (!own) return undefined;
+    const project = (await http.get(`/projects/${encodeURIComponent(own)}`)) as ProjectInfo;
+    return project.workspaces?.some((ws) => ws.path === worktreePath) ? own : undefined;
+  } catch {
+    // Not in a Manor pane, or its project is gone: the path decides.
+    return undefined;
+  }
+}
+
+/**
+ * A move pushes, may clone, and waits for the setup script up to 30
+ * minutes (`START_SCRIPT_MAX_WAIT_MS`, which the server's move passes on;
+ * not imported, as the CLI bundle stays clear of the server). Ten more
+ * cover the push, the clone, the tabs and the agents.
+ */
+const MOVE_TIMEOUT_MS = 40 * 60_000;
+
+/**
+ * A create with `wait`: the server waits up to 8 minutes for the setup
+ * script, after the fetch and the worktree. Not imported, for the same reason.
+ */
+const CREATE_WAIT_TIMEOUT_MS = 12 * 60_000;
+
 export function formatWorkspace(
   ws: WorkspaceInfo,
   folders: WorkspaceFolder[] = [],
@@ -141,6 +355,7 @@ export function formatProject(p: ProjectInfo): string {
     `${p.id}: ${p.name}`,
     `  path: ${p.path}`,
     `  default branch: ${p.defaultBranch}`,
+    `  start script: ${p.worktreeStartScript?.trim() || "(none)"}`,
     `  workspaces (${p.workspaces.length}):`,
     ...p.workspaces.map((ws) => formatWorkspace(ws, p.folders)),
   ];
@@ -196,7 +411,7 @@ const tools: ToolDef[] = [
   {
     name: "create_workspace",
     description:
-      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one. Runs the project's setup script afterwards, if one is configured. Provide 'name', 'branch', or both.",
+      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one. Runs the project's setup script (its worktreeStartScript) afterwards, if one is configured, in a 'Setup' tab that closes when it exits; pass 'wait' to wait for it. Provide 'name', 'branch', or both.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -220,7 +435,17 @@ const tools: ToolDef[] = [
           description:
             "Check out an existing branch instead of creating a new one.",
         },
+        folder: {
+          type: "string",
+          description:
+            "Name of the top-level sidebar folder to file the workspace in, on whichever host it lands. The folder is made if there is none.",
+        },
         host: CREATE_HOST_PROP,
+        wait: {
+          type: "boolean",
+          description:
+            "Wait for the project's setup script to exit (up to 8 minutes) and report its exit code. Fails when the script exits non-zero, cannot start, or is still running.",
+        },
       },
     },
   },
@@ -251,6 +476,35 @@ const tools: ToolDef[] = [
         },
       },
       required: ["worktreePath"],
+    },
+  },
+  {
+    name: "move_workspace_to_host",
+    description:
+      "Move a workspace (not a project's main one) to another host: push its branch, set the project up on that host if needed, make the workspace there on the same branch and run its setup script, bring back its tabs, start its agents fresh with a handoff of their session, then remove it here. Refused while the workspace has uncommitted changes. Prints the new workspace's path.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        worktreePath: {
+          type: "string",
+          description: "Filesystem path of the workspace to move.",
+        },
+        host: {
+          type: "string",
+          description:
+            "The host to move it to: a host id or ssh target, or 'local' for this machine.",
+        },
+        keepSource: {
+          type: "boolean",
+          description: "Keep the workspace where it is as well, rather than removing it.",
+        },
+        projectId: {
+          type: "string",
+          description:
+            "The workspace's project, when more than one host has a workspace at that path.",
+        },
+      },
+      required: ["worktreePath", "host"],
     },
   },
   {
@@ -466,6 +720,62 @@ const tools: ToolDef[] = [
     },
   },
 
+  // ── The workspace's PR ──
+
+  {
+    name: "merge_pr",
+    description:
+      "Destructive: merges the GitHub PR of a workspace's branch, or with 'auto' arms auto-merge so it merges itself once its requirements pass. 'method' defaults to the repo's default merge method; one the repo doesn't allow is refused. On a base branch with a merge queue, the PR joins the queue instead. With 'deleteWorkspace', a PR merged now also removes the workspace and its local branch (never the project's main workspace); a queued or auto-merging PR keeps its workspace. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        method: {
+          type: "string",
+          enum: ["squash", "merge", "rebase"],
+          description: "How to merge. Defaults to the repo's default method.",
+        },
+        auto: {
+          type: "boolean",
+          description:
+            "Arm auto-merge instead of merging now. Refused when the repo has auto-merge off, unless the base branch has a merge queue.",
+        },
+        deleteWorkspace: {
+          type: "boolean",
+          description:
+            "Once the PR has merged, remove the workspace's worktree and its local branch. Ignored when the PR is queued or set to auto-merge.",
+        },
+      },
+    },
+  },
+  {
+    name: "fix_pr_checks",
+    description:
+      "Brief an agent on the failing checks of a workspace's PR (names, links and log tails): typed into the workspace's agent that is waiting for a prompt, or a new agent when every one there is busy. A busy agent is never interrupted. With 'print', only returns the brief. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        print: PR_PRINT_PROP,
+      },
+    },
+  },
+  {
+    name: "address_pr_comments",
+    description:
+      "Brief an agent on the unresolved review threads of a workspace's PR: typed into the workspace's agent that is waiting for a prompt, or a new agent when every one there is busy. A busy agent is never interrupted. With 'print', only returns the brief. 'workspacePath' defaults to the workspace this agent is running in.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        projectId: PROJECT_ID_PROP,
+        workspacePath: PR_WORKSPACE_PROP,
+        print: PR_PRINT_PROP,
+      },
+    },
+  },
+
   // ── Issue links ──
 
   {
@@ -567,7 +877,8 @@ const tools: ToolDef[] = [
         },
         worktreeStartScript: {
           type: "string",
-          description: "Shell script run after a new worktree is created.",
+          description:
+            "Setup command run in each new workspace, in a 'Setup' tab, from the workspace's directory: e.g. 'bash scripts/setup-worktree.sh'. Its env has MANOR_WORKSPACE_PATH (the new workspace) and MANOR_PROJECT_PATH and ROOT_WORKTREE_PATH (the project's main checkout, to copy .env files and the like from). An empty string removes it.",
         },
         worktreeTeardownScript: {
           type: "string",
@@ -628,6 +939,64 @@ const tools: ToolDef[] = [
   },
 ];
 
+// ── The workspace's PR ──
+
+/** What `POST /projects/:id/workspaces/pr/merge` answers. */
+interface MergePrAnswer {
+  number: number;
+  method: string;
+  outcome: "merged" | "queued" | "auto";
+  removedWorkspace: string | null;
+  removeError?: string;
+}
+
+/** `merge_pr`'s first line, for what the merge did. */
+function mergeOutcomeLine({ number, method, outcome }: MergePrAnswer): string {
+  if (outcome === "queued") return `Added PR #${number} to the merge queue.`;
+  if (outcome === "auto") return `Auto-merge armed on PR #${number} (${method}).`;
+  return `Merged PR #${number} (${method}).`;
+}
+
+/** What the PR brief routes answer. */
+type BriefPrAnswer =
+  | { delivery: "printed"; prompt: string }
+  | { delivery: "sent"; agentId: string; agentName: string | null; paneId: string }
+  | { delivery: "started"; paneId: string };
+
+/** The project and workspace a PR tool acts on, each defaulting to the caller's. */
+async function prWorkspace(
+  args: Record<string, unknown>,
+  http: Http,
+): Promise<{ projectId: string; workspacePath: string }> {
+  const projectId = await resolveProjectId(http, args.projectId as string | undefined);
+  const workspacePath = await resolveWorkspacePath(
+    http,
+    args.workspacePath as string | undefined,
+  );
+  return { projectId, workspacePath };
+}
+
+/** `fix_pr_checks` and `address_pr_comments`: the brief, or where it went. */
+async function briefPr(
+  route: "fix-checks" | "address-comments",
+  args: Record<string, unknown>,
+  http: Http,
+) {
+  const { projectId, workspacePath } = await prWorkspace(args, http);
+  const result = (await http.post(
+    `/projects/${encodeURIComponent(projectId)}/workspaces/pr/${route}`,
+    { workspacePath, ...(args.print === true && { print: true }) },
+  )) as BriefPrAnswer;
+  switch (result.delivery) {
+    case "printed":
+      return text(result.prompt);
+    case "sent":
+      return text(`Sent to agent ${result.agentName ?? result.agentId} in pane ${result.paneId}.`);
+    case "started":
+      return text(`Started a new agent in pane ${result.paneId}.`);
+  }
+}
+
 // ── Tool handlers ──
 
 const handlers: ToolModule["handlers"] = {
@@ -672,19 +1041,23 @@ const handlers: ToolModule["handlers"] = {
     if (args.baseBranch !== undefined) body.baseBranch = args.baseBranch;
     if (args.useExistingBranch !== undefined)
       body.useExistingBranch = args.useExistingBranch;
+    if (args.folder !== undefined) body.folder = args.folder;
     if (args.host !== undefined) body.host = args.host;
+    const waited = args.wait === true;
+    if (waited) body.wait = true;
     const project = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces`,
       body,
-    )) as ProjectInfo;
-    const setupNote = project.worktreeStartScript
-      ? "\n\nThe project's setup script is running in the new workspace."
-      : "";
-    return text(
-      `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).${setupNote}\n\nWorkspaces now:\n${project.workspaces
-        .map((ws) => formatWorkspace(ws, project.folders))
-        .join("\n")}`,
-    );
+      waited ? CREATE_WAIT_TIMEOUT_MS : undefined,
+    )) as ProjectInfo & { setup?: SetupEnd };
+    const setup = setupNote(project.worktreeStartScript, project.setup, waited);
+    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n\n${setup.note}\n\nWorkspaces now:\n${project.workspaces
+      .map((ws) => formatWorkspace(ws, project.folders))
+      .join("\n")}`;
+    // A caller that waited is waiting to build on the workspace: one whose
+    // setup did not finish is an error (a non-zero exit from the CLI).
+    if (setup.failed) throw new Error(answer);
+    return text(answer);
   },
 
   async list_workspaces(args, http) {
@@ -717,6 +1090,20 @@ const handlers: ToolModule["handlers"] = {
         : {}),
     });
     return text(`Removed workspace at ${args.worktreePath}.`);
+  },
+
+  async move_workspace_to_host(args, http) {
+    const worktreePath = args.worktreePath as string;
+    const body: Record<string, unknown> = { worktreePath, host: args.host };
+    if (args.keepSource !== undefined) body.keepSource = args.keepSource;
+    const projectId = await moveProjectId(http, args.projectId as string | undefined, worktreePath);
+    if (projectId !== undefined) body.projectId = projectId;
+    const answer = (await http.post(
+      "/workspaces/move-to-host",
+      body,
+      MOVE_TIMEOUT_MS,
+    )) as WorkspaceMoveAnswer;
+    return text(formatWorkspaceMove(worktreePath, answer));
   },
 
   async current_workspace(_args, http) {
@@ -923,6 +1310,34 @@ const handlers: ToolModule["handlers"] = {
     );
     return text(`Merged and removed workspace ${workspacePath}.`);
   },
+
+  // ── The workspace's PR ──
+
+  async merge_pr(args, http) {
+    const { projectId, workspacePath } = await prWorkspace(args, http);
+    const result = (await http.post(
+      `/projects/${encodeURIComponent(projectId)}/workspaces/pr/merge`,
+      {
+        workspacePath,
+        ...(args.method !== undefined && { method: args.method }),
+        ...(args.auto !== undefined && { auto: args.auto }),
+        ...(args.deleteWorkspace !== undefined && { deleteWorkspace: args.deleteWorkspace }),
+      },
+    )) as MergePrAnswer;
+    const lines = [mergeOutcomeLine(result)];
+    if (args.deleteWorkspace === true && result.outcome !== "merged") {
+      lines.push(`The workspace stays until the PR lands.`);
+    }
+    if (result.removedWorkspace) lines.push(`Removed workspace ${result.removedWorkspace}.`);
+    if (result.removeError) {
+      lines.push(`Could not remove workspace ${workspacePath}: ${result.removeError}`);
+    }
+    return text(lines.join("\n"));
+  },
+
+  fix_pr_checks: (args, http) => briefPr("fix-checks", args, http),
+
+  address_pr_comments: (args, http) => briefPr("address-comments", args, http),
 
   // ── Issue links ──
 

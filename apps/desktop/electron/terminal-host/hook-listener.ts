@@ -24,13 +24,13 @@
  * Electron-free: the daemon bundle imports this.
  */
 
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 
 import { classifyHookRequest } from "../agent-hook-events";
 import { errorMessage } from "../lib/errors";
 import { writeFileAtomic } from "../lib/fs-atomic";
+import { mintToken, tokenMatches } from "../lib/loopback-guard";
 import type { HookJournal } from "./hook-journal";
 import type { HookJournalEntry } from "./types";
 
@@ -53,13 +53,6 @@ export interface HookListenerOptions {
 
 function writePortFileAtomic(file: string, port: number, token: string): void {
   writeFileAtomic(file, `${port}\n${token}\n`, { mode: 0o600, dirMode: 0o700 });
-}
-
-function tokenMatches(header: string | string[] | undefined, token: string): boolean {
-  if (typeof header !== "string") return false;
-  const given = Buffer.from(header);
-  const expected = Buffer.from(token);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
 }
 
 export class HookListener {
@@ -104,7 +97,7 @@ export class HookListener {
 
   private listen(): Promise<number> {
     const log = this.opts.log ?? (() => {});
-    const token = crypto.randomBytes(32).toString("hex");
+    const token = mintToken();
     const server = http.createServer((req, res) => {
       if (!tokenMatches(req.headers[HOOK_TOKEN_HEADER], token)) {
         res.writeHead(403);

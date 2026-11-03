@@ -5,6 +5,7 @@ import { clearRecords, toastStore } from "../../toast/toast-store";
 import { reviewPrompt, submitReview } from "../review-submit";
 import { startAgentWithPrompt } from "../agent-prompt-launch";
 import { navigateToAgent } from "../../utils/agent-navigation";
+import { usePreferencesStore } from "../../store/preferences-store";
 
 // `flattenPrompt` is kept real — the "prompt arrives as one line" guarantee
 // below is only worth asserting against the implementation that ships.
@@ -217,6 +218,18 @@ describe("submitReview", () => {
     expect(toastStore.getState().toasts[0].message).toBe(
       "Sent 1 comment to a new agent",
     );
+  });
+
+  it("sends the wording edited in Settings", () => {
+    const store = usePreferencesStore.getState();
+    usePreferencesStore.setState({
+      preferences: { ...store.preferences, promptOverrides: { diffComments: "Look: {{comments}}" } },
+    });
+    submitReview(WS_PATH, [makeComment()], { kind: "new" });
+    usePreferencesStore.setState({ preferences: store.preferences });
+
+    const [, prompt] = vi.mocked(startAgentWithPrompt).mock.calls[0];
+    expect(prompt).toMatch(/^Look: \[1\] src\/store\/app-store\.ts L120/);
   });
 
   it("does nothing when there is nothing to send", () => {

@@ -94,3 +94,25 @@ describe("handoffFromPreview", () => {
     expect(handoffFromPreview({ truncated: true, turns })).toEqual({ firstPrompt: null, turns });
   });
 });
+
+describe("an edited handoff prompt", () => {
+  const input = {
+    sourceHostName: "mac",
+    targetHostName: "box",
+    branch: "fix/a",
+    session: { title: null, firstPrompt: null },
+    turns: [{ role: "user" as const, text: "one\n\n\ntwo" }],
+  };
+
+  it("closes up after a part with nothing to say, and not inside a quoted turn", () => {
+    const prompt = buildHandoffPrompt(input, {
+      handoff: "On {{branch}}\n\n{{session}}\n\n{{first_prompt}}\n\n{{recent_turns}}\n\nGo",
+    });
+    expect(prompt).toBe("On fix/a\n\nThe last turn:\nUser: one\n\n\ntwo\n\nGo");
+  });
+
+  it("stays under the limit without quoting any turns", () => {
+    const prompt = buildHandoffPrompt(input, { handoff: "x".repeat(HANDOFF_MAX + 50) });
+    expect(prompt.length).toBeLessThanOrEqual(HANDOFF_MAX);
+  });
+});

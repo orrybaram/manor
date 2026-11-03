@@ -1,5 +1,6 @@
 import type { NeedsYouCardContext } from "../../../lib/home-dashboard-studio";
 import type { PrInfo } from "../../../lib/pr-info";
+import { renderPrompt, type PromptOverrides } from "../../../lib/prompts/catalog";
 
 type PrRef = Pick<PrInfo, "number" | "title" | "url">;
 
@@ -26,20 +27,18 @@ function prLine(pr: PrRef): string {
  * The first message for a "Fix with agent" launch from a blocked-PR card:
  * what's blocking the PR and what done looks like.
  */
-export function fixPrPrompt(pr: PrRef, context: FixableContext): string {
+export function fixPrPrompt(
+  pr: PrRef,
+  context: FixableContext,
+  overrides?: PromptOverrides | null,
+): string {
   switch (context.kind) {
     case "checks":
       return fixChecksPrompt(pr, context.failing, context.failingCount);
     case "conflicts":
-      return [
-        `${prLine(pr)} has merge conflicts with its base branch.`,
-        "Fetch the base branch and merge it into this branch (don't rebase or force-push). Resolve each conflict keeping the intent of both sides, run the tests, then commit the merge and push to the PR branch.",
-      ].join("\n");
+      return renderPrompt("prConflicts", { pr: prLine(pr) }, overrides);
     case "changes-requested":
-      return [
-        `A reviewer requested changes on ${prLine(pr)}.`,
-        `Read the reviews and review comments (\`gh pr view ${pr.number} --comments\`, and the inline threads via \`gh api\`). Address each requested change, run the tests, then commit and push to the PR branch. Finish with a short summary of what you changed for each comment.`,
-      ].join("\n");
+      return renderPrompt("prChanges", { pr: prLine(pr), number: String(pr.number) }, overrides);
     case "threads":
       return [
         `${prLine(pr)} has ${context.count} unresolved review thread${context.count === 1 ? "" : "s"}.`,

@@ -82,7 +82,7 @@ describe("reviewPrompt", () => {
   it("uses singular wording and numbers a single comment", () => {
     const prompt = reviewPrompt([makeComment()]);
 
-    expect(prompt.split("\n")[0]).toContain("I left a comment");
+    expect(prompt.split("\n")[0]).toContain("I left 1 comment");
     expect(prompt).toContain(
       "[1] src/store/app-store.ts L120 — This should be a constant.",
     );
@@ -142,7 +142,7 @@ describe("reviewPrompt", () => {
     ]).split("\n")[0];
 
     expect(preamble).not.toMatch(/^Address/);
-    expect(preamble).toContain("may be questions");
+    expect(preamble).toContain("may be a question");
     expect(preamble).toContain("only edit code where a comment actually asks");
   });
 });
@@ -213,7 +213,7 @@ describe("submitReview", () => {
     const [workspacePath, prompt] =
       vi.mocked(startAgentWithPrompt).mock.calls[0];
     expect(workspacePath).toBe(WS_PATH);
-    expect(prompt).toContain("I left a comment on the current diff.");
+    expect(prompt).toContain("I left 1 comment on the current diff.");
     expect(toastStore.getState().toasts[0].message).toBe(
       "Sent 1 comment to a new agent",
     );

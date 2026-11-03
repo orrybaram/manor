@@ -4,6 +4,8 @@
  * holds the queue, the page draws the pins, and this decides what they are.
  */
 
+import { renderPrompt, type PromptOverrides } from "./prompts/catalog";
+
 /** A React component the picker found above the element, with its source if known. */
 export interface PageNoteComponent {
   name: string;
@@ -129,14 +131,11 @@ function componentLine(components: PageNoteComponent[] | undefined): string | nu
 export function pageNotesPrompt(
   notes: PageNote[],
   screenshotPaths: Record<string, string | undefined>,
+  overrides?: PromptOverrides | null,
 ): string {
   const urls = [...new Set(notes.map((n) => pageText(n.url, PROMPT_FIELD_MAX.url)))];
   const where = urls.length === 1 ? `on the page at ${urls[0]}` : `across ${urls.length} pages`;
-  const lines: string[] = [
-    notes.length === 1
-      ? `I left a note ${where}. Take it on its own terms — it may be a question about the page rather than a request to change it. Answer a question directly, and only edit code if the note actually asks for that.`
-      : `I left ${notes.length} notes ${where}. Take each on its own terms — some may be questions about the page, others requests to change it. Answer the questions directly, and only edit code where a note actually asks for that.`,
-  ];
+  const lines: string[] = [];
   if (notes.some((n) => !noteText(n.note))) {
     lines.push("An element with no note is one I picked out for you to look at.");
   }
@@ -153,5 +152,9 @@ export function pageNotesPrompt(
     if (html) lines.push(`    HTML: ${html}`);
   });
 
-  return lines.join("\n");
+  return renderPrompt(
+    "pageNotes",
+    { count_notes: noteCountLabel(notes.length), where, notes: lines.join("\n") },
+    overrides,
+  );
 }

@@ -8,6 +8,7 @@
  * Pure, so the text is tested as it is sent.
  */
 
+import { promptTemplate, renderTemplate, type PromptOverrides } from "../../src/lib/prompts/catalog";
 import type { PreviewTurn, SessionPreview } from "../sessions/preview";
 
 /** The most recent turns a handoff quotes. */
@@ -44,19 +45,25 @@ function quote(turn: HandoffTurn): string {
   return `${who}: ${clip(turn.text, TURN_MAX)}`;
 }
 
-/** The handoff prompt (see the module header), at most `HANDOFF_MAX` characters. */
-export function buildHandoffPrompt(input: HandoffInput): string {
-  const { sourceHostName, targetHostName, branch, session } = input;
-  const head = [`Continuing work moved from ${sourceHostName} to ${targetHostName}.`];
-  const title = session.title?.trim();
-  if (title) head.push(`Session: ${clip(title, 200)}`);
-  const firstPrompt = session.firstPrompt?.trim();
-  if (firstPrompt) head.push(`The session began with:\n${clip(firstPrompt, FIRST_PROMPT_MAX)}`);
+/**
+ * Render a handoff, closing the gap a part with nothing to say would leave:
+ * only around those parts, so a quoted turn's own blank lines survive.
+ */
+function renderHandoff(template: string, values: Record<string, string>): string {
+  const NOTHING = "\u0000";
+  const marked = Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, value || NOTHING]),
+  );
+  return renderTemplate(template, marked)
+    .replace(new RegExp(`\\s*(?:${NOTHING}\\s*)+`, "g"), "\n\n")
+    .trim();
+}
 
-  const tail =
-    `All committed work is on branch ${branch}. ` +
-    "The previous session's terminal and uncommitted state did not come along: " +
-    `read git log and git diff on ${branch} to catch up, then carry on.`;
+/** The handoff prompt (see the module header), at most `HANDOFF_MAX` characters. */
+export function buildHandoffPrompt(input: HandoffInput, overrides?: PromptOverrides | null): string {
+  const { sourceHostName, targetHostName, branch, session } = input;
+  const title = session.title?.trim();
+  const firstPrompt = session.firstPrompt?.trim();
 
   const said = input.turns.filter(
     (t): t is HandoffTurn =>
@@ -65,11 +72,17 @@ export function buildHandoffPrompt(input: HandoffInput): string {
   const quoted = said.slice(-RECENT_TURNS).map(quote);
 
   const compose = (turns: string[]) =>
-    [
-      ...head,
-      ...(turns.length > 0 ? [`The last ${turns.length === 1 ? "turn" : `${turns.length} turns`}:\n${turns.join("\n\n")}`] : []),
-      tail,
-    ].join("\n\n");
+    renderHandoff(promptTemplate("handoff", overrides), {
+      source: sourceHostName,
+      target: targetHostName,
+      branch,
+      session: title ? `Session: ${clip(title, 200)}` : "",
+      first_prompt: firstPrompt ? `The session began with:\n${clip(firstPrompt, FIRST_PROMPT_MAX)}` : "",
+      recent_turns:
+        turns.length > 0
+          ? `The last ${turns.length === 1 ? "turn" : `${turns.length} turns`}:\n${turns.join("\n\n")}`
+          : "",
+    });
 
   let text = compose(quoted);
   while (text.length > HANDOFF_MAX && quoted.length > 0) {

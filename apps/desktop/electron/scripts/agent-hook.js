@@ -346,6 +346,8 @@ module.exports = {
   extractNotificationKind,
   extractWrittenFile,
   getSessionStartHint,
+  SESSION_START_HINT,
+  REMOTE_SESSION_START_HINT,
 };
 
 // Run as a CLI when invoked directly (not when imported by tests).

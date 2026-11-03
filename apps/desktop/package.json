@@ -102,7 +102,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.9.3",
     "electron-builder": "^26.18.0",
-    "happy-dom": "^20.14.3",
+    "happy-dom": "^21.0.4",
     "jsdom": "^30.0.1",
     "typescript": "~5.9.3",
     "vite": "^8.3.5",

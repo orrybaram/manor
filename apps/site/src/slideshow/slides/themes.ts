@@ -528,6 +528,8 @@ export const themes: Slide = {
           closeSettings();
         }
       },
+      // On Settings, re-laid out to fit (themes.css), or the sidebar that's the way back to it.
+      phoneCrop: () => (page ? { x: 358, y: 24 } : { x: 0, y: 24 }),
       // Passes through the projects so an untouched slide shows the repaints. Never with a field in use: a redraw would take its focus.
       onFrame: ({ ms, advancing }) => {
         if (!advancing || !page || select || root.contains(document.activeElement)) return;

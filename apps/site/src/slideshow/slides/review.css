@@ -136,3 +136,13 @@
 .mapp .ma-dc-textarea:focus-visible { outline: none; }
 .ma-dc-textarea::placeholder { color: var(--text-dim); }
 .ma-dc-footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+/* On a phone: the file pane is the width of the crop, and the agent has the rest. */
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-fp) > .ma-split-child:first-child { flex: 1; width: auto !important; }
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-fp) > .ma-split-child:last-child { flex: none; width: 555px !important; }
+.mapp-view[data-phone-crop] .ma-fd { display: none; }
+/* Each line a row that can be tapped, and a chip to match. */
+.mapp-view[data-phone-crop] .ma-cm-row { min-height: 28px; line-height: 28px; }
+.mapp-view[data-phone-crop] .ma-cm-chip-anchor { height: 28px; }
+.mapp-view[data-phone-crop] .ma-cm-chip { top: 24px; padding: 10px 14px; }
+.mapp-view[data-phone-crop] .ma-dc-actions { opacity: 1; }

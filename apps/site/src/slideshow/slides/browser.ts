@@ -16,6 +16,8 @@ const WORKSPACE_DIR = "~/harbor/berth-page";
 /** The pane's width after a drag of the split's divider: the page wants the room. */
 const AGENT_PANE_PERCENT = 36;
 const TERMINAL_COLUMNS = 44;
+/** On a phone, how long the agent's reply stays in view before the crop goes back to the page. */
+const REPLY_READ_MS = 2500;
 /** usePageNotes's `page-notes-${paneId}`: a second send or copy replaces the toast. */
 const TOAST_ID = "page-notes-browser";
 
@@ -165,7 +167,7 @@ const browserHeader = (picking: boolean) =>
   `</div>`;
 
 const pickingHint = () =>
-  `<div class="ma-picking-hint" data-picking-hint>Click elements to collect them · <kbd class="ma-kbd">Esc</kbd> to stop</div>`;
+  `<div class="ma-picking-hint" data-picking-hint>Click elements to collect them<span class="ma-picking-keys"> · <kbd class="ma-kbd">Esc</kbd> to stop</span></div>`;
 
 type Agent = AgentRow & { status: AgentStatus; log: string[]; run: number; secs: number };
 
@@ -215,6 +217,8 @@ export const browser: Slide = {
     let caret = 0;
     let menuOpen = false;
     const fixed = new Set<string>();
+    /** A phone is looking at the agent beside the page: from a send until its reply has been read. */
+    let watchingAgent = false;
 
     let tick = 0;
     let sinceTick = 0;
@@ -355,7 +359,10 @@ export const browser: Slide = {
       pageFocused = false;
       menuOpen = false;
       openTab = agent === firstAgent ? "main" : agent.id;
-      if (agent === firstAgent) focus = "agent";
+      if (agent === firstAgent) {
+        focus = "agent";
+        watchingAgent = true;
+      }
       agent.status = "thinking";
       agent.secs = 0;
       agent.log.push(...wrapped(flatPrompt(sent), '<span class="d">&gt;</span> ', "  ", TERMINAL_COLUMNS), "");
@@ -384,6 +391,11 @@ export const browser: Slide = {
           agent.log.push(...wrapped(reply, i === 0 ? '<span class="g">●</span> ' : "  ", "  ", TERMINAL_COLUMNS));
         });
         agent.log.push("");
+        ctx.hold(REPLY_READ_MS, () => {
+          if (thisRun !== agent.run) return;
+          watchingAgent = false;
+          ctx.repan();
+        });
       });
     };
 
@@ -647,6 +659,11 @@ export const browser: Slide = {
           hideHover();
           ctx.render();
         }
+      },
+      // The page with its pins, note and pill; the agent beside it, from a send until its reply has been read; or an agent with a tab of its own.
+      phoneCrop: () => {
+        if (openTab !== "main") return { x: 233, y: 24 };
+        return watchingAgent ? { x: 150, y: 24 } : { x: 716, y: 24 };
       },
       // The agent's spinner and timer, in its own pane: a redraw would take the note's focus and the hover from under the pointer.
       onFrame: ({ ms }) => {

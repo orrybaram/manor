@@ -19,6 +19,7 @@ export const sideBySide: Slide = {
       render: () => windowData(state),
       onClick: (e) => onShellClick(shell, e),
       onKey: (e) => onShellKey(shell, e),
+      phoneCrop: () => ({ x: 716, y: 24 }),
       onFrame: ({ ms }) => {
         sinceTick += ms;
         if (sinceTick < TICK_MS) return;

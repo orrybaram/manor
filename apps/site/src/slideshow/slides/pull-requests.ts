@@ -426,6 +426,8 @@ export const pullRequests: Slide = {
           showCard();
         }
       },
+      // The card with its badge, or the agent at work while the card's shut.
+      phoneCrop: () => (cardOpen ? { x: 80, y: 24 } : { x: 233, y: 24 }),
       onFrame: ({ ms }) => {
         if (phase === "merging") {
           fillMs += ms;

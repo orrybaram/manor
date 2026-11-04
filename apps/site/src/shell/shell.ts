@@ -27,9 +27,17 @@ export type ShellOptions = WindowOptions & {
   focus?: AgentId | null;
 };
 
-/** An empty window in `view`, themed and scaled to fit, for the caller to draw into. Returns its root. */
-export function mountWindow(view: HTMLElement, options: WindowOptions): HTMLElement {
-  const crop = options.crop ?? { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+const WHOLE_WINDOW: ShellCrop = { x: 0, y: 0, width: WIDTH, height: HEIGHT };
+
+export type ShellWindow = {
+  root: HTMLElement;
+  /** Show only this region from now on; the whole window when left out. The box takes the region's aspect ratio. */
+  setCrop: (crop?: ShellCrop) => void;
+};
+
+/** An empty window in `view`, themed and scaled to fit, for the caller to draw into. */
+export function mountWindow(view: HTMLElement, options: WindowOptions): ShellWindow {
+  let crop = options.crop ?? WHOLE_WINDOW;
 
   const root = document.createElement("div");
   root.className = "mapp";
@@ -47,14 +55,20 @@ export function mountWindow(view: HTMLElement, options: WindowOptions): HTMLElem
   };
   fit();
   new ResizeObserver(fit).observe(view);
-  return root;
+
+  const setCrop = (next: ShellCrop = WHOLE_WINDOW) => {
+    crop = next;
+    view.style.aspectRatio = `${crop.width} / ${crop.height}`;
+    fit();
+  };
+  return { root, setCrop };
 }
 
 /** A window running the shell's own world of Agents, on its own. */
 export function mountShell(view: HTMLElement, options: ShellOptions): void {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   const state = createState({ focus: options.focus });
-  const root = mountWindow(view, options);
+  const { root } = mountWindow(view, options);
 
   const render = () => renderShell(root, state);
   render();

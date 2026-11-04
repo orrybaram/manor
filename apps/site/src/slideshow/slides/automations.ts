@@ -572,6 +572,8 @@ export const automations: Slide = {
         page = null;
         ctx.render();
       },
+      // On Settings, re-laid out to fit (automations.css), or the sidebar that's the way around.
+      phoneCrop: () => (page ? { x: 358, y: 24 } : { x: 0, y: 24 }),
       // The open agent's spinner, in its own pane, while Settings is shut.
       onFrame: ({ ms }) => {
         if (!agents.some((a) => a.status === "thinking" || a.status === "working")) return;

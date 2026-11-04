@@ -25,3 +25,20 @@
 .slideshow-toggle { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border: 1px solid var(--plain-line); border-radius: 8px; background: var(--plain-raise); color: var(--plain-mute); font: 400 13px/1 var(--f-sans); cursor: pointer; transition: color .15s, border-color .15s; }
 .slideshow-toggle:hover { border-color: var(--plain-line-hi); color: var(--plain-ink); }
 .slideshow-toggle:focus-visible { outline: 2px solid var(--bile); outline-offset: 2px; }
+
+/* A phone sees one crop of the window. `clip`, so a focused field can't scroll the box away from it. */
+.mapp-view[data-phone-crop] { overflow: clip; }
+.mapp-view[data-panning] .mapp { transition: transform .45s cubic-bezier(.3, .7, .2, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .mapp-view[data-panning] .mapp { transition: none; }
+}
+.mapp-view[data-phone-crop] .ma-toasts { right: calc(var(--crop-right) + 12px); bottom: calc(var(--crop-bottom) + 12px); }
+/* Taps: the window's small buttons grow to about 24px on the phone's glass. A delegated click on a plain element needs the pointer cursor in iOS Safari. */
+.mapp-view[data-phone-crop] .mapp * { cursor: pointer; }
+.mapp-view[data-phone-crop] .ma-btn.ma-sm { min-height: 38px; min-width: 38px; }
+.mapp-view[data-phone-crop] .ma-choice, .mapp-view[data-phone-crop] .ma-pane-btn { position: relative; }
+.mapp-view[data-phone-crop] .ma-choice::after { content: ""; position: absolute; inset: -14px 0; }
+.mapp-view[data-phone-crop] .ma-pane-btn::after { content: ""; position: absolute; inset: -9px -3px; }
+/* Nothing hovers on glass: a project's gear stays showing, for the way back to Settings. */
+.mapp-view[data-phone-crop] .ma-project-actions { opacity: 1; pointer-events: auto; }
+.mapp-view[data-phone-crop] .ma-project-actions .ma-btn { min-width: 30px; min-height: 30px; }

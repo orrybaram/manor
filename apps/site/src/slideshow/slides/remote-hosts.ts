@@ -18,6 +18,8 @@ const HEADER = "Backfill";
 const QUESTION = "How should I backfill the old tide records?";
 const COMMAND = "pnpm db:backfill --dry-run";
 const TERMINAL_COLUMNS = 80;
+/** What fits a phone's crop of the terminal, so the answer that landed isn't cut off. */
+const PHONE_TERMINAL_COLUMNS = 66;
 
 /** ChatThinking's `SHOW_AFTER_MS`: a shorter silence shows nothing. */
 const THINKING_SHOWS_AFTER_MS = 600;
@@ -235,12 +237,13 @@ export const remoteHosts: Slide = {
     const land = () => {
       const answer = answerText();
       const reply = chosen !== null ? OPTIONS[chosen]!.reply : OTHER_REPLY;
+      const columns = root.closest("[data-phone-crop]") ? PHONE_TERMINAL_COLUMNS : TERMINAL_COLUMNS;
       phase = "answered";
       status = "thinking";
       secs = 0;
       log.push(
         '<span class="g">●</span> User answered Claude\'s questions:',
-        ...wrapped(`· ${QUESTION} → ${answer}`, '  <span class="d">⎿</span>  ', "     ", TERMINAL_COLUMNS),
+        ...wrapped(`· ${QUESTION} → ${answer}`, '  <span class="d">⎿</span>  ', "     ", columns),
         "",
       );
       ctx.render();
@@ -387,6 +390,8 @@ export const remoteHosts: Slide = {
         e.preventDefault();
         submitOther();
       },
+      // The phone, whole, with the desk's edge beside it. An answer pans to the desk it landed on, and the reply back to the phone.
+      phoneCrop: () => (phase === "answered" && busy() ? { x: 233, y: 24 } : { x: 716, y: 6 }),
       // The spinner and timers, in place: a redraw would restart the marks' animations.
       onFrame: ({ ms }) => {
         if (!busy()) return;

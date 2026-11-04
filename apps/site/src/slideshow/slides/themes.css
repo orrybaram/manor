@@ -80,3 +80,10 @@
 
 /* The main area behind Settings: src/components/sidebar/ProjectItem.module.css's collapsed chevron */
 .ma-project-collapsed .ma-project-chevron { transform: none; }
+
+/* On a phone: Name over Theme, in Settings' narrower page. */
+.mapp-view[data-phone-crop] .ma-general-grid { grid-template-columns: minmax(0, 1fr); }
+.mapp-view[data-phone-crop] .ma-select-option { padding-block: 12px; }
+.mapp-view[data-phone-crop] .ma-select-pinned::after { bottom: -1px; }
+.mapp-view[data-phone-crop] .ma-color-option { position: relative; }
+.mapp-view[data-phone-crop] .ma-color-option::after { content: ""; position: absolute; inset: -8px -6px; }

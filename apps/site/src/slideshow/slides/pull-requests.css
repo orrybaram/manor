@@ -89,3 +89,6 @@
   .ma-pr-split, .ma-pr-inviting, .ma-pr-inviting .ma-pr-main::after, .ma-pr-tone-merged, .ma-pr-zip-a, .ma-pr-zip-b, .ma-pr-spin { animation: none; transition: none; }
   .ma-pr-inviting .ma-pr-main::after, .ma-pr-main::before { display: none; }
 }
+
+/* On a phone: the split button is as tall as the other footer buttons grow to be. */
+.mapp-view[data-phone-crop] .ma-pr-main, .mapp-view[data-phone-crop] .ma-pr-caret { min-height: 38px; }

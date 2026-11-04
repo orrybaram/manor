@@ -11,13 +11,17 @@ import "./slideshow.css";
 import { renderWindow } from "../shell/chrome";
 import { mountWindow } from "../shell/shell";
 import { DEFAULT_THEME, applyTheme } from "../shell/tokens";
-import { SLIDE_MS, type OpenSlide, type Slide, type SlideContext } from "./slide";
+import { PHONE_CROP_HEIGHT, PHONE_CROP_WIDTH, SLIDE_MS, type OpenSlide, type Slide, type SlideContext } from "./slide";
 
 const FADE_MS = 200;
 /** A frame longer than this is the browser having been busy, not time on the slide. */
 const MAX_FRAME_MS = 100;
 /** How much of the window must show for it to count as watched. At 1440×900 the hero shows 27% on load. */
 const WATCHED_RATIO = 0.2;
+/** A window box narrower than this shows a slide's phone crop: the whole window would scale too small to read or tap. */
+const PHONE_BELOW_PX = 640;
+const WINDOW_WIDTH = 1280;
+const WINDOW_HEIGHT = 800;
 
 const PAUSE_ICON = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.5 1.5H5v9H2.5zM7 1.5h2.5v9H7z"/></svg>';
 const PLAY_ICON = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M3 1.3 10.5 6 3 10.7z"/></svg>';
@@ -66,7 +70,7 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
   view.setAttribute("role", "tabpanel");
   view.tabIndex = 0;
 
-  const root = mountWindow(view, { label: first.alt });
+  const { root, setCrop } = mountWindow(view, { label: first.alt });
 
   let index = 0;
   let open: OpenSlide;
@@ -90,6 +94,39 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
     playing && watched && !document.hidden && !hovering && (!keyboardInside || playedFromFocus) && !pageDialogOpen();
 
   const setProgress = () => tablist.style.setProperty("--slide-progress", String(elapsed / SLIDE_MS));
+
+  let redraw = () => {};
+  let phone = false;
+  let cropShown = "";
+
+  /** Puts the box on what the open slide says a phone should see. `pan` glides there, which only a change within a slide should. */
+  const showPhoneCrop = (pan: boolean) => {
+    if (!phone) return;
+    const asked = open.phoneCrop();
+    const x = Math.max(0, Math.min(asked.x, WINDOW_WIDTH - PHONE_CROP_WIDTH));
+    const y = Math.max(0, Math.min(asked.y, WINDOW_HEIGHT - PHONE_CROP_HEIGHT));
+    if (pan && `${x},${y}` === cropShown) return;
+    cropShown = `${x},${y}`;
+    view.toggleAttribute("data-panning", pan);
+    setCrop({ x, y, width: PHONE_CROP_WIDTH, height: PHONE_CROP_HEIGHT });
+    // What's pinned to the window's corner, like the toasts, keeps to the corner the phone can see.
+    root.style.setProperty("--crop-right", `${WINDOW_WIDTH - x - PHONE_CROP_WIDTH}px`);
+    root.style.setProperty("--crop-bottom", `${WINDOW_HEIGHT - y - PHONE_CROP_HEIGHT}px`);
+  };
+
+  /** `data-phone-crop` also re-lays some of the window out, so crossing the line redraws what was measured against the old layout. */
+  const fitPhone = () => {
+    const next = view.clientWidth < PHONE_BELOW_PX;
+    if (next === phone) return;
+    phone = next;
+    view.toggleAttribute("data-phone-crop", phone);
+    if (!phone) {
+      view.removeAttribute("data-panning");
+      setCrop();
+    }
+    redraw();
+    showPhoneCrop(false);
+  };
 
   const enter = (next: number, fade: boolean) => {
     const slide = slides[next]!;
@@ -121,10 +158,15 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
           render();
         }),
       onScreen: () => inView,
+      repan: () => {
+        if (current === entry) showPhoneCrop(true);
+      },
     };
     entered = slide.enter(ctx);
     open = entered;
+    redraw = render;
     render();
+    showPhoneCrop(false);
 
     root.setAttribute("aria-label", slide.alt);
     view.setAttribute("aria-labelledby", tabs[next]!.id);
@@ -288,6 +330,11 @@ export function mountSlideshow(container: HTMLElement, slides: readonly Slide[])
     setPlaying(!motionReduced && !stoppedByVisitor);
   });
 
+  phone = view.clientWidth < PHONE_BELOW_PX;
+  view.toggleAttribute("data-phone-crop", phone);
   enter(0, false);
   showPlaying();
+  // A slide changes its DOM with and without `render`; whichever it did, its answer may have moved.
+  new MutationObserver(() => showPhoneCrop(true)).observe(root, { childList: true, subtree: true });
+  new ResizeObserver(fitPhone).observe(view);
 }

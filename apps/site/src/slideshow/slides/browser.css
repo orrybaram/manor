@@ -78,3 +78,12 @@
 .ma-guest .free { color: #1f7a54; font-weight: 600; }
 .ma-guest .held { color: #a2622a; font-weight: 600; }
 .ma-guest footer { margin-top: 14px; color: #8a959a; font-size: 11px; }
+
+/* On a phone: the browser pane is the width of the crop, and the agent has the rest. */
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-bp) > .ma-split-child:first-child { flex: 1; width: auto !important; }
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-bp) > .ma-split-child:last-child { flex: none; width: 555px !important; }
+/* The hint would sit on the page's brand: above the pill, then, and with no Esc to speak of. The pins grow to be tapped. */
+.mapp-view[data-phone-crop] .ma-picking-hint { top: auto; bottom: 62px; }
+.mapp-view[data-phone-crop] .ma-picking-keys, .mapp-view[data-phone-crop] .ma-note-keys { display: none; }
+.mapp-view[data-phone-crop] .ma-note-footer { justify-content: flex-end; }
+.mapp-view[data-phone-crop] .ma-pins-pin::after { content: ""; position: absolute; inset: -10px; }

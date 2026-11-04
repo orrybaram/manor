@@ -21,6 +21,17 @@ export type SlideId = (typeof SLIDE_ORDER)[number];
 /** How long a slide stays open while the slideshow plays. */
 export const SLIDE_MS = 8000;
 
+/**
+ * The region of the 1280×800 layout a phone sees: one size for every slide, so
+ * the box's height never jumps. Tall enough for the Remote hosts slide's whole
+ * phone (732px) and, at a 358px box, a scale of about 0.63.
+ */
+export const PHONE_CROP_WIDTH = 564;
+export const PHONE_CROP_HEIGHT = 752;
+
+/** Where that region's top left corner sits, in the layout's own px. */
+export type PhoneCrop = { x: number; y: number };
+
 /** What the frame lends a slide for as long as it's the open one. */
 export type SlideContext = {
   /** The window's root. Theme it with `applyTheme`; the frame puts the default back on the next entry. */
@@ -35,6 +46,8 @@ export type SlideContext = {
   hold: (ms: number, fn: () => void) => void;
   /** The window is at least partly on screen. */
   onScreen: () => boolean;
+  /** Ask `phoneCrop` again now, for a change of state that leaves the DOM as it is: any other is noticed. */
+  repan: () => void;
 };
 
 export type SlideFrame = {
@@ -56,6 +69,8 @@ export type OpenSlide = {
   onKey?: (e: KeyboardEvent) => void;
   /** Each animation frame while the window is on screen and the tab is showing. Never under reduced motion, even after Play: the slides advance, but nothing inside one moves by itself. */
   onFrame?: (frame: SlideFrame) => void;
+  /** Where a phone looks right now: the region that holds what this state is about, and every control its next step needs. The frame asks again after each change to the window's DOM and pans when the answer moves. */
+  phoneCrop: () => PhoneCrop;
 };
 
 export type Slide = {

@@ -20,6 +20,8 @@ const TOAST_ID = "review-submit-~/harbor/tide-tables";
 const DISCARD_CONFIRM_MS = 4000;
 /** Word-wrapped columns of the agent's prompt, in that width. */
 const TERMINAL_COLUMNS = 44;
+/** On a phone, how long the agent's reply stays in view before the crop goes back to the diff. */
+const REPLY_READ_MS = 2500;
 
 /** Written by hand as Lezer would tag it, for editor-theme.ts's `syntax`: «classes|text». `x` is cm-changedText. */
 const source = (line: string) =>
@@ -179,6 +181,8 @@ export const review: Slide = {
     let sinceTick = 0;
     let secs = 0;
     let run = 0;
+    /** A phone is looking at the agent: from a send until its reply has been read. */
+    let watchingAgent = false;
     const log: string[] = [
       ...claudeBox("~/harbor/tide-tables"),
       '<span class="d">&gt;</span> Show tide heights in feet on the table',
@@ -338,6 +342,7 @@ export const review: Slide = {
       focus = "agent";
       status = "thinking";
       secs = 0;
+      watchingAgent = true;
       log.push(...wrapped(flatPrompt(sent, rounded), '<span class="d">&gt;</span> ', "  ", TERMINAL_COLUMNS), "");
       ctx.render();
       toasts.show(`Sent ${label} to ${AGENT}`, TOAST_ID);
@@ -365,6 +370,11 @@ export const review: Slide = {
         });
         replies.forEach((reply, i) => log.push(...wrapped(reply, i === 0 ? '<span class="g">●</span> ' : "  ", "  ", TERMINAL_COLUMNS)));
         log.push("");
+        ctx.hold(REPLY_READ_MS, () => {
+          if (thisRun !== run) return;
+          watchingAgent = false;
+          ctx.repan();
+        });
       });
     };
 
@@ -499,6 +509,8 @@ export const review: Slide = {
           cancelComposer();
         }
       },
+      // The diff with its comments and Send, or the agent, from a send until its reply has been read.
+      phoneCrop: () => (watchingAgent ? { x: 150, y: 24 } : { x: 716, y: 24 }),
       // The agent's spinner and timer, in its own pane: a redraw would take the composer's focus and the chip from under the pointer.
       onFrame: ({ ms }) => {
         if (status !== "thinking" && status !== "working") return;

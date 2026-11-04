@@ -49,3 +49,8 @@
 
 /* Not a stop on the way through the window: it only holds the keyboard for Esc. Radix's Dialog.Content draws no ring either. */
 .mapp .ma-settings-modal:focus-visible { outline: none; }
+
+/* On a phone, the modal fits the crop rather than being cut by it. */
+.mapp-view[data-phone-crop] .ma-settings-modal { width: 548px; }
+.mapp-view[data-phone-crop] .ma-settings-sidebar { width: 136px; }
+.mapp-view[data-phone-crop] .ma-settings-nav-item { padding-block: 11px; }

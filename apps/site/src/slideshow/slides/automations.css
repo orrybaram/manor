@@ -84,3 +84,6 @@ button.ma-au-hist-row:hover .ma-au-hist-what { color: var(--text-selected); text
 /* AutomationsPage.module.css .footer, button.deleteButton */
 .ma-au-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ma-btn.ma-au-delete, .ma-btn.ma-au-delete:hover:not(:disabled) { color: var(--red); }
+
+/* On a phone: this page's cards need the width, and it never leaves its nav row. */
+.mapp-view[data-phone-crop] .ma-settings-layout:has(.ma-au-page, .ma-au-detail) .ma-settings-sidebar { display: none; }

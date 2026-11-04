@@ -1459,3 +1459,150 @@ test.describe("slideshow at 390", () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe("the phone crop", () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+
+  const view = (page: Page) => page.locator(".slideshow .mapp-view");
+  const scale = (page: Page) => page.locator(".slideshow .mapp").evaluate((el) => parseFloat((el as HTMLElement).style.getPropertyValue("--s")));
+  /** The layout's x at the box's left edge. */
+  const cropX = (page: Page) => page.locator(".slideshow .mapp").evaluate((el) => {
+    const style = (el as HTMLElement).style;
+    return Math.round(-parseFloat(style.getPropertyValue("--x")) / parseFloat(style.getPropertyValue("--s")));
+  });
+  const scrollWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth);
+
+  /** A finger on `selector`, which must be whole inside the box, the top thing there, and big enough to hit. */
+  async function tap(page: Page, selector: string, minHeight = 20) {
+    const target = page.locator(selector).first();
+    await target.waitFor();
+    await expect
+      .poll(async () => {
+        const [box, frame] = await Promise.all([target.boundingBox(), view(page).boundingBox()]);
+        return box!.x >= frame!.x - 1 && box!.y >= frame!.y - 1 && box!.x + box!.width <= frame!.x + frame!.width + 1 && box!.y + box!.height <= frame!.y + frame!.height + 1;
+      }, { message: `${selector} is inside the crop` })
+      .toBe(true);
+    await target.scrollIntoViewIfNeeded();
+    const box = (await target.boundingBox())!;
+    expect(box.height, `${selector} is tall enough to tap`).toBeGreaterThanOrEqual(minHeight);
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  }
+
+  test("every slide shows a readable crop in a box of one height, with no sideways scroll", async ({ page }) => {
+    const errors = await open(page);
+    const heights = new Set<number>();
+    for (const tab of await tabs(page).all()) {
+      await tab.click();
+      expect(await scale(page)).toBeGreaterThanOrEqual(0.6);
+      heights.add((await view(page).boundingBox())!.height);
+      expect(await scrollWidth(page)).toBe(390);
+    }
+    expect(heights.size).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  test("Side by side: Codex's prompt answers to a tap", async ({ page }) => {
+    const errors = await open(page);
+    await tap(page, '[data-act="yes"]', 10);
+    await expect(page.locator('.slideshow [data-pane="gtf"] .ma-term')).toContainText("Ran pnpm vitest run FileTree");
+    expect(errors).toEqual([]);
+  });
+
+  test("Themes: tap a project, open the list, tap a theme, all inside the crop", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await tap(page, '[data-settings-project="almanac"]');
+    await tap(page, "[data-theme-trigger]");
+    await expect(page.locator(".ma-select-search")).toBeFocused();
+    await tap(page, '.ma-select-option:has-text("Dracula")');
+    await expect(page.locator("[data-theme-trigger]")).toContainText("Dracula");
+    expect(await scrollWidth(page)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("Review: comment and Send by tapping, then the crop goes to the agent and comes back to the fixed line", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    const atDiff = await cropX(page);
+    await tap(page, "[data-comment-chip]");
+    await tap(page, "[data-add]");
+    await tap(page, ".ma-fp-float [data-send]");
+    await expect.poll(() => cropX(page)).toBeLessThan(atDiff);
+    await expect(page.locator('[data-pane="agent"] .ma-term')).toContainText("Rounded feet");
+    await expect.poll(() => cropX(page), { timeout: 6000 }).toBe(atDiff);
+    await expect(page.locator('[data-line="8"]')).toContainText("toFixed");
+    expect(errors).toEqual([]);
+  });
+
+  test("Pull requests: Fix checks and merge by tapping, with the agent in view while the card's shut", async ({ page }) => {
+    test.setTimeout(45_000);
+    const errors = await open(page);
+    await page.locator("#slide-tab-pull-requests").click();
+    const atCard = await cropX(page);
+    await tap(page, "[data-pr-fix]");
+    await expect(page.locator(".ma-toast")).toBeVisible();
+    await expect.poll(() => cropX(page)).toBeGreaterThan(atCard);
+    await expect(page.locator("[data-pr-merge]")).toBeEnabled({ timeout: 10_000 });
+    expect(await cropX(page)).toBe(atCard);
+    await tap(page, "[data-pr-merge]");
+    await expect(page.locator("[data-pr-state]")).toHaveText("Merged", { timeout: 10_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Browser: a pin, its note, the pill and its menu are all in the crop, and the fix lands on the page", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    const atPage = await cropX(page);
+    await tap(page, "[data-note-save]");
+    await tap(page, "[data-notes-send]");
+    await tap(page, "[data-send-agent]");
+    await expect.poll(() => cropX(page)).toBeLessThan(atPage);
+    await expect.poll(() => cropX(page), { timeout: 8000 }).toBe(atPage);
+    await expect(page.locator("#longest-free")).toContainText("52 ft");
+    expect(errors).toEqual([]);
+  });
+
+  test("Automations: a card, then Run now, by tapping", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await tap(page, '[data-au-open="morning-pr-triage"]');
+    await tap(page, "[data-run-now]");
+    await expect(page.locator("[data-run-now]")).toHaveText("Starting…");
+    await expect(page.locator("[data-au-run]")).toHaveCount(2, { timeout: 8000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Remote hosts: an answer on the phone pans to the desk it landed on, then back for the reply", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-remote-hosts").click();
+    const atPhone = await cropX(page);
+    await tap(page, '[data-phone] .ma-ch-option[data-answer="0"]');
+    await expect.poll(() => cropX(page), { timeout: 4000 }).toBeLessThan(atPhone);
+    await expect(page.locator('[data-pane="agent"] .ma-term')).toContainText("In batches overnight");
+    await expect.poll(() => cropX(page), { timeout: 8000 }).toBe(atPhone);
+    await expect(page.locator(".ma-ch-turn-end")).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("a pan glides, a new slide jumps, and reduced motion never glides", async ({ page }) => {
+    await open(page);
+    const duration = () => page.locator(".slideshow .mapp").evaluate((el) => getComputedStyle(el).transitionDuration);
+    await page.locator("#slide-tab-remote-hosts").click();
+    expect(await duration()).toBe("0s");
+    await tap(page, '[data-phone] .ma-ch-option[data-answer="0"]');
+    await expect.poll(duration, { timeout: 4000 }).not.toBe("0s");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await duration()).toBe("0s");
+  });
+
+  test("the crop follows the box's width, both ways", async ({ page }) => {
+    await open(page);
+    const v = view(page);
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await expect(v).not.toHaveAttribute("data-phone-crop");
+    await expect.poll(async () => { const b = (await v.boundingBox())!; return Math.round((b.width / b.height) * 100); }).toBe(160);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(v).toHaveAttribute("data-phone-crop");
+    await expect.poll(async () => { const b = (await v.boundingBox())!; return Math.round((b.width / b.height) * 100); }).toBe(75);
+  });
+});

@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import * as Popover from "@radix-ui/react-popover";
+import AtSign from "lucide-react/dist/esm/icons/at-sign";
 import Award from "lucide-react/dist/esm/icons/award";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
@@ -15,10 +16,15 @@ import CalendarX from "lucide-react/dist/esm/icons/calendar-x";
 import CheckCheck from "lucide-react/dist/esm/icons/check-check";
 import CircleHelp from "lucide-react/dist/esm/icons/circle-help";
 import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
+import CircleDot from "lucide-react/dist/esm/icons/circle-dot";
 import CircleX from "lucide-react/dist/esm/icons/circle-x";
 import GitPullRequest from "lucide-react/dist/esm/icons/git-pull-request";
+import Inbox from "lucide-react/dist/esm/icons/inbox";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
+import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
+import Smile from "lucide-react/dist/esm/icons/smile";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import UserRound from "lucide-react/dist/esm/icons/user-round";
 import type { NotificationKind, NotificationRecord } from "../../electron.d";
 import type { PrComment } from "../../lib/pr-info";
 import { useNotificationStore } from "../../store/notification-store";
@@ -48,6 +54,18 @@ const ICON_FOR: Record<NotificationKind, typeof Bell> = {
   "badge-unlocked": Award,
   "automation-ran": CalendarClock,
   "automation-failed": CalendarX,
+  "github-review-requested": GitPullRequest,
+  "github-mentioned": AtSign,
+  "github-team-mentioned": AtSign,
+  "github-assigned": UserRound,
+  "github-security-alert": ShieldAlert,
+  "linear-assigned": UserRound,
+  "linear-mentioned": AtSign,
+  "linear-comment": MessageSquare,
+  "linear-status-changed": CircleDot,
+  "linear-triage": Inbox,
+  "linear-review": GitPullRequest,
+  "linear-reaction": Smile,
 };
 
 const TONE_FOR: Partial<Record<NotificationKind, string>> = {
@@ -60,10 +78,10 @@ const TONE_FOR: Partial<Record<NotificationKind, string>> = {
 
 /**
  * The two families a record can belong to, which is the axis worth filtering
- * on: the six kinds split cleanly into "an agent did something" and "a pull
- * request did something", and six chips do not fit a 300px popover.
+ * on: an agent did something, a pull request did something, or an issue did,
+ * since a chip per kind would not fit a 300px popover.
  */
-type KindFilter = "all" | "agent" | "pr";
+type KindFilter = "all" | "agent" | "pr" | "issue";
 
 const FILTER_OPTIONS: { value: KindFilter; label: ReactNode }[] = [
   { value: "all", label: "All" },
@@ -83,13 +101,30 @@ const FILTER_OPTIONS: { value: KindFilter; label: ReactNode }[] = [
       </>
     ),
   },
+  {
+    value: "issue",
+    label: (
+      <>
+        <CircleDot size={11} /> Issues
+      </>
+    ),
+  },
 ];
 
-function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
+/** Linear items, and GitHub items whose page is an issue rather than a PR. */
+function isIssueRecord({ kind, target }: NotificationRecord): boolean {
+  if (kind.startsWith("linear-")) return true;
+  return kind.startsWith("github-") && target?.type === "url" && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\//.test(target.url);
+}
+
+function matchesFilter(record: NotificationRecord, filter: KindFilter): boolean {
   if (filter === "all") return true;
+  const { kind } = record;
   // An automation's run is an agent starting, or failing to.
   const isAgent = kind.startsWith("agent-") || kind.startsWith("automation-");
-  return filter === "agent" ? isAgent : !isAgent;
+  if (filter === "agent") return isAgent;
+  const isIssue = isIssueRecord(record);
+  return filter === "issue" ? isIssue : !isAgent && !isIssue;
 }
 
 /**
@@ -332,7 +367,7 @@ export function NotificationsPanel(props: NotificationsPanelProps) {
   const retry = useNotificationStore((s) => s.retry);
 
   const visible = notifications.filter(
-    (n) => matchesFilter(n.kind, filter) && !isEmptyComment(n),
+    (n) => matchesFilter(n, filter) && !isEmptyComment(n),
   );
 
   const grouped = new Map<DateBucket, NotificationRecord[]>();

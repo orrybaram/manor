@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
+import type { InboxKind } from "../src/lib/inbox";
 import type { PrComment } from "../src/lib/pr-info";
 import { manorDataDir } from "./paths";
 
@@ -25,7 +26,9 @@ export type NotificationKind =
   /** An automation's run started its agent. */
   | "automation-ran"
   /** An automation's run could not start one. */
-  | "automation-failed";
+  | "automation-failed"
+  /** From GitHub's or Linear's own notifications (`inbox/`). */
+  | InboxKind;
 
 /**
  * The kinds a host server's log holds, and the only ones the desktop takes

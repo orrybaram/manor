@@ -1,5 +1,6 @@
 import { assertString } from "../../ipc-validate";
 import type { PrNotifyEventKind } from "../../notifications";
+import type { InboxStatus } from "../../../src/lib/inbox";
 import type { PrComment } from "../../../src/lib/pr-info";
 import type { NotificationRecord } from "../../notification-store";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
@@ -92,10 +93,16 @@ export function notificationsShow(
   return ctx.deps.notifier.showPrNotification?.(payload, ctx.caller) ?? false;
 }
 
+/** How each **Inbox** stands, or null on a server that doesn't read them. */
+export function notificationsInboxStatus(ctx: HandlerCtx<ServerDeps>): InboxStatus | null {
+  return ctx.deps.inboxStatus?.() ?? null;
+}
+
 export const notifications = {
   getAll: method(notificationsGetAll, { route: LOCAL_ROUTE }),
   markRead: method(notificationsMarkRead, { route: byHost(1), mutating: true }),
   markAllRead: method(notificationsMarkAllRead, { route: byHost(0), mutating: true }),
   clear: method(notificationsClear, { route: byHost(0), mutating: true }),
   show: method(notificationsShow, { route: LOCAL_ROUTE }),
+  inboxStatus: method(notificationsInboxStatus, { route: LOCAL_ROUTE }),
 };

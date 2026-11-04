@@ -28,6 +28,7 @@ import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { OpenFileWatcher } from "../open-file-watcher";
 import type { AgentFileAuthors } from "../agent-file-authors";
+import type { InboxStatus } from "../../src/lib/inbox";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { JevClient } from "../jev";
@@ -178,6 +179,8 @@ export interface ServerDeps {
    * dock badge, the log. The desktop fills in a `Notifier`.
    */
   notifier: ServerNotifier;
+  /** How each **Inbox** stands. Absent on a host server: only the desktop reads them. */
+  inboxStatus?: () => InboxStatus;
   /**
    * Which host owns each terminal session —
    * `backendRegistry.sessions`. `GET /context` falls back to it for a local

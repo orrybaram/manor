@@ -122,6 +122,16 @@ const PAGE_SECTIONS: {
         label: "Pull requests",
         keywords: ["pr", "pull request", "comment", "review", "approved"],
       },
+      {
+        id: "notifications-inbox-github",
+        label: "GitHub",
+        keywords: ["github", "review requested", "mentioned", "assigned", "security alert"],
+      },
+      {
+        id: "notifications-inbox-linear",
+        label: "Linear",
+        keywords: ["linear", "assigned", "mentioned", "triage", "status changes", "reactions"],
+      },
     ],
   },
   {

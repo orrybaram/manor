@@ -1,4 +1,10 @@
 import { execFile } from "node:child_process";
+import {
+  fetchInboxPages,
+  INBOX_PAGE_SIZE,
+  parseInboxResponse,
+  type GitHubInboxResponse,
+} from "./inbox/github-source";
 import { promisify } from "node:util";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -173,6 +179,78 @@ interface GhTarget {
 }
 
 export class GitHubManager {
+  /** The signed-in login, once known. */
+  private login: string | null = null;
+
+  /**
+   * `GET /notifications`: unread threads, newest first. `gh` exits 1 on a 304,
+   * so its output is read whether or not it succeeded.
+   */
+  async getInbox(
+    since: string | undefined,
+    ifModifiedSince: string | undefined,
+  ): Promise<GitHubInboxResponse> {
+    return fetchInboxPages((page) =>
+      this.getInboxPage(page, since, page === 1 ? ifModifiedSince : undefined),
+    );
+  }
+
+  private async getInboxPage(
+    page: number,
+    since: string | undefined,
+    ifModifiedSince: string | undefined,
+  ): Promise<GitHubInboxResponse> {
+    const query = new URLSearchParams({
+      per_page: String(INBOX_PAGE_SIZE),
+      page: String(page),
+      ...(since ? { since } : {}),
+    });
+    const args = ["api", "--include", `notifications?${query}`];
+    if (ifModifiedSince) args.push("-H", `If-Modified-Since: ${ifModifiedSince}`);
+    let stdout: string;
+    try {
+      ({ stdout } = await execFileAsync("gh", args, {
+        encoding: "utf-8",
+        timeout: 20_000,
+        maxBuffer: 32 * 1024 * 1024,
+      }));
+    } catch (err) {
+      const out = (err as { stdout?: unknown }).stdout;
+      if (typeof out !== "string" || !out.startsWith("HTTP/")) throw err;
+      stdout = out;
+    }
+    return parseInboxResponse(stdout);
+  }
+
+  /**
+   * Whether `gh` has a sign-in. Asks for the token, whose output is dropped,
+   * because `gh auth status` calls a good token invalid when offline. A revoked
+   * token passes here and shows up as a 401 from the next call.
+   */
+  async isSignedIn(): Promise<boolean> {
+    try {
+      await execFileAsync("gh", ["auth", "token", "--hostname", "github.com"], {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The signed-in login, or null if `gh` can't say. */
+  async getLogin(): Promise<string | null> {
+    if (this.login) return this.login;
+    try {
+      const { stdout } = await runGh(["api", "user", "--jq", ".login"], undefined);
+      this.login = stdout.trim() || null;
+    } catch {
+      return null;
+    }
+    return this.login;
+  }
+
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 

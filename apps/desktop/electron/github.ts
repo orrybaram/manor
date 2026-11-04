@@ -223,21 +223,19 @@ export class GitHubManager {
   }
 
   /**
-   * Whether `gh` is signed in. Unlike `checkStatus`, a failure that says neither
-   * (offline, say) throws instead of reading as signed out.
+   * Whether `gh` has a sign-in. Asks for the token, whose output is dropped,
+   * because `gh auth status` calls a good token invalid when offline. A revoked
+   * token passes here and shows up as a 401 from the next call.
    */
   async isSignedIn(): Promise<boolean> {
     try {
-      await execFileAsync("gh", ["auth", "status", "--hostname", "github.com"], {
+      await execFileAsync("gh", ["auth", "token", "--hostname", "github.com"], {
         encoding: "utf-8",
         timeout: 5000,
       });
       return true;
-    } catch (err) {
-      const e = err as { code?: unknown; stderr?: unknown; stdout?: unknown };
-      if (e.code === "ENOENT") return false;
-      if (/not logged in|token.*invalid/i.test(`${String(e.stderr)}${String(e.stdout)}`)) return false;
-      throw err;
+    } catch {
+      return false;
     }
   }
 

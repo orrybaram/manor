@@ -16,7 +16,9 @@ import {
   type GitHubThread,
 } from "./github-source";
 import { InboxPoller, MAX_BANNERS_PER_CHECK, type InboxFetch, type InboxItem, type InboxSource } from "./inbox-poller";
-import { nodeToItem, type LinearNotificationNode } from "./linear-source";
+import { PreferencesManager } from "../preferences";
+import { defaultPreferences } from "../../src/store/preferences-store";
+import { createLinearSource, nodeToItem, type LinearNotificationNode } from "./linear-source";
 import { ProjectScope } from "./project-scope";
 
 function thread(over: Partial<GitHubThread> & { number?: number } = {}): GitHubThread {
@@ -219,6 +221,45 @@ describe("createGitHubSource", () => {
       fetchInbox: async () => ({ status: "not-modified", pollSeconds: 300 }),
     });
     expect(await source.fetch("x", undefined)).toMatchObject({ nextDelayMs: 300_000 });
+  });
+});
+
+describe("createLinearSource", () => {
+  it("delivers linked teams' issues, drops the rest, and survives a malformed node", async () => {
+    const node = (id: string, teamId: string): LinearNotificationNode => ({
+      id,
+      category: "mentions",
+      readAt: null,
+      snoozedUntilAt: null,
+      team: { id: teamId },
+      issue: { identifier: "ENG-1", title: "t", url: "https://linear.app/a/issue/ENG-1" },
+    });
+    const source = createLinearSource({
+      isConnected: () => true,
+      projectTeams: async () => new Set(["t1"]),
+      fetchNotifications: async () => [
+        node("in", "t1"),
+        node("out", "t2"),
+        null as unknown as LinearNotificationNode,
+      ],
+    });
+    const result = await source.fetch(undefined, undefined);
+    expect(result.status === "ok" && result.items.map((i) => [i.key, i.inScope, i.kind])).toEqual([
+      ["in", true, "linear-mentioned"],
+      ["out", false, "linear-mentioned"],
+    ]);
+  });
+});
+
+describe("preference defaults", () => {
+  it("main and the renderer both start each type as INBOX_TYPES says", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "inbox-prefs-"));
+    const main = new PreferencesManager(dir);
+    for (const type of INBOX_TYPES) {
+      expect(main.get(type.preference), type.preference).toBe(type.defaultOn);
+      expect(defaultPreferences[type.preference], type.preference).toBe(type.defaultOn);
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -518,9 +559,14 @@ describe("InboxPoller", () => {
     const p = poller();
     await p.check(source());
     let release: (r: InboxFetch) => void = () => {};
-    fetchImpl = () => new Promise((resolve) => (release = resolve));
+    let fetched = false;
+    fetchImpl = () =>
+      new Promise((resolve) => {
+        fetched = true;
+        release = resolve;
+      });
     const pending = p.check(source());
-    await vi.waitFor(() => expect(release).not.toEqual(expect.any(Number)));
+    await vi.waitFor(() => expect(fetched).toBe(true));
     await p.stop();
     release({ status: "ok", items: [item("late")] });
     await pending;
@@ -538,6 +584,18 @@ describe("InboxPoller", () => {
     await p.check(source());
     const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "inbox-notifications.json"), "utf-8"));
     expect(saved.github.seen).toEqual([]);
+  });
+
+  it("stays silent for a second review request on a thread already notified", async () => {
+    // GitHub reports one thread with one reason; a repeat request looks the same
+    // as a comment on it, so this is the accepted limit rather than a choice.
+    const repos = new Set(["acme/app"]);
+    const p = poller();
+    await p.check(source());
+    items = [threadToItem(thread(), repos)];
+    await p.check(source());
+    await p.check(source());
+    expect(delivered).toHaveLength(1);
   });
 
   it("passes the stored cursor back", async () => {

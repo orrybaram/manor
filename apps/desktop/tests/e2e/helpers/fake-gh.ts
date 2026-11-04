@@ -141,6 +141,7 @@ function answer() {
   }
   // The empty-state probe ("any issue assigned to me?") finds none.
   if (sub === "issue list") return "[]";
+  if (sub === "auth token") return "fake-token";
   if (sub === "api user") return "tester";
   // The Inbox: a 200 with the headers --include prints, from the fixture.
   if (sub === "api --include") {

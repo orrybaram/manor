@@ -169,6 +169,14 @@ test("GitHub inbox items reach the bell by scope and toggle, and survive a relau
     "https://github.com/Acme/App/pull/201",
   );
 
+  // Clicking a row opens its page.
+  await app.evaluate(({ shell }) => {
+    (globalThis as { __opened?: string[] }).__opened = [];
+    shell.openExternal = async (url: string) => {
+      (globalThis as unknown as { __opened: string[] }).__opened.push(url);
+    };
+  });
+
   // In the bell, with the filter sorting PRs from issues.
   await window.getByTestId("notifications-bell").click();
   const popover = window.getByTestId("notifications-popover");
@@ -186,7 +194,12 @@ test("GitHub inbox items reach the bell by scope and toggle, and survive a relau
   await filter.getByText("Issues", { exact: true }).click();
   await expect(rows).toHaveCount(2);
   await shot("bell-issues-light");
-  await window.keyboard.press("Escape");
+  await filter.getByText("PRs", { exact: true }).click();
+  await rows.first().click();
+  await expect
+    .poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened))
+    .toEqual(["https://github.com/Acme/App/pull/201"]);
+  if (await popover.isVisible()) await window.keyboard.press("Escape");
 
   // Settings: GitHub's status and Linear's prompt, folded and expanded.
   await openSettings(window);
@@ -198,12 +211,25 @@ test("GitHub inbox items reach the bell by scope and toggle, and survive a relau
   await expect(github.getByText("Team mentioned")).toHaveCount(0);
   await github.scrollIntoViewIfNeeded();
   await shot("settings-light");
+  await linear.scrollIntoViewIfNeeded();
+  await shot("settings-linear-light");
   await useTheme(window, "Catppuccin Mocha");
   await shot("settings-dark");
   await linear.getByRole("button", { name: "More types (5)" }).click();
   await expect(linear.getByText("Reactions")).toBeVisible();
   await linear.scrollIntoViewIfNeeded();
   await shot("settings-expanded-dark");
+
+  // A Linear switch holds its value through closing Settings.
+  const reactions = linear.locator("label", { hasText: "Reactions" }).getByRole("switch");
+  await reactions.click();
+  await closeSettings(window);
+  await openSettings(window);
+  await window.getByTestId("settings-nav-notifications").click();
+  await expect(linear.locator("label", { hasText: "Reactions" }).getByRole("switch")).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
 
   // Mentions off: one of those stays out, and a review request still arrives.
   await github
@@ -222,6 +248,23 @@ test("GitHub inbox items reach the bell by scope and toggle, and survive a relau
   await twoMoreChecks(tempHome);
   expect(titles(tempHome)).not.toContain("Mentioned in #56");
 
+  // Back on: the next mention arrives, and the one from while it was off doesn't.
+  await openSettings(window);
+  await window.getByTestId("settings-nav-notifications").click();
+  await github.locator("label", { hasText: "Mentioned" }).getByRole("switch").click();
+  await closeSettings(window);
+  await twoMoreChecks(tempHome);
+  const beforeOn = [
+    old,
+    ...wanted,
+    ...ignored,
+    thread("56", "mention", "Acme/App", "issues", 56),
+    thread("202", "review_requested", "Acme/App", "pulls", 202),
+  ];
+  setFakeInbox(tempHome, [...beforeOn, thread("57", "mention", "Acme/App", "issues", 57)]);
+  await expect.poll(() => titles(tempHome), { timeout: 15_000 }).toContain("Mentioned in #57");
+  expect(titles(tempHome)).not.toContain("Mentioned in #56");
+
   // Closed: one arrives. Reopened: it appears once and nothing repeats.
   await killApp(app);
   setFakeInbox(tempHome, [
@@ -230,6 +273,7 @@ test("GitHub inbox items reach the bell by scope and toggle, and survive a relau
     ...ignored,
     thread("56", "mention", "Acme/App", "issues", 56),
     thread("202", "review_requested", "Acme/App", "pulls", 202),
+    thread("57", "mention", "Acme/App", "issues", 57),
     thread("203", "review_requested", "Acme/App", "pulls", 203),
   ]);
   const binDir = path.join(tempHome, "bin");

@@ -28,7 +28,7 @@ function overUnanswered(
   return merged as unknown as AppPreferences;
 }
 
-const defaultPreferences: AppPreferences = {
+export const defaultPreferences: AppPreferences = {
   dockBadgeEnabled: true,
   notifyOnResponse: true,
   notifyOnRequiresInput: true,

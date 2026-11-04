@@ -127,8 +127,12 @@ export function createGitHubSource(deps: GitHubSourceDeps): InboxSource {
   };
 }
 
-/** How many pages one check reads. Past this, older threads wait for a bump. */
-export const MAX_INBOX_PAGES = 6;
+/**
+ * How many pages one check reads. Past this, older threads wait for a bump. It
+ * only matters on a first check or after a long absence: later checks ask only
+ * for what changed, which rarely fills one page.
+ */
+export const MAX_INBOX_PAGES = 20;
 export const INBOX_PAGE_SIZE = 50;
 
 /**

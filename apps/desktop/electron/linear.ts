@@ -64,7 +64,7 @@ export interface GetMyIssuesOptions {
 }
 
 /** How many pages of notifications one check reads. */
-const MAX_NOTIFICATION_PAGES = 6;
+const MAX_NOTIFICATION_PAGES = 20;
 
 export class LinearManager {
   private tokenPath: string;

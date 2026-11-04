@@ -305,6 +305,11 @@
 }
 
 /* A shortcut that does the same as the item, at the item's far end. */
+.contextMenuItem[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .contextMenuHint {
   margin-left: auto;
   padding-left: 16px;

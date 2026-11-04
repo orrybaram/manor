@@ -830,6 +830,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             <ChatPane
               key={chatTranscript}
               paneId={paneId}
+              workspaceKey={workspaceKey}
               agentKind={chatKind ?? "claude"}
               transcript={chatTranscript}
               hidden={!showChat}
@@ -838,7 +839,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </Suspense>
         )}
-        {chatStarting && <ChatStarting paneId={paneId} agentKind={chatKind} hidden={!showChat} layout={layoutMode} />}
+        {chatStarting && <ChatStarting paneId={paneId} workspaceKey={workspaceKey} agentKind={chatKind} hidden={!showChat} layout={layoutMode} />}
         {showKeyBar && <MenuKeyBar paneId={paneId} onBackToChat={backToChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}

@@ -1,0 +1,24 @@
+/* The omen: the first screen below the fold, where the facade drops. The headline
+   steps down a yellow page in black blackletter, each line further right. */
+/* a screen tall plus 160px; the type scales with the height too so it always fits */
+.omen { background: var(--bile); color: var(--pitch); position: relative; z-index: 2; height: calc(100vh + 160px); height: calc(100svh + 160px); min-height: 680px; display: flex; align-items: center; padding-block: calc(60px + 48px + clamp(40px, 10vh, 160px)) clamp(40px, 10vh, 160px); /* the top adds the sticky nav's 60px and the slash's 48px */ overflow-x: clip;
+  /* where the facade gives out: one clean slash, cut from the section itself so the grain runs into it */
+  margin-top: -48px; clip-path: polygon(0 48px, 100% 0, 100% 100%, 0 100%); }
+.omen .wrap { width: 100%; max-width: 1440px; padding-inline: clamp(24px, 8vw, 160px); }
+.omen-h { font-family: var(--f-black); font-weight: 400; font-size: clamp(40px, min(9.5vw, 12vh), 168px); line-height: .98; letter-spacing: -.01em; }
+.omen-h .ln { display: block; width: fit-content; white-space: nowrap;
+  /* misregistered print: a pink and a cyan pass, offsets in vars so omen.ts can glitch them */
+  --pk: .016em .016em; --cy: -.012em -.008em; text-shadow: var(--pk) 0 var(--wound), var(--cy) 0 var(--misreg-cyan); }
+.omen-h .ln:nth-child(1) { margin-left: 0; text-shadow: none; } /* the first line prints clean; the glitch starts at "dead." */
+.omen-h .ln:nth-child(2) { margin-left: 2.1em; }
+.omen-h .ln:nth-child(3) { margin-left: 1.15em; margin-top: .14em; }
+.omen-h .ln:nth-child(4) { margin-left: 2.4em; }
+.omen-h .hit { display: inline-block; background: var(--pitch); color: var(--bile); padding: 0 .14em .06em; transform: rotate(-1.5deg); text-shadow: none; }
+
+@media (max-width: 720px) {
+  .omen-h .ln:nth-child(n) { margin-left: 0; }
+  .omen-h .ln:nth-child(2) { margin-left: 1.2em; }
+  .omen-h .ln:nth-child(4) { margin-left: .5em; }
+  .omen-h { font-size: clamp(40px, 13vw, 96px); }
+  .omen-h .ln { white-space: normal; }
+}

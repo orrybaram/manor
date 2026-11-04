@@ -1,11 +1,7 @@
-// Hero: the whole app window, in the torn frame.
+// Hero: the facade, with a slideshow of the app in a plain soft-shadowed frame.
 import "./hero.css";
-import { mountShell } from "../shell/shell";
+import { mountSlideshow } from "../slideshow/slideshow";
+import { SLIDES } from "../slideshow/slides";
 
-const view = document.querySelector<HTMLElement>('[data-shell="hero"]');
-if (view) {
-  mountShell(view, {
-    label:
-      "An interactive mock of Manor: a sidebar of workspaces and agents, and four agent panes. Claude is working, Codex asks permission to run a test, opencode is thinking, and Claude reports passing tests.",
-  });
-}
+const slideshow = document.querySelector<HTMLElement>("[data-slideshow]");
+if (slideshow) mountSlideshow(slideshow, SLIDES);

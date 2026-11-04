@@ -6,7 +6,7 @@ const view = document.querySelector<HTMLElement>('[data-shell="ask"]');
 if (view) {
   mountShell(view, {
     label: "A Codex pane in Manor asking: Allow command? pnpm vitest run FileTree, with Yes, Always and No options.",
-    crop: { x: 923, y: 43, width: 669, height: 372 },
+    crop: { x: 753, y: 50, width: 519, height: 356 },
     focus: "gtf",
   });
 }

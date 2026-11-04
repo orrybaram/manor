@@ -1,4 +1,4 @@
-/* Chapter I "Know who's stuck": pitch ground sliding over the bottom of the hero shot,
+/* Chapter I "Know who's stuck": pitch ground under the omen,
    faint Melencolia behind, status chips, the shell zoomed to Codex's question. */
 .ch-1 { background: var(--pitch); color: var(--bone); position: relative; z-index: 2; border-top: 4px solid var(--wound); box-shadow: 0 -18px 30px rgba(10,10,0,.35); }
 .ch-1 .wrap { position: relative; z-index: 1; }

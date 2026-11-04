@@ -38,6 +38,6 @@ a.hl:hover, a.hl:focus-visible { background-size: 100% 1.1em; }
   .btn, a.hl { transition: none; }
 }
 
-/* grain: printed paper over everything */
-body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 80; opacity: .13; mix-blend-mode: multiply;
+/* grain: printed paper over everything below the facade */
+.omen::after, .ch::after, .foot::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 8; opacity: .13; mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }

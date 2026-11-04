@@ -2,8 +2,9 @@
  * What the shell does when poked: Codex's Yes/Always/No, switching workspaces
  * and agents, focusing panes, and typing into "Automations suite".
  */
-import { esc } from "./render";
-import { isAgentId, type ShellState } from "./state";
+import { esc } from "./chrome";
+import { renderPanes } from "./render";
+import { isAgentId, selectWorkspace, setAgentStatus, type ShellState } from "./state";
 
 export type ShellContext = {
   root: HTMLElement;
@@ -41,16 +42,19 @@ export function onShellClick(ctx: ShellContext, e: MouseEvent): void {
   if (act) {
     const a = state.agents.gtf;
     if (act === "no") {
-      a.status = "responded";
-      a.log = ["\n<span class=\"b\">•</span> Skipped <b>pnpm vitest run FileTree</b>. What should I do instead?\n\n"];
+      setAgentStatus(state, "gtf", "responded");
+      a.log = ['<span class="b">•</span> Skipped <b>pnpm vitest run FileTree</b>. What should I do instead?', ""];
     } else {
-      a.status = "working";
-      a.log = ['\n<span class="b">•</span> Ran <b>pnpm vitest run FileTree</b>\n  <span class="d">└ running…</span>\n'];
+      setAgentStatus(state, "gtf", "working");
+      a.log = ['<span class="b">•</span> Ran <b>pnpm vitest run FileTree</b>', '  <span class="d">└ running…</span>'];
       ctx.later(1800, () => {
-        a.status = "responded";
+        setAgentStatus(state, "gtf", "responded");
         a.log = [
-          '\n<span class="b">•</span> Ran <b>pnpm vitest run FileTree</b>\n  <span class="d">└</span> <span class="g">✓ 18 passed (1.2s)</span>\n\n' +
-            '<span class="b">•</span> Go to File now opens from the drawer, with a test.\n\n',
+          '<span class="b">•</span> Ran <b>pnpm vitest run FileTree</b>',
+          '  <span class="d">└</span> <span class="g">✓ 18 passed (1.2s)</span>',
+          "",
+          '<span class="b">•</span> Go to File now opens from the drawer, with a test.',
+          "",
         ];
       });
     }
@@ -58,16 +62,12 @@ export function onShellClick(ctx: ShellContext, e: MouseEvent): void {
     return;
   }
   if (ws) {
-    const w = state.workspaces.find((x) => x.id === ws);
-    if (!w) return;
-    state.ws = w.id;
-    state.focus = w.panes[0] ?? null;
+    selectWorkspace(state, ws);
     ctx.render();
     return;
   }
   if (isAgentId(state, agent)) {
-    state.ws = state.agents[agent].ws;
-    state.focus = agent;
+    selectWorkspace(state, state.agents[agent].ws, agent);
     ctx.render();
     return;
   }
@@ -93,25 +93,28 @@ export function onShellKey(ctx: ShellContext, e: KeyboardEvent): void {
   if (e.key === "Enter" && state.typing.trim()) {
     const said = state.typing;
     state.typing = "";
-    a.log.push(`<span class="d">&gt;</span> ${esc(said)}\n\n`);
-    a.status = "thinking";
+    a.log.push(`<span class="d">&gt;</span> ${esc(said)}`, "");
+    setAgentStatus(state, "suite", "thinking");
     ctx.render();
     ctx.later(900, () => {
-      a.status = "working";
+      setAgentStatus(state, "suite", "working");
     });
     ctx.later(2400, () => {
-      a.status = "responded";
-      a.log.push('<span class="g">●</span> On it. That would land in its own worktree, so\n  nothing else in the house is touched.\n\n');
-      if (a.log.length > 4) a.log.splice(0, 2);
+      setAgentStatus(state, "suite", "responded");
+      a.log.push(
+        '<span class="g">●</span> On it. That would land in its own worktree, so',
+        "  nothing else in the house is touched.",
+        "",
+      );
     });
     e.preventDefault();
   } else if (e.key === "Backspace") {
     state.typing = state.typing.slice(0, -1);
-    ctx.render();
+    renderPanes(ctx.root, state, ["suite"]);
     e.preventDefault();
   } else if (e.key.length === 1 && state.typing.length < 46) {
     state.typing += e.key;
-    ctx.render();
+    renderPanes(ctx.root, state, ["suite"]);
     e.preventDefault();
   }
 }

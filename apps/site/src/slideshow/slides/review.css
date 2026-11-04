@@ -1,0 +1,148 @@
+/* The Review slide: the file pane's Source Control and unified diff beside an agent's terminal. Values copied from the app, no build link; paths under apps/desktop/src. */
+
+/* components/workspace-panes/FilePane/FilePane.module.css .filePane, .strip, .stripBtn, .stripBtnOn, .count */
+.ma-fp { position: relative; display: flex; width: 100%; height: 100%; min-height: 0; background: var(--bg); color: var(--fg); }
+.ma-fp-strip { position: relative; width: 34px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; border-right: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 96%, var(--fg)); }
+.ma-fp-strip-btn { position: relative; width: 26px; height: 26px; display: grid; place-items: center; border: none; border-radius: 4px; background: transparent; color: var(--text-primary); cursor: pointer; padding: 0; }
+.ma-fp-strip-btn:hover { background: var(--hover); color: var(--fg); }
+.ma-fp-strip-on, .ma-fp-strip-on:hover { background: var(--surface); color: var(--fg); }
+.ma-fp-count { position: absolute; top: -2px; right: -3px; min-width: 12px; padding: 0 3px; border-radius: 6px; font-size: 9px; line-height: 12px; font-weight: 600; text-align: center; background: var(--yellow); color: var(--bg); pointer-events: none; }
+
+/* FilePane.module.css .editorCol, .reviewFloat, .openFile, .crumbs, .crumbPath, .crumbPart, .crumbSep, .crumb, .crumbLast, .diffTag, .openPlain, .editorStack */
+.ma-fp-editor-col { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.ma-fp-float { position: absolute; right: 24px; bottom: 14px; z-index: 3; pointer-events: none; }
+.ma-fp-float > * { pointer-events: auto; }
+.ma-fp-crumbs { height: 26px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 10px; font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; }
+.ma-fp-crumb-path { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; }
+.ma-fp-crumb-part { display: inline-flex; align-items: center; gap: 2px; }
+.ma-fp-crumb-sep { padding: 0 1px; }
+.ma-fp-crumb { padding: 1px 4px; color: var(--text-primary); }
+.ma-fp-crumb-last { padding: 1px 4px; color: var(--fg); }
+.ma-fp-diff-tag { flex: none; padding: 1px 6px; border-radius: 4px; font-size: 11px; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border); }
+.ma-fp-crumbs .ma-fp-open-plain { flex: none; margin-left: 8px; }
+.ma-fp-stack { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* components/workspace-panes/FilePane/FileDrawer/FileDrawer.module.css .drawer, .head, .headSpacer */
+.ma-fd { position: relative; flex: none; width: 240px; max-width: calc(100% - 194px); min-width: 0; display: flex; flex-direction: column; background: var(--bg); border-right: 1px solid var(--border); font-size: 12px; outline: none; }
+.ma-fd-head { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 10px; color: var(--text-dim); text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; }
+.ma-fd-spacer { flex: 1; }
+
+/* components/ui/ToggleGroup/ToggleGroup.module.css, size xs. Its --text is defined nowhere, so the active label inherits the head's colour. */
+.ma-toggle { display: inline-flex; align-self: flex-start; gap: 2px; margin: 0; padding: 2px; background: color-mix(in srgb, var(--surface) 50%, transparent); border-radius: 5px; text-transform: uppercase; }
+.ma-toggle-btn { display: flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; font-family: inherit; font-weight: 500; border: none; border-radius: 4px; background: transparent; color: var(--text-dim); cursor: pointer; transition: background 120ms ease, color 120ms ease; padding: 2px 6px; font-size: 10px; text-transform: none; letter-spacing: normal; }
+.ma-toggle-btn:hover:not(.ma-toggle-active) { color: var(--text); }
+.ma-toggle-active { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15); }
+
+/* FilePane/SourceControl/CommitBox.module.css */
+.ma-cb { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px 8px; }
+.ma-cb-message { width: 100%; min-height: 28px; max-height: 120px; resize: none; padding: 5px 8px; border: 1px solid var(--control-border); border-radius: 6px; background: var(--bg); color: var(--text-selected); font-family: inherit; font-size: 12px; line-height: 1.4; outline: none; display: block; height: 28px; user-select: text; }
+.ma-cb-message:focus { border-color: var(--accent); }
+.mapp .ma-cb-message:focus-visible { outline: none; }
+.ma-cb-message::placeholder { color: var(--text-dim); }
+.ma-cb-split { display: flex; align-items: stretch; }
+.ma-btn.ma-cb-commit { flex: 1; min-width: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; opacity: 0.5; cursor: default; }
+.ma-btn.ma-cb-commit:hover { opacity: 0.5; }
+.ma-btn.ma-cb-caret { flex: none; padding-left: 6px; padding-right: 6px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid var(--bg); }
+
+/* FilePane/SourceControl/SourceControl.module.css */
+.ma-sc-list { flex: 1; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.ma-sc-group-head { display: flex; align-items: center; height: 22px; padding-right: 6px; }
+.ma-sc-group-toggle { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 4px; padding: 0 6px; font-family: inherit; background: transparent; border: none; color: var(--text-primary); cursor: pointer; text-align: left; }
+.ma-sc-chevron { flex: none; color: var(--text-dim); display: flex; }
+.ma-sc-group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+.ma-sc-group-count { flex: none; margin-left: 2px; min-width: 14px; padding: 0 4px; border-radius: 7px; font-size: 9px; line-height: 14px; text-align: center; background: var(--surface); color: var(--text-dim); }
+.ma-sc-row { display: flex; align-items: center; height: 22px; padding-right: 6px; color: var(--text-primary); }
+.ma-sc-row:hover, .ma-sc-group-head:hover { background: var(--hover); }
+.ma-sc-row-selected, .ma-sc-row-selected:hover { background: var(--surface); }
+.ma-sc-letter-M { --status: var(--yellow); }
+.ma-sc-row-main { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 0 0 22px; font-size: 12px; font-family: inherit; color: inherit; background: transparent; border: none; cursor: pointer; text-align: left; user-select: none; }
+.ma-sc-file-icon { flex-shrink: 0; color: var(--text-dim); display: flex; }
+.ma-sc-name { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--status, inherit); }
+.ma-sc-dir-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.ma-sc-actions { flex: none; display: none; align-items: center; gap: 1px; margin-left: 4px; }
+.ma-sc-row:hover .ma-sc-actions, .ma-sc-group-head:hover .ma-sc-actions { display: flex; }
+.ma-sc-icon-btn { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: none; border-radius: 4px; background: transparent; color: var(--text-primary); cursor: pointer; }
+.ma-sc-icon-btn:hover { background: var(--surface); color: var(--fg); }
+.ma-sc-danger:hover { color: var(--red); }
+.ma-sc-letter { flex: none; width: 14px; margin-left: 4px; text-align: center; font-size: 10px; font-weight: 600; color: var(--status); }
+.ma-sc-review { flex: none; border-top: 1px solid var(--border); padding: 4px 0 8px; }
+.ma-sc-review-list { max-height: 160px; overflow-y: auto; overscroll-behavior: contain; }
+.ma-sc-review-item { display: flex; align-items: center; overflow: hidden; gap: 6px; width: 100%; min-width: 0; height: 22px; padding: 0 10px 0 22px; font-family: inherit; font-size: 12px; line-height: 22px; color: var(--text-primary); background: transparent; border: none; cursor: pointer; text-align: left; }
+.ma-sc-review-item:hover { background: var(--hover); }
+.ma-sc-review-where { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--accent); }
+.ma-sc-review-body { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-sc-review-actions { display: flex; align-items: center; gap: 6px; padding: 6px 10px 0; }
+
+/* components/review/ReviewSend/ReviewSend.module.css */
+.ma-rs-bar { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+.ma-btn.ma-rs-count { display: inline-flex; align-items: center; gap: 5px; padding-left: 6px; font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.ma-btn.ma-rs-count:hover:not(:disabled) { background: var(--hover); }
+.ma-rs-count-caret { opacity: 0.6; display: flex; }
+.ma-btn.ma-rs-discard { font-size: 10px; }
+.ma-rs-split { display: inline-flex; align-items: stretch; }
+.ma-btn.ma-rs-submit { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ma-btn.ma-rs-caret { padding-left: 6px; padding-right: 6px; border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: 1px solid var(--bg); }
+
+/* FilePane/editor-theme.ts chrome and syntax; CodeEditor/diff-view.ts diffTheme; CodeEditor/CodeEditor.module.css .frame, .lane */
+.ma-cm-frame { flex: 1; min-height: 0; min-width: 0; display: flex; }
+.ma-cm { flex: 1; min-height: 0; min-width: 0; overflow: hidden; position: relative; background: var(--bg); color: var(--fg); font-family: var(--font-mono); font-size: 12px; line-height: 17px; padding: 6px 0; user-select: text; }
+.ma-cm-lane { position: relative; flex: none; width: 10px; border-left: 1px solid var(--border); background: var(--bg); overflow: hidden; }
+.ma-cm-row { display: flex; position: relative; min-height: 17px; }
+.ma-cm-num { flex: none; width: 38px; padding: 0 8px 0 4px; text-align: right; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.ma-cm-fold { flex: none; width: 17px; padding: 0 6px 0 2px; color: var(--text-dim); cursor: pointer; text-align: center; }
+.ma-cm-change { flex: none; width: 3px; }
+.ma-cm-text { flex: 1; min-width: 0; padding-left: 10px; white-space: pre; }
+.ma-cm-changed .ma-cm-text { background-color: color-mix(in srgb, var(--green) 7%, transparent); }
+.ma-cm-changed .ma-cm-change { background: var(--green); }
+.ma-cm-changed { cursor: text; }
+.ma-cm-deleted .ma-cm-text { background-color: color-mix(in srgb, var(--red) 5%, transparent); }
+.ma-cm-deleted .ma-cm-change { background: var(--red); }
+.ma-cm-collapsed { display: flex; }
+.ma-cm-collapsed-text { flex: 1; margin-left: 58px; padding: 3px 10px; background-color: var(--surface); color: var(--text-dim); font-size: 11px; cursor: pointer; }
+.ma-cm-collapsed-text::before { content: "⋯"; margin-inline-end: 8px; }
+.ma-cm-collapsed-text:hover { color: var(--fg); }
+.ma-cm-changed .t-x { background: color-mix(in srgb, var(--green) 12%, transparent); }
+.ma-cm-deleted .t-x { background: color-mix(in srgb, var(--red) 10%, transparent); }
+/* The selection, a whole line's text, and the gutter's active line. */
+.ma-cm-selected .ma-cm-num { color: var(--text-primary); }
+.ma-cm-sel { display: inline-block; height: 17px; vertical-align: top; }
+.ma-cm-selected .ma-cm-sel { background-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+/* editor-theme.ts syntax: its tags by the colours they take */
+.ma-cm .t-k { color: var(--magenta); }
+.ma-cm .t-s { color: var(--green); }
+.ma-cm .t-n { color: var(--yellow); }
+.ma-cm .t-f { color: var(--blue); }
+.ma-cm .t-a { color: var(--cyan); }
+.ma-cm .t-p { color: var(--text-dim); }
+
+/* FilePane/CodeEditor/diff-comments.tsx commentTheme */
+.ma-cm-comment { margin-left: 58px; }
+.ma-cm-comment-inner { padding: 4px 12px 6px 8px; border-left: 2px solid var(--accent); margin-left: 2px; }
+.ma-cm-commented .ma-cm-num, .ma-cm-commented .ma-cm-fold { color: var(--accent); box-shadow: inset -2px 0 0 var(--accent); }
+.ma-cm-commented .ma-cm-change { box-shadow: inset -2px 0 0 var(--accent); }
+.ma-cm-chip-anchor { position: relative; display: inline-block; width: 0; height: 17px; vertical-align: top; }
+.ma-cm-chip { position: absolute; left: 0; top: 17px; z-index: 5; margin-top: 4px; padding: 2px 10px; border: none; border-radius: 999px; background: var(--accent); color: var(--bg); font: 500 11px/18px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); white-space: nowrap; }
+
+/* components/review/DiffCommentCard/DiffCommentCard.module.css */
+.ma-dc { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; line-height: 1.5; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; white-space: normal; user-select: none; }
+.ma-dc-header { display: flex; align-items: center; gap: 6px; min-height: 16px; }
+.ma-dc-anchor { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); }
+.ma-dc-actions { display: inline-flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 120ms ease; }
+.ma-dc:hover .ma-dc-actions { opacity: 1; }
+.ma-btn.ma-dc-action { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--text-dim); }
+.ma-dc-body { color: var(--text-selected); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ma-dc-textarea { width: 100%; min-height: 66px; max-height: 232px; padding: 6px 8px; resize: none; overflow-y: auto; font-family: inherit; font-size: inherit; line-height: inherit; color: var(--text-selected); background: var(--bg); border: 1px solid var(--control-border); border-radius: 6px; outline: none; display: block; user-select: text; }
+.ma-dc-textarea:focus { border-color: var(--accent); }
+.mapp .ma-dc-textarea:focus-visible { outline: none; }
+.ma-dc-textarea::placeholder { color: var(--text-dim); }
+.ma-dc-footer { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+/* On a phone: the file pane is the width of the crop, and the agent has the rest. */
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-fp) > .ma-split-child:first-child { flex: 1; width: auto !important; }
+.mapp-view[data-phone-crop] .ma-split-horizontal:has(.ma-fp) > .ma-split-child:last-child { flex: none; width: 555px !important; }
+.mapp-view[data-phone-crop] .ma-fd { display: none; }
+/* Each line a row that can be tapped, and a chip to match. */
+.mapp-view[data-phone-crop] .ma-cm-row { min-height: 28px; line-height: 28px; }
+.mapp-view[data-phone-crop] .ma-cm-chip-anchor { height: 28px; }
+.mapp-view[data-phone-crop] .ma-cm-chip { top: 24px; padding: 10px 14px; }
+.mapp-view[data-phone-crop] .ma-dc-actions { opacity: 1; }

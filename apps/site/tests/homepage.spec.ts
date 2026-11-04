@@ -1,29 +1,19 @@
 import fs from "node:fs";
-import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The homepage's Done list, end to end against the production build.
- * SITE_SHOTS=<dir> also writes the evidence screenshots there.
+ * What on the homepage would quietly cost downloads if it broke, end to end
+ * against the production build: the Download button, the phone layout, and the
+ * hero's slideshow. Slideshow frame tests hold for two tabs or more, so slides
+ * can be added without touching them.
  */
-const SHOTS = process.env.SITE_SHOTS;
 const VERSION = (JSON.parse(fs.readFileSync(new URL("../../desktop/package.json", import.meta.url), "utf8")) as { version: string }).version;
-
-async function shot(page: Page, name: string, el?: string) {
-  if (!SHOTS) return;
-  fs.mkdirSync(SHOTS, { recursive: true });
-  const file = path.join(SHOTS, `${name}.png`);
-  if (el) await page.locator(el).first().screenshot({ path: file });
-  else await page.screenshot({ path: file });
-}
 
 async function open(page: Page) {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto("/");
-  // Instant jumps, so screenshots never land mid smooth-scroll.
-  await page.addStyleTag({ content: "html { scroll-behavior: auto !important; }" });
   await page.evaluate(() => document.fonts.ready);
   return errors;
 }
@@ -31,144 +21,1661 @@ async function open(page: Page) {
 test.describe("desktop 1440", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("renders every section with no console errors", async ({ page }) => {
-    const errors = await open(page);
-    for (const id of ["top", "stuck", "rooms", "wing"]) await expect(page.locator(`#${id}`)).toBeVisible();
-    await expect(page.locator(".hero .tagline")).toContainText("They say coding is dead");
-    await shot(page, "1440-hero");
-    for (const [id, name] of [["stuck", "1440-ch1"], ["rooms", "1440-ch2"], ["wing", "1440-ch3"]] as const) {
-      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
-      await shot(page, name, `#${id}`);
-    }
-    // No screenshot ships: the three app views are live markup.
-    await expect(page.locator(".mapp-view .mapp")).toHaveCount(3);
-    expect(await page.locator("img[src*='manor.png']").count()).toBe(0);
-    expect(errors).toEqual([]);
-  });
-
   test("Download points at the .dmg of the version it names", async ({ page }) => {
     await open(page);
-    const buttons = page.locator("a.btn");
-    await expect(buttons).toHaveCount(2);
+    const buttons = page.locator('a[href$=".dmg"]');
+    await expect(buttons).toHaveCount(3);
     for (const b of await buttons.all()) {
       await expect(b).toHaveAttribute("href", `https://github.com/orrybaram/manor/releases/download/v${VERSION}/Manor-arm64.dmg`);
-      await expect(b).toContainText(`v${VERSION}`);
     }
-  });
-
-  test("Codex's Yes moves its status everywhere in the hero shell", async ({ page }) => {
-    await open(page);
-    const hero = page.locator('[data-shell="hero"]');
-    const codexRow = hero.locator('[data-agent="gtf"] .ad');
-    await expect(codexRow).toHaveClass(/requires_input/);
-    await shot(page, "1440-shell-before", '[data-shell="hero"]');
-    await hero.locator('[data-act="yes"]').click({ force: true });
-    await expect(codexRow).toHaveClass(/working/);
-    await expect(codexRow).toHaveClass(/responded/, { timeout: 5_000 });
-    await expect(hero.locator('[data-pane="gtf"] .ma-ph .ad')).toHaveClass(/responded/);
-    await expect(hero.locator('[data-pane="gtf"]')).toContainText("18 passed");
-    await shot(page, "1440-shell-after", '[data-shell="hero"]');
-    // The other mounts keep their own state.
-    await expect(page.locator('[data-shell="ask"] [data-act="yes"]')).toHaveCount(1);
-  });
-
-  test("the sidebar switches workspaces", async ({ page }) => {
-    await open(page);
-    const hero = page.locator('[data-shell="hero"]');
-    await hero.locator('[data-ws="bench-flood"]').click({ force: true });
-    await expect(hero.locator(".ma-tab")).toContainText("bench-flood");
-    await expect(hero.locator('[data-pane="flood"]')).toContainText("ECONNREFUSED");
-    await shot(page, "1440-shell-switched", '[data-shell="hero"]');
-    await hero.locator('[data-agent="hero"]').click({ force: true });
-    await expect(hero.locator(".ma-tab")).toContainText("homepage");
-  });
-
-  test("typing goes only to a suite pane you clicked, and the page keeps its keys otherwise", async ({ page }) => {
-    await open(page);
-    // Ch II: picking the suite agent focuses a pane that's cropped out of view;
-    // Space must still scroll the page.
-    const rooms = page.locator('[data-shell="rooms"]');
-    await page.locator("#rooms").scrollIntoViewIfNeeded();
-    await rooms.locator('[data-agent="suite"]').click({ force: true });
-    const y = await page.evaluate(() => scrollY);
-    await page.keyboard.press("Space");
-    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(y);
-    // Hero: clicking the visible suite pane types into it, and only there.
-    await page.evaluate(() => scrollTo(0, 0));
-    const hero = page.locator('[data-shell="hero"]');
-    await hero.locator('[data-pane="suite"]').click();
-    await page.keyboard.type("hi");
-    await expect(hero.locator('[data-pane="suite"] .inp')).toHaveText("hi");
-    await expect(rooms.locator(".inp")).toHaveText("");
-  });
-
-  test("the footer is revealed from under the east wing and its webs sweep", async ({ page }) => {
-    await open(page);
-    const max = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
-    await page.evaluate((y) => scrollTo(0, y), max - 450);
-    await page.waitForTimeout(300);
-    await shot(page, "1440-footer-reveal-mid");
-    // Mid-reveal the footer is already pinned to the bottom of the viewport.
-    const footBottom = await page.locator("footer.foot").evaluate((f) => Math.round(f.getBoundingClientRect().bottom));
-    expect(footBottom).toBe(900);
-    await page.evaluate((y) => scrollTo(0, y), max);
-    await page.waitForTimeout(300);
-    await shot(page, "1440-footer-before");
-    const canvas = page.locator("footer.foot canvas");
-    const before = await canvas.screenshot();
-    const box = (await canvas.boundingBox())!;
-    for (let i = 0; i <= 40; i++) await page.mouse.move(box.x + box.width - 40 - i * 14, box.y + 30 + i * 6);
-    await page.waitForTimeout(900);
-    await shot(page, "1440-footer-after");
-    expect(Buffer.compare(before, await canvas.screenshot())).not.toBe(0);
-  });
-
-  test("Ctrl+K opens the cellar, help lists commands, Escape closes it", async ({ page }) => {
-    await open(page);
-    const term = page.locator("#term");
-    await expect(term).toBeHidden();
-    await page.keyboard.press("Control+k");
-    await expect(term).toBeVisible();
-    await page.locator("#term-in").fill("help");
-    await page.keyboard.press("Enter");
-    await expect(page.locator("#term-out")).toContainText("summon");
-    await shot(page, "1440-cellar");
-    await page.keyboard.press("Escape");
-    await expect(term).toBeHidden();
+    await expect(page.locator(".hero .meta")).toContainText(`v${VERSION}`);
+    await expect(page.locator(".foot a.btn")).toContainText(`v${VERSION}`);
   });
 });
 
 test.describe("phone 390", () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 
-  test("no sideways scroll and the tagline's first line stays on one line", async ({ page }) => {
+  test("no sideways scroll and the headline's first line stays on one line", async ({ page }) => {
     const errors = await open(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-    const l1 = page.locator(".hero .tagline .l1");
-    const lineHeight = await l1.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.3);
+    const l1 = page.locator(".omen-h .ln").first();
+    const lineHeight = await l1.evaluate((el) => parseFloat(getComputedStyle(el).fontSize) * 1.5);
     expect((await l1.boundingBox())!.height).toBeLessThan(lineHeight);
-    await shot(page, "390-hero");
-    for (const id of ["stuck", "rooms", "wing"]) {
-      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
-      await shot(page, `390-${id}`, `#${id}`);
-    }
-    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
-    await page.waitForTimeout(300);
-    await shot(page, "390-footer");
     expect(errors).toEqual([]);
   });
 });
 
-test.describe("reduced motion", () => {
-  test.use({ viewport: { width: 1440, height: 900 }, contextOptions: { reducedMotion: "reduce" } });
+// ---- the hero slideshow ----------------------------------------------------
 
-  test("stops scroll motion and the shell's live timers", async ({ page }) => {
+const tabs = (page: Page) => page.locator('.slideshow [role="tab"]');
+const openTab = (page: Page) => page.locator('.slideshow [role="tab"][aria-selected="true"]');
+const toggle = (page: Page) => page.locator(".slideshow-toggle");
+
+/** How far the open tab's progress line has run, 0 to 1. */
+const progress = (page: Page) =>
+  page
+    .locator('.slideshow [role="tab"][aria-selected="true"] .slideshow-progress')
+    .evaluate((bar) => new DOMMatrix(getComputedStyle(bar).transform).a);
+
+/** Bring the whole window on screen and move the pointer off the slideshow. */
+async function windowOnScreen(page: Page) {
+  await page.mouse.move(0, 0);
+  await page.locator(".slideshow .shot").evaluate((shot) => shot.scrollIntoView({ block: "center", behavior: "instant" }));
+}
+
+const scrollTo = (page: Page, y: number) => page.evaluate((top) => window.scrollTo({ top, behavior: "instant" }), y);
+
+const expectRunning = async (page: Page) => {
+  const from = await progress(page);
+  await expect.poll(() => progress(page), { timeout: 3000 }).not.toBe(from);
+};
+
+/** Holds still: read after anything in flight has landed, then again later. */
+const expectHeld = async (page: Page) => {
+  await page.waitForTimeout(150);
+  const from = await progress(page);
+  await page.waitForTimeout(500);
+  expect(await progress(page)).toBe(from);
+};
+
+/** Claude's "Composing… (38s" timer, which only a fresh slide puts back to 38. */
+const composingSecs = async (page: Page) =>
+  Number((await page.locator('.slideshow [data-pane="hero"] .ma-term').innerText()).match(/\((\d+)s/)?.[1]);
+
+const MOCHA_BG = "#1e1e2e";
+const MANOR_BG = "#181616";
+const LATTE_BG = "#eff1f5";
+const TOKYONIGHT_BG = "#1a1b26";
+const DRACULA_BG = "#282a36";
+
+/** Shut, a layer leaves the keyboard with the page: nothing in the window holds focus, and Space and the arrows scroll. */
+async function expectPageHasKeys(page: Page) {
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  for (const key of ["Space", "ArrowDown"]) {
+    const from = await page.evaluate(() => window.scrollY);
+    await page.keyboard.press(key);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(from);
+  }
+}
+
+/** A theme token as the window has it now. */
+const cssVar = (page: Page, name: string) =>
+  page.locator(".slideshow .mapp").evaluate((el, n) => getComputedStyle(el).getPropertyValue(n).trim(), name);
+
+test.describe("slideshow at 1440", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the tabs follow the tabs pattern and the first is open", async ({ page }) => {
+    const errors = await open(page);
+    await expect(page.locator('.slideshow [role="tablist"]')).toHaveAttribute("aria-label", "Manor features");
+    await expect(tabs(page).first()).toHaveText("Side by side");
+    await expect(tabs(page).first()).toHaveAttribute("aria-selected", "true");
+    await expect(tabs(page).first()).toHaveAttribute("tabindex", "0");
+    const panel = page.getByRole("tabpanel");
+    await expect(panel).toHaveAttribute("aria-labelledby", (await tabs(page).first().getAttribute("id"))!);
+    await expect(page.locator(".slideshow-text")).toContainText("Try it:");
+    await expect(page.locator(".slideshow-text b")).not.toBeEmpty();
+    expect(errors).toEqual([]);
+  });
+
+  test("progress runs on screen, and stops off screen or with the tab hidden", async ({ page }) => {
+    const errors = await open(page);
+    await windowOnScreen(page);
+    await expectRunning(page);
+
+    await scrollTo(page, 3000);
+    await expectHeld(page);
+
+    await windowOnScreen(page);
+    await expectRunning(page);
+
+    const setHidden = (hidden: boolean) =>
+      page.evaluate((value) => {
+        Object.defineProperty(document, "hidden", { value, configurable: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }, hidden);
+    await setHidden(true);
+    await expectHeld(page);
+    await setHidden(false);
+    await expectRunning(page);
+    expect(errors).toEqual([]);
+  });
+
+  test("the window has to be a fifth on screen for progress to run, which it is on load at 1440×900", async ({ page }) => {
     await open(page);
-    const anim = await page.locator(".hero .tagline").evaluate((el) => getComputedStyle(el).animationName);
-    expect(anim).toBe("none");
-    const timer = page.locator('[data-shell="hero"] [data-pane="hero"] .ma-term');
-    const first = await timer.innerText();
-    await page.waitForTimeout(2_500);
-    expect(await timer.innerText()).toBe(first);
+    await windowOnScreen(page);
+    const shot = (await page.locator(".slideshow .shot").boundingBox())!;
+    const top = (await page.evaluate(() => window.scrollY)) + shot.y;
+    // Scroll so this share of the window shows below the viewport's top edge.
+    const show = (share: number) => scrollTo(page, top + shot.height * (1 - share));
+    await show(0.1);
+    await expectHeld(page);
+    await show(0.3);
+    await expectRunning(page);
+
+    await scrollTo(page, 0);
+    await expectRunning(page);
+  });
+
+  test("hover pauses and leaving resumes", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await expectRunning(page);
+    await page.locator(".slideshow .shot").hover();
+    await expectHeld(page);
+    await expect(toggle(page)).toHaveText("Pause"); // Only paused: still meant to play.
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+  });
+
+  test("keyboard focus inside pauses, and leaving resumes", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await expectRunning(page);
+    await page.getByRole("tabpanel").focus();
+    await expectHeld(page);
+    await page.locator(".hero .gh-plain").focus();
+    await windowOnScreen(page);
+    await expectRunning(page);
+  });
+
+  test("clicking a tab stops it for good, and Play resumes", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    const text = page.locator(".slideshow-text");
+    await expect(text).toHaveAttribute("aria-live", "off");
+    await expect(toggle(page)).toHaveAccessibleName("Pause automatic slideshow");
+
+    await tabs(page).first().click();
+    await page.mouse.move(0, 0);
+    await expectHeld(page);
+    await expect(toggle(page)).toHaveAccessibleName("Play automatic slideshow");
+    await expect(toggle(page)).toHaveText("Play");
+    await expect(text).toHaveAttribute("aria-live", "polite");
+
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+    await expect(toggle(page)).toHaveAccessibleName("Pause automatic slideshow");
+    await expect(text).toHaveAttribute("aria-live", "off");
+
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectHeld(page);
+  });
+
+  test("Play from the keyboard runs even with focus left on the button", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await toggle(page).focus();
+    await toggle(page).press("Enter"); // Pause
+    await expectHeld(page);
+    await toggle(page).press("Enter"); // Play
+    await expectRunning(page);
+  });
+
+  test("answering Codex in the window stops autoplay and the answer stays", async ({ page }) => {
+    const errors = await open(page);
+    await windowOnScreen(page);
+    const codex = page.locator('.slideshow [data-pane="gtf"] .ma-term');
+    await codex.locator('[data-act="yes"]').click();
+    await expect(codex).toContainText("Ran pnpm vitest run FileTree");
+    await page.mouse.move(0, 0);
+    await expect(toggle(page)).toHaveText("Play");
+    await expectHeld(page);
+    await expect(codex).toContainText("18 passed", { timeout: 5000 });
+    // Picking the open tab again doesn't wipe it.
+    await openTab(page).click();
+    await expect(codex).toContainText("18 passed");
+    expect(errors).toEqual([]);
+  });
+
+  test("after its 8s a slide hands over to the next tab", async ({ page }) => {
+    test.setTimeout(20_000);
+    await open(page);
+    await windowOnScreen(page);
+    await expect(tabs(page).nth(1)).toHaveText("Themes");
+    await expect.poll(() => progress(page), { timeout: 9000, intervals: [100] }).toBeGreaterThan(0.9);
+    await expect.poll(() => progress(page), { timeout: 3000, intervals: [100] }).toBeLessThan(0.5);
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(page.locator(".slideshow-text b")).toHaveText("A different look for each project.");
+  });
+
+  test("the last slide wraps round to the first, which comes back fresh in its own colours", async ({ page }) => {
+    test.setTimeout(20_000);
+    await open(page);
+    await tabs(page).last().click();
+    await windowOnScreen(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expect(openTab(page)).toHaveAttribute("id", (await tabs(page).first().getAttribute("id"))!, { timeout: 10_000 });
+    expect(await composingSecs(page)).toBeLessThan(40);
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+  });
+
+  test("a slide's state resets on re-entry, and what it left pending never lands", async ({ page }) => {
+    await open(page);
+    const codex = page.locator('.slideshow [data-pane="gtf"] .ma-term');
+    await codex.locator('[data-act="yes"]').click(); // Finishes itself 1.8s later.
+    await expect(codex).toContainText("Ran pnpm vitest run FileTree");
+    await tabs(page).nth(1).click();
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await page.waitForTimeout(2200);
+    // Landing here would have redrawn the old slide over this one.
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await tabs(page).first().click();
+    await expect(codex.locator('[data-act="yes"]')).toBeVisible();
+    await expect(codex).not.toContainText("Ran pnpm vitest run FileTree");
+    await page.waitForTimeout(2200);
+    await expect(codex).not.toContainText("18 passed");
+  });
+
+  test("no autoplay under reduced motion, and it reacts when that changes", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const errors = await open(page);
+    await windowOnScreen(page);
+    await expect(toggle(page)).toHaveText("Play");
+    await expect(page.locator(".slideshow-text")).toHaveAttribute("aria-live", "polite");
+    await expectHeld(page);
+    expect(await progress(page)).toBe(0);
+
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(toggle(page)).toHaveText("Pause");
+    await expectRunning(page);
+
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect(toggle(page)).toHaveText("Play");
+    await expectHeld(page);
+
+    // Having stopped it themselves, a visitor doesn't get it back when the setting lifts.
+    await tabs(page).first().click();
+    await page.mouse.move(0, 0);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await expect(toggle(page)).toHaveText("Play");
+    await expectHeld(page);
+    expect(errors).toEqual([]);
+  });
+
+  test("arrow keys, Home and End move and select, with one tab in the tab order", async ({ page }) => {
+    await open(page);
+    const n = await tabs(page).count();
+    const expectOpen = async (i: number) => {
+      await expect(tabs(page).nth(i)).toHaveAttribute("aria-selected", "true");
+      await expect(tabs(page).nth(i)).toBeFocused();
+      await expect(page.locator('.slideshow [role="tab"][tabindex="0"]')).toHaveCount(1);
+      await expect(tabs(page).nth(i)).toHaveAttribute("tabindex", "0");
+      await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", (await tabs(page).nth(i).getAttribute("id"))!);
+    };
+    await tabs(page).first().focus();
+    await page.keyboard.press("ArrowRight");
+    await expectOpen(1 % n);
+    await page.keyboard.press("ArrowLeft");
+    await expectOpen(0);
+    await page.keyboard.press("ArrowLeft");
+    await expectOpen(n - 1);
+    await page.keyboard.press("Home");
+    await expectOpen(0);
+    await page.keyboard.press("End");
+    await expectOpen(n - 1);
+    await expect(toggle(page)).toHaveText("Play");
+  });
+
+  test("the keys only act on the tabs, and leave the page's alone", async ({ page }) => {
+    await open(page);
+    const first = await tabs(page).first().getAttribute("id");
+    await page.locator(".hero .gh-plain").focus();
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("End");
+    await expect(openTab(page)).toHaveAttribute("id", first!);
+    await expect(toggle(page)).toHaveText("Pause");
+
+    // A horizontal tab row leaves Up and Down to the page.
+    await tabs(page).first().focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(openTab(page)).toHaveAttribute("id", first!);
+  });
+
+  test("Ctrl+K opens the page's terminal from the tabs and from inside the window", async ({ page }) => {
+    const errors = await open(page);
+    const term = page.locator(".term");
+    await tabs(page).first().focus();
+    await page.keyboard.press("Control+k");
+    await expect(term).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(term).toBeHidden();
+
+    await page.locator('.slideshow [data-pane="suite"]').click();
+    await page.keyboard.press("Control+k");
+    await expect(term).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("a key the slide takes stops autoplay as a click does, so the hand-off can't wipe it", async ({ page }) => {
+    await open(page);
+    await page.locator('.slideshow [data-pane="suite"]').click();
+    await toggle(page).focus();
+    await toggle(page).press("Enter"); // Play from the keyboard, so the pane keeps the keys.
+    await page.locator(".hero .gh-plain").focus();
+    await windowOnScreen(page);
+    await expect(toggle(page)).toHaveText("Pause");
+    await expectRunning(page);
+    await page.keyboard.type("hi");
+    await expect(page.locator('.slideshow [data-pane="suite"] .ma-term')).toContainText("hi");
+    await expect(toggle(page)).toHaveText("Play");
+    await expectHeld(page);
+  });
+
+  test("a key the slide leaves alone doesn't stop autoplay", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await page.keyboard.press("x");
+    await expect(toggle(page)).toHaveText("Pause");
+    await expectRunning(page);
+  });
+
+  test("the page's terminal holds the slideshow while it's open", async ({ page }) => {
+    await open(page);
+    await windowOnScreen(page);
+    await expectRunning(page);
+    await page.keyboard.press("Control+k");
+    await expect(page.locator(".term")).toBeVisible();
+    await expectHeld(page);
+    await expect(toggle(page)).toHaveText("Pause"); // Only held: still meant to play.
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".term")).toBeHidden();
+    await expectRunning(page);
+  });
+
+  test("under reduced motion, Play advances the slides and nothing inside one moves by itself", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await open(page);
+    await windowOnScreen(page);
+    const secs = await composingSecs(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+    await page.waitForTimeout(1500);
+    expect(await composingSecs(page)).toBe(secs);
+  });
+
+  test("typing into a pane stays in the pane, and not while the keyboard is on the controls", async ({ page }) => {
+    await open(page);
+    const suite = page.locator('.slideshow [data-pane="suite"] .ma-term');
+    await page.locator('.slideshow [data-pane="suite"]').click();
+    await page.keyboard.type("hi");
+    await expect(suite).toContainText("hi");
+    await toggle(page).focus();
+    await page.keyboard.type("zz");
+    await expect(suite).not.toContainText("hizz");
+  });
+
+  test("the traffic lights sit in the lead of every window, clear of its buttons", async ({ page }) => {
+    await open(page);
+    await expect(page.locator(".ma-lights")).toHaveCount(3);
+    const root = page.locator(".slideshow .mapp");
+    const scale = await root.evaluate((el) => el.getBoundingClientRect().width / 1280);
+    const lights = page.locator(".slideshow .ma-lights span");
+    const box = (await root.boundingBox())!;
+    const expected = [13, 33, 53];
+    for (const [i, x] of expected.entries()) {
+      const b = (await lights.nth(i).boundingBox())!;
+      expect((b.x - box.x) / scale).toBeCloseTo(x, 0);
+      expect(b.width / scale).toBeCloseTo(12, 0);
+      expect((b.y + b.height / 2 - box.y) / scale).toBeCloseTo(28, 0);
+    }
+    const back = (await page.locator('.slideshow .ma-lead-button[aria-label="Navigate back"]').boundingBox())!;
+    expect((back.x - box.x) / scale).toBeGreaterThan(65);
+    expect((back.y + back.height / 2 - box.y) / scale).toBeCloseTo(28, 0);
+  });
+});
+
+test.describe("the Themes slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const trigger = (page: Page) => page.locator("[data-theme-trigger]");
+  const rows = (page: Page) => page.locator(".ma-select-option");
+  const search = (page: Page) => page.locator(".ma-select-search");
+  const project = (page: Page, id: string) => page.locator(`[data-settings-project="${id}"]`);
+  const pick = async (page: Page, label: string) => {
+    await trigger(page).click();
+    await rows(page).filter({ hasText: label }).click();
+    await expect(search(page)).toHaveCount(0);
+  };
+
+  async function openThemes(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await windowOnScreen(page);
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    return errors;
+  }
+
+  test("each project repaints the window in its own theme, and its swatch follows the app's logic", async ({ page }) => {
+    const errors = await openThemes(page);
+    const root = page.locator(".slideshow .mapp");
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+    await expect(root).toHaveCSS("color-scheme", "dark");
+    await expect(page.locator('.ma-settings-page input[data-name]')).toHaveValue("harbor");
+
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await expect(root).toHaveCSS("color-scheme", "light");
+    await expect(page.locator('.ma-settings-page input[data-name]')).toHaveValue("almanac");
+    await expect(trigger(page)).toContainText("Catppuccin Latte");
+    await expect(page.locator('[data-project="almanac"] .ma-project-swatch')).toHaveCSS("background-color", "rgb(234, 118, 203)"); // Latte's magenta
+
+    await project(page, "lantern").click();
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+    await expect(root).toHaveCSS("color-scheme", "dark");
+    // No colour of its own: the swatch is --text-dim, as the app's fallback.
+    const dim = await page.locator('[data-project="lantern"] .ma-project-swatch').evaluate((el) => getComputedStyle(el).backgroundColor);
+    const toDim = await root.evaluate((el) => {
+      const probe = document.createElement("div");
+      probe.style.background = "var(--text-dim)";
+      el.append(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    });
+    expect(dim).toBe(toDim);
+    expect(errors).toEqual([]);
+  });
+
+  test("a picked theme changes only that project, and Global theme is the global one", async ({ page }) => {
+    const errors = await openThemes(page);
+    await pick(page, "Dracula");
+    expect(await cssVar(page, "--bg")).toBe(DRACULA_BG);
+    await expect(trigger(page)).toContainText("Dracula");
+
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await project(page, "lantern").click();
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+    await project(page, "harbor").click();
+    expect(await cssVar(page, "--bg")).toBe(DRACULA_BG);
+
+    await pick(page, "Global theme");
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+    await expect(trigger(page)).toContainText("Global theme");
+    await expect(trigger(page)).toContainText("Default");
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving the slide restores the default colours, and coming back starts over", async ({ page }) => {
+    await openThemes(page);
+    await project(page, "almanac").click();
+    await pick(page, "Dracula");
+    await tabs(page).first().click();
+    expect(await cssVar(page, "--bg")).toBe(MOCHA_BG);
+    await expect(page.locator(".slideshow .mapp")).toHaveCSS("color-scheme", "dark");
+
+    await page.locator("#slide-tab-themes").click();
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+    await project(page, "almanac").click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("search filters the list, and typing stays in the box", async ({ page }) => {
+    const errors = await openThemes(page);
+    await trigger(page).click();
+    await expect(search(page)).toBeFocused();
+    await expect(trigger(page)).toHaveAttribute("aria-expanded", "true");
+    await expect(rows(page).first()).toContainText("Manor"); // The current choice, pinned first.
+    await expect(rows(page)).toHaveCount(14);
+
+    await page.keyboard.type("LIGHT");
+    await expect(search(page)).toHaveValue("LIGHT");
+    await expect(rows(page)).toHaveCount(1);
+    await expect(rows(page).first()).toContainText("GitHub Light Default");
+
+    await search(page).fill("zzz");
+    await expect(page.locator(".ma-select-empty")).toHaveText("No results");
+    await page.keyboard.press("Enter"); // Nothing to pick.
+    await expect(search(page)).toBeFocused();
+
+    await search(page).fill("nord");
+    await page.keyboard.press("Enter");
+    await expect(search(page)).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe("#2e3440");
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(page.locator(".term")).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+
+  test("the arrows move the highlight and not the tabs, Esc closes, and the highlight follows the pointer", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    const active = page.locator(".ma-select-active");
+    await expect(active).toContainText("Manor");
+    await page.keyboard.press("ArrowDown");
+    await expect(active).toContainText("Global theme");
+    await expect(active).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("ArrowUp");
+    await page.keyboard.press("ArrowUp"); // Wraps to the end, which scrolls into view.
+    await expect(active).toContainText("TokyoNight");
+    await expect(active).toBeInViewport();
+    await expect(openTab(page)).toHaveText("Themes");
+
+    await rows(page).nth(3).hover();
+    await expect(rows(page).nth(3)).toHaveClass(/ma-select-active/);
+    await expect(rows(page).nth(3)).toHaveCSS("background-color", "rgb(45, 42, 42)"); // Manor's --surface
+
+    await page.keyboard.press("Escape");
+    await expect(search(page)).toHaveCount(0);
+    await expect(page.locator(".ma-settings-modal")).toBeVisible(); // One Esc, one layer.
+    await expect(trigger(page)).toBeFocused();
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+
+    await page.keyboard.press("ArrowDown"); // From the trigger, as the app's.
+    await expect(search(page)).toBeFocused();
+  });
+
+  test("clicking outside closes the list, in the window or on the page, and clicking its trigger closes it", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    await page.locator(".ma-settings-title").click();
+    await expect(search(page)).toHaveCount(0);
+
+    await trigger(page).click();
+    await expect(search(page)).toHaveCount(1);
+    await trigger(page).click();
+    await expect(search(page)).toHaveCount(0);
+
+    await trigger(page).click();
+    await page.locator(".slideshow-text").click();
+    await expect(search(page)).toHaveCount(0);
+  });
+
+  test("the Name field takes real typing and commits on blur, without a slide key firing", async ({ page }) => {
+    await openThemes(page);
+    const name = page.locator(".ma-settings-page input[data-name]");
+    await name.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("-two");
+    await expect(name).toHaveValue("harbor-two");
+    await expect(openTab(page)).toHaveText("Themes");
+    await project(page, "almanac").click(); // Blur and switch in one press.
+    await expect(project(page, "almanac")).toHaveAttribute("aria-current", "page");
+    await expect(project(page, "harbor")).toHaveText("harbor-two");
+    await expect(page.locator('[data-project="harbor"] .ma-project-name')).toHaveText("harbor-two");
+  });
+
+  test("a rename moves the worktree default and preview hostname, and Esc mid-rename keeps it", async ({ page }) => {
+    await openThemes(page);
+    const name = page.locator("[data-name]");
+    await name.fill("Salt Marsh!");
+    await name.blur();
+    await expect(page.locator("[data-worktree-default]")).toHaveText("~/.manor/worktrees/salt-marsh");
+    await expect(page.locator('[data-field="worktreePath"]')).toHaveAttribute("placeholder", "~/.manor/worktrees/salt-marsh");
+    await expect(page.locator("[data-preview-host]")).toHaveText("salt-marsh.localhost");
+
+    await name.fill("Brine");
+    await name.press("Escape");
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    await expect(page.locator('[data-project="harbor"] .ma-project-name')).toHaveText("Brine");
+    await expect(page.locator(".ma-status-left .ma-segment").first()).toHaveText("Brine");
+  });
+
+  test("New Workspace and New Folder don't collapse the project", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[aria-label="Close settings"]').click();
+    const project = page.locator('[data-project="harbor"]');
+    await project.locator(".ma-project-header").hover();
+    await project.getByRole("button", { name: "New Workspace" }).click();
+    await project.getByRole("button", { name: "New Folder" }).click();
+    await expect(project.locator(".ma-project-body")).toBeVisible();
+  });
+
+  test("Ctrl+K still opens the page's terminal from the search box, which closes the list", async ({ page }) => {
+    await openThemes(page);
+    await trigger(page).click();
+    await page.keyboard.press("Control+k");
+    await expect(page.locator(".term")).toBeVisible();
+    await expect(search(page)).toHaveCount(0);
+  });
+
+  test("Esc shuts Settings after a click in it has redrawn the page, and the page then has its keys back", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[data-settings-project="almanac"]').click();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    await expectPageHasKeys(page);
+  });
+
+  test("Settings closes as the app's does, and the sidebar then switches project and reopens it", async ({ page }) => {
+    await openThemes(page);
+    await page.locator('[aria-label="Close settings"]').click();
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+
+    await page.locator('[data-project="almanac"] [data-ws="moon-phases"]').click();
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+    await expect(page.locator(".slideshow .ma-status-left")).toContainText("almanac");
+
+    const header = page.locator('[data-project="lantern"] .ma-project-header');
+    await header.hover();
+    await header.locator('[aria-label="Project Settings"]').click();
+    await expect(page.locator(".ma-settings-modal")).toBeVisible();
+    await expect(page.locator(".ma-settings-page input[data-name]")).toHaveValue("lantern");
+    expect(await cssVar(page, "--bg")).toBe(TOKYONIGHT_BG);
+
+    await page.locator(".ma-settings-overlay").click({ position: { x: 40, y: 400 } }); // The dim: back to the workspace's own theme.
+    await expect(page.locator(".ma-settings-modal")).toHaveCount(0);
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("untouched it plays through the projects, opening nothing, and a click stops that", async ({ page }) => {
+    test.setTimeout(20_000);
+    await openThemes(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expect.poll(() => cssVar(page, "--bg"), { timeout: 4000, intervals: [100] }).toBe(LATTE_BG);
+    await expect(search(page)).toHaveCount(0);
+    await expect(openTab(page)).toHaveText("Themes");
+    await expect(project(page, "almanac")).toHaveAttribute("aria-current", "page");
+
+    await project(page, "almanac").click();
+    await page.mouse.move(0, 0);
+    await expect(toggle(page)).toHaveText("Play");
+    await page.waitForTimeout(3200);
+    expect(await cssVar(page, "--bg")).toBe(LATTE_BG);
+  });
+
+  test("under reduced motion, Play moves on from the slide but doesn't play through the projects", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openThemes(page);
+    await toggle(page).click();
+    await page.mouse.move(0, 0);
+    await expectRunning(page);
+    await page.waitForTimeout(3200);
+    expect(await cssVar(page, "--bg")).toBe(MANOR_BG);
+  });
+});
+
+test.describe("the Review slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const chip = (page: Page) => win(page).locator(".ma-cm-chip");
+  const card = (page: Page) => win(page).locator(".ma-dc[data-comment]");
+  const terminal = (page: Page) => win(page).locator('[data-pane="agent"] .ma-term');
+
+  async function openReview(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens on a diff beside the agent, with Comment on a changed line", async ({ page }) => {
+    const errors = await openReview(page);
+    await expect(chip(page)).toHaveText("+ Comment");
+    await expect(win(page).locator(".ma-tab-title")).toHaveText("TideRow.tsx");
+    await expect(win(page).locator(".ma-fp-diff-tag")).toHaveText("Diff vs HEAD");
+    await expect(win(page).locator(".ma-cm-collapsed-text").first()).toHaveText("4 unchanged lines");
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("a comment goes from the chip through the composer and Send to the agent's terminal", async ({ page }) => {
+    const errors = await openReview(page);
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await expect(composer).toBeFocused();
+    await expect(composer).toHaveAttribute("placeholder", "Leave a comment…");
+    await expect(composer).toHaveValue("Round this to one decimal, like the rest of the table.");
+    await win(page).locator("[data-add]").click();
+
+    await expect(card(page)).toContainText("You · L8");
+    await expect(win(page).locator(".ma-rs-count")).toHaveText("1 comment");
+    await expect(win(page).locator(".ma-sc-review-where")).toHaveText("TideRow.tsx:8");
+    await win(page).locator(".ma-rs-bar [data-send]").click();
+
+    // What sendPromptToAgent and useReviewSend do: delivered, the drafts gone, the agent's pane focused.
+    await expect(terminal(page)).toContainText("I left 1 comment on the current diff.");
+    await expect(terminal(page)).toContainText("[1] src/tides/TideRow.tsx L8 —");
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Sent 1 comment to Tide heights");
+    await expect(card(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+    await expect(win(page).locator(".ma-sc-review")).toHaveCount(0);
+    await expect(win(page).locator(".ma-tab-title")).toHaveText("Tide heights");
+    await expect(win(page).locator(".ma-workspace-active .ma-spinner-thinking")).toBeVisible();
+
+    await expect(terminal(page)).toContainText("Rounded feet to one decimal.", { timeout: 5000 });
+    await expect(win(page).locator(".ma-workspace-active .ma-spinner")).toHaveCount(0);
+    await expect(win(page).locator('[data-line="8"]')).toContainText("toFixed");
+    expect(errors).toEqual([]);
+  });
+
+  test("hovering another changed line moves the chip, and the visitor's own words go as written", async ({ page }) => {
+    await openReview(page);
+    await win(page).locator('[data-line="9"]').hover();
+    await expect(win(page).locator('[data-line="9"] .ma-cm-chip')).toBeVisible();
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await composer.fill("  ");
+    await expect(win(page).locator("[data-add]")).toBeDisabled();
+    await composer.fill("Why feet here?");
+    await composer.press("Control+Enter");
+    await expect(card(page)).toContainText("Why feet here?");
+    await win(page).locator(".ma-rs-bar [data-send]").click();
+    await expect(terminal(page)).toContainText("Why feet here?");
+    await expect(terminal(page)).toContainText("Took your comment on L9", { timeout: 5000 });
+    await expect(win(page).locator('[data-line="8"]')).not.toContainText("toFixed");
+  });
+
+  test("Cancel and Esc drop the composer; Edit, Delete and Discard work on a card", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-cancel]").click();
+    await expect(win(page).locator("[data-composer]")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').click();
+    await chip(page).click();
+    await win(page).locator("[data-composer]").press("Escape");
+    await expect(win(page).locator("[data-composer]")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await card(page).hover();
+    await card(page).getByRole("button", { name: "Edit comment" }).click();
+    await win(page).locator("[data-composer]").fill("Changed my mind");
+    await win(page).locator("[data-add]").click();
+    await expect(card(page)).toContainText("Changed my mind");
+    await card(page).hover();
+    await card(page).getByRole("button", { name: "Delete comment" }).click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-rs-bar")).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    const discard = win(page).locator("[data-discard]");
+    await discard.click();
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await expect(card(page)).toHaveCount(1);
+    await discard.click();
+    await expect(card(page)).toHaveCount(0);
+  });
+
+  test("under reduced motion the toast and Discard's confirm still last their full time", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    const discard = win(page).locator("[data-discard]");
+    await discard.click();
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await page.waitForTimeout(1200);
+    await expect(discard).toHaveText("Discard 1 comment?");
+    await discard.click();
+    await expect(discard).toHaveCount(0);
+
+    await win(page).locator('[data-line="8"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator("[data-send]").first().click();
+    await page.waitForTimeout(1200);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 1 comment to Tide heights");
+  });
+
+  test("Edit on a card with another composer holding edits keeps them and shows that composer", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator('[data-line="9"]').hover();
+    await chip(page).click();
+    const composer = win(page).locator("[data-composer]");
+    await composer.fill("Mine, half written");
+    await card(page).locator("[data-edit]").click();
+    await expect(composer).toHaveValue("Mine, half written");
+    await expect(composer).toBeFocused();
+    await expect(card(page)).toHaveCount(1);
+  });
+
+  test("two comments count up and go together, and leaving resets the slide", async ({ page }) => {
+    await openReview(page);
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await win(page).locator('[data-line="9"]').hover();
+    await chip(page).click();
+    await win(page).locator("[data-add]").click();
+    await expect(win(page).locator(".ma-rs-count")).toHaveText("2 comments");
+
+    await tabs(page).first().click();
+    await page.locator("#slide-tab-review").click();
+    await expect(card(page)).toHaveCount(0);
+    await expect(chip(page)).toBeVisible();
+  });
+});
+
+test.describe("the Pull requests slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const prCard = (page: Page) => win(page).locator("[data-pr-card]");
+  const badge = (page: Page) => win(page).locator("[data-pr-badge]");
+  const merge = (page: Page) => win(page).locator("[data-pr-merge]");
+  const split = (page: Page) => win(page).locator("[data-pr-split]");
+
+  async function openPrs(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-pull-requests").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  async function toReady(page: Page) {
+    await win(page).locator("[data-pr-fix]").click();
+    await expect(split(page)).toHaveClass(/ma-pr-inviting/, { timeout: 8000 });
+  }
+
+  test("it opens on the failing card: Fix checks live, merge disabled with its reason", async ({ page }) => {
+    const errors = await openPrs(page);
+    await expect(badge(page)).toHaveAttribute("data-readiness", "blocked");
+    await expect(prCard(page)).toContainText("1 failing, 2 passing");
+    await expect(prCard(page)).toContainText("+40");
+    await expect(prCard(page)).toContainText("\u22123");
+    await expect(win(page).locator("[data-pr-fix]")).toBeEnabled();
+    await expect(merge(page)).toBeDisabled();
+    await expect(merge(page)).toHaveText("Squash and merge");
+    await expect(prCard(page)).toContainText("Fix the failing checks first");
+    await expect(win(page).locator(".ma-pr-caret")).toHaveCount(0);
+    await expect(win(page).locator("[data-pr-tick]")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("Fix checks briefs the agent and shuts the card, which comes back when the checks are green", async ({ page }) => {
+    const errors = await openPrs(page);
+    await win(page).locator("[data-pr-fix]").click();
+    await expect(win(page).locator("[data-pr-fix]")).toBeDisabled();
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Sent the failing checks to Tide heights");
+    await expect(prCard(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-term")).toContainText("1 check failing on PR #214");
+    await expect(win(page).locator(".ma-term")).toContainText("Find the cause of each failure");
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "pending", { timeout: 5000 });
+    await badge(page).hover();
+    await expect(prCard(page)).toContainText("passing", { timeout: 2000 });
+    await expect(prCard(page)).toContainText("Waiting on checks or review, and this repo has no auto-merge");
+    await page.mouse.move(5, 5);
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "ready", { timeout: 5000 });
+    await expect(prCard(page)).toContainText("3/3 passing");
+    await expect(split(page)).toHaveClass(/ma-pr-inviting/);
+    await expect(merge(page)).toBeEnabled();
+    await expect(win(page).locator("[data-pr-tick]")).toHaveText("Delete workspace after merge");
+    await expect(win(page).locator("[data-pr-tick] [role=checkbox]")).toHaveAttribute("aria-checked", "false");
+    await expect(prCard(page).locator(".ma-pr-reason")).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("Squash and merge fills through Merging… to Merged with a burst, and the card settles merged", async ({ page }) => {
+    const errors = await openPrs(page);
+    await toReady(page);
+    await merge(page).click();
+    await expect(merge(page)).toHaveText("Merging…");
+    await expect(merge(page)).toBeDisabled();
+    await expect(split(page)).toHaveClass(/ma-pr-filling/);
+    await expect(win(page).locator("[data-pr-tick]")).toHaveCount(0);
+    await expect.poll(() => merge(page).evaluate((b) => Number((b as HTMLElement).style.getPropertyValue("--merge-fill")))).toBeGreaterThan(0.3);
+
+    await expect(merge(page)).toHaveText("Merged");
+    await expect(win(page).locator(".ma-pr-burst i")).toHaveCount(26);
+    await expect(win(page).locator("[data-pr-state]")).toHaveText("Merged");
+    await expect(win(page).locator(".ma-toast-message")).toHaveText("Merged #214");
+    // The badge waits for the poll that follows the hold.
+    await expect(badge(page)).toHaveAttribute("data-readiness", "ready");
+
+    await expect(badge(page)).toHaveAttribute("data-readiness", "merged", { timeout: 3000 });
+    await expect(win(page).locator(".ma-pr-footer")).toHaveCount(0);
+    await expect(win(page).locator("[data-pr-state]")).toHaveText("Merged");
+    await expect(win(page).locator('[data-ws="tide-tables"]')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openPrs(page);
+    await win(page).locator("[data-pr-fix]").click();
+    await tabs(page).first().click();
+    await page.locator("#slide-tab-pull-requests").click();
+    await expect(badge(page)).toHaveAttribute("data-readiness", "blocked");
+    await expect(prCard(page)).toContainText("1 failing, 2 passing");
+    await page.waitForTimeout(1200);
+    await expect(prCard(page)).toBeVisible();
+    await expect(win(page).locator(".ma-term")).not.toContainText("1 check failing");
+  });
+
+  test("under reduced motion the flow still runs, with no glint, glow, fill or flecks", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openPrs(page);
+    await toReady(page);
+    await expect(split(page)).toHaveCSS("animation-name", "none");
+    expect(await merge(page).evaluate((b) => getComputedStyle(b, "::after").display)).toBe("none");
+    expect(await merge(page).evaluate((b) => getComputedStyle(b, "::before").display)).toBe("none");
+    await merge(page).click();
+    await expect(merge(page)).toHaveText("Merged");
+    await expect(win(page).locator(".ma-pr-burst i")).toHaveCount(0);
+    await expect(split(page)).toHaveCSS("animation-name", "none");
+    await expect(badge(page)).toHaveAttribute("data-readiness", "merged", { timeout: 3000 });
+  });
+});
+
+test.describe("the Browser slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const pins = (page: Page) => win(page).locator(".ma-pins-pin");
+  const pill = (page: Page) => win(page).locator("[data-pill]");
+  const terminal = (page: Page) => win(page).locator('[data-pane="agent"] .ma-term');
+
+  async function openBrowser(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens picking, with one element pinned and its note showing, and doesn't take the keyboard", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await expect(win(page).locator("[data-pick-toggle]")).toHaveAttribute("aria-pressed", "true");
+    await expect(win(page).locator("[data-picking-hint]")).toHaveText("Click elements to collect them · Esc to stop");
+    await expect(pins(page)).toHaveText(["1"]);
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Says NaN. Should be 52 ft.");
+    await expect(win(page).locator("[data-note-input]")).not.toBeFocused();
+    await expect(pill(page)).toContainText("1 note on this page");
+    await expect(page.locator("#slide-tab-browser")).toBeFocused();
+    expect(errors).toEqual([]);
+  });
+
+  test("hover, pin, note, Save, Send to… and the agent: the notes go in the app's words, and the pins and pill go with them", async ({ page }) => {
+    const errors = await openBrowser(page);
+    const book = win(page).locator("#book");
+    await book.hover();
+    await expect(win(page).locator("[data-hover]")).toBeVisible();
+    await book.click();
+    await expect(pins(page)).toHaveText(["1", "2"]);
+    await expect(win(page).locator(".ma-note-selector")).toHaveText("button#book");
+    await expect(win(page).locator("[data-note-input]")).toBeFocused();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Too faint to read. Make it solid.");
+    await win(page).locator("[data-note-save]").click();
+    await expect(win(page).locator("[data-note]")).toHaveCount(0);
+    await expect(pill(page)).toContainText("2 notes on this page");
+
+    await win(page).locator("[data-notes-send]").click();
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toContainText("Berth page");
+    await expect(menu).toContainText("New agent");
+    await expect(menu).toContainText("Copy to clipboard");
+    await menu.locator('[data-send-agent="agent"]').click();
+
+    await expect(pins(page)).toHaveCount(0);
+    await expect(pill(page)).toHaveCount(0);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 2 notes to Berth page");
+    await expect(win(page).locator(".ma-tab-title").first()).toHaveText("Berth page");
+    // Sending doesn't end picking in the app either.
+    await expect(win(page).locator("[data-picking-hint]")).toBeVisible();
+    const said = (await terminal(page).innerText()).replace(/\s+/g, " ");
+    expect(said).toContain("I left 2 notes on the page at http://localhost:5173/berths.");
+    await expect(terminal(page)).toContainText("Book a berth is now", { timeout: 5000 });
+    await expect(win(page).locator("#longest-free strong")).toHaveText("52 ft");
+    expect(errors).toEqual([]);
+  });
+
+  test("Esc puts the note back, Enter saves what's typed, Esc on the page ends picking, and a pin reopens its note", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await win(page).locator("#heading").click();
+    const input = win(page).locator("[data-note-input]");
+    await input.fill("Bigger, please");
+    await page.keyboard.press("Escape");
+    await expect(input).toHaveCount(0);
+    await expect(win(page).locator("[data-picking-hint]")).toBeVisible();
+    await pins(page).nth(1).click();
+    await expect(input).toHaveValue("Tighten this up.");
+    await input.fill("Bigger, please");
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator("[data-picking-hint]")).toHaveCount(0);
+    await expect(win(page).locator("[data-pick-toggle]")).toHaveAttribute("aria-pressed", "false");
+    await expect(pins(page)).toHaveCount(2);
+    await pins(page).nth(1).click();
+    await expect(input).toHaveValue("Bigger, please");
+    expect(errors).toEqual([]);
+  });
+
+  test("Esc shuts the Send to… menu opened with the mouse, and the page then has its keys back", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await expect(win(page).locator("[data-send-menu]")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator("[data-send-menu]")).toHaveCount(0);
+    await expect(pill(page)).toBeVisible();
+    await expectPageHasKeys(page);
+  });
+
+  test("a pin on what the agent already fixed opens empty, and the reply claims no second fix", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    await win(page).locator("#longest-free").click();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("");
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("already fixed", { timeout: 5000 });
+    expect((await terminal(page).innerText()).match(/Longest free now reads/g)).toHaveLength(1);
+  });
+
+  test("a second pin on an element whose fix is under way, sent once it's done, claims no second fix", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#longest-free").click();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Says NaN. Should be 52 ft.");
+    await win(page).locator("[data-note-save]").click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("already fixed", { timeout: 5000 });
+    expect((await terminal(page).innerText()).match(/Longest free now reads/g)).toHaveLength(1);
+  });
+
+  test("two pins on one element, sent together, get one reply", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("#longest-free").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    const said = await terminal(page).innerText();
+    expect(said.match(/Longest free now reads/g)).toHaveLength(1);
+    expect(said).not.toContain("already fixed");
+  });
+
+  test("a fix under way isn't claimed again by a send to a new agent", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#longest-free").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator("[data-send-new]").click();
+    await expect(win(page).locator('[data-pane="agent-2"] .ma-term')).toContainText("already fixed", { timeout: 5000 });
+  });
+
+  test("the Send to… menu takes the keyboard from a focused note without a focus ring", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("#book").click();
+    await expect(win(page).locator("[data-note-input]")).toBeFocused();
+    await win(page).locator("[data-notes-send]").click();
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toBeFocused();
+    expect(await menu.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+  });
+
+  test("a run's redraw after a key press leaves the Send to… menu without a focus ring", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#book").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await page.keyboard.press("Shift");
+    await expect(terminal(page)).toContainText("Update(", { timeout: 3000 });
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toBeFocused();
+    expect(await menu.evaluate((el) => el.matches(":focus-visible") && getComputedStyle(el).outlineStyle)).toBe("none");
+  });
+
+  test("New agent opens its own tab, and Clear empties the queue", async ({ page }) => {
+    const errors = await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator("[data-send-new]").click();
+    await expect(win(page).locator(".ma-tab")).toHaveCount(2);
+    await expect(win(page).locator(".ma-toast").first()).toHaveText("Sent 1 note to a new agent");
+    await win(page).locator('[data-tab="main"]').click();
+    await win(page).locator("#book").click();
+    await win(page).locator("[data-notes-clear]").click();
+    await expect(pill(page)).toHaveCount(0);
+    await expect(pins(page)).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await page.locator("#slide-tab-themes").click();
+    await page.locator("#slide-tab-browser").click();
+    await expect(pins(page)).toHaveText(["1"]);
+    await expect(pill(page)).toContainText("1 note on this page");
+    await page.waitForTimeout(2600);
+    await expect(win(page).locator("#longest-free strong")).toHaveText("NaN ft");
+    await expect(terminal(page)).not.toContainText("I left");
+  });
+});
+
+test.describe("the Automations slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const card = (page: Page, id: string) => win(page).locator(`[data-au-open="${id}"]`);
+  const runNow = (page: Page) => win(page).locator("[data-run-now]");
+  const firstRun = (page: Page) => win(page).locator(".ma-au-hist-row").first();
+
+  async function openAutomations(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("its caption doesn't overclaim, and the list groups by host with real statuses and no Run now", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await expect(page.locator(".slideshow-text")).toContainText("This Mac runs its own while Manor is open.");
+    await expect(win(page).locator(".ma-au-description")).toHaveText("Agents that start on a schedule. Remote hosts run them with this app closed.");
+    await expect(win(page).locator(".ma-au-group-title").first()).toHaveText("This Mac · runs only while Manor is open");
+    await expect(win(page).locator(".ma-au-group-title").nth(1)).toHaveText("boathouse");
+    await expect(card(page, "morning-pr-triage")).toContainText("Weekdays at 09:00 · harbor · Claude");
+    await expect(card(page, "morning-pr-triage")).toContainText("Responded");
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Paused");
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Never run");
+    await expect(card(page, "nightly-dependency-bump")).toContainText("Needs input");
+    await expect(runNow(page)).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test("a card opens its page; Run now goes through Starting… to a run, an agent in the sidebar, and back to the list", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await expect(win(page).locator("[data-au-field=name]")).toHaveValue("Morning PR triage");
+    await expect(win(page).locator("[data-au-next]")).toContainText("0 9 * * 1-5 · next ");
+    await expect(win(page).locator(".ma-au-card")).toContainText("Runs only while Manor is open on this computer");
+    const rows = await win(page).locator(".ma-au-hist-row").count();
+    const agents = await win(page).locator(".ma-agent-item").count();
+
+    await runNow(page).click();
+    await expect(runNow(page)).toHaveText("Starting…");
+    await expect(runNow(page)).toBeDisabled();
+    await expect(runNow(page)).toHaveText("Run now", { timeout: 4000 });
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(rows + 1);
+    await expect(firstRun(page)).toContainText("Run now · Morning PR triage · ");
+    await expect(firstRun(page)).toContainText("Thinking", { timeout: 4000 });
+    await expect(win(page).locator(".ma-agent-item")).toHaveCount(agents + 1);
+    await expect(firstRun(page)).toContainText("Working", { timeout: 4000 });
+    await expect(firstRun(page)).toContainText("Responded", { timeout: 6000 });
+
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "morning-pr-triage")).toContainText("Responded");
+    expect(errors).toEqual([]);
+  });
+
+  test("a remote automation's page speaks of its host, the switch pauses it, and a run's row opens its agent", async ({ page }) => {
+    const errors = await openAutomations(page);
+    await card(page, "nightly-dependency-bump").click();
+    await expect(win(page).locator(".ma-au-card")).toContainText("If boathouse is asleep at that time, it runs once when it wakes (within 12 h).");
+    await expect(firstRun(page)).toContainText("Caught up · host was asleep");
+    await win(page).locator("[data-au-enabled]").click();
+    await expect(win(page).locator("[data-au-enabled]")).toContainText("Paused");
+    await expect(win(page).locator("[data-au-next]")).toContainText("— paused");
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "nightly-dependency-bump")).toContainText("Paused");
+    await card(page, "nightly-dependency-bump").click();
+    await firstRun(page).click();
+    await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
+    await expect(win(page).locator(".ma-term")).toContainText("Should I open the pull request");
+    expect(errors).toEqual([]);
+  });
+
+  test("Esc shuts Settings after a card's click has redrawn it, and the page then has its keys back", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await page.keyboard.press("Escape");
+    await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
+    await expectPageHasKeys(page);
+  });
+
+  test("the page's terminal keeps the keyboard through Run now's redraws", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await runNow(page).click();
+    await page.keyboard.press("Control+k");
+    const input = page.locator("#term-in");
+    await expect(input).toBeFocused();
+    await input.pressSequentially("still here", { delay: 450 });
+    await expect(input).toHaveValue("still here");
+    await expect(input).toBeFocused();
+  });
+
+  test("only a run with an agent is a button", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "watch-ci-on-main").click();
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(3);
+    await expect(win(page).locator("button.ma-au-hist-row")).toHaveCount(0);
+    await win(page).locator("[data-au-back]").click();
+    await card(page, "morning-pr-triage").click();
+    await expect(win(page).locator("button.ma-au-hist-row")).toHaveCount(1);
+  });
+
+  test("the name takes typing, which the list shows, and a run in flight doesn't take the field's focus", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "weekly-changelog-draft").click();
+    await expect(win(page).locator(".ma-au-placeholder")).toHaveText("No runs yet. Use Run now to try it.");
+    await runNow(page).click();
+    const name = win(page).locator("[data-au-field=name]");
+    await name.click();
+    await page.keyboard.type(" v2");
+    await expect(runNow(page)).toHaveText("Run now", { timeout: 4000 });
+    await expect(name).toBeFocused();
+    await win(page).locator("[data-au-back]").click();
+    await expect(card(page, "weekly-changelog-draft")).toContainText("Weekly changelog draft v2");
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await runNow(page).click();
+    await page.locator("#slide-tab-browser").click();
+    await page.locator("#slide-tab-automations").click();
+    await expect(runNow(page)).toHaveCount(0);
+    await card(page, "morning-pr-triage").click();
+    await page.waitForTimeout(1800);
+    await expect(win(page).locator(".ma-au-hist-row")).toHaveCount(3);
+  });
+});
+
+test.describe("the Remote hosts slide", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  const win = (page: Page) => page.locator(".slideshow .mapp");
+  const phone = (page: Page) => win(page).locator("[data-phone]");
+  const desk = (page: Page) => win(page).locator('[data-pane="agent"]');
+  const deskTab = (page: Page) => win(page).locator(".ma-tab-bar").first().locator(".ma-tab");
+  const phoneTab = (page: Page) => phone(page).locator(".ma-tab");
+  const sidebarRow = (page: Page) => win(page).locator('[data-ws="tide-import"] .ma-workspace-icon');
+  const bellBadge = (page: Page) => win(page).locator(".ma-bell-badge");
+
+  async function openRemote(page: Page) {
+    const errors = await open(page);
+    await page.locator("#slide-tab-remote-hosts").click();
+    await windowOnScreen(page);
+    return errors;
+  }
+
+  test("it opens on one project sectioned by host, the chip naming the host, and the question on both sides", async ({ page }) => {
+    const errors = await openRemote(page);
+    await expect(page.locator(".slideshow-text")).toContainText("Your agents don't live on your laptop.");
+    await expect(page.locator(".slideshow-text")).toContainText("Tap an answer on the phone.");
+    await expect(win(page).locator(".ma-project-name")).toHaveText(["harbor"]);
+    await expect(win(page).locator(".ma-section-host-name")).toHaveText(["This machine", "build-box", "spare-box"]);
+    await expect(win(page).locator('[data-host="spare-box"] .ma-section-host-asleep')).toHaveText("Asleep");
+    await expect(win(page).locator(".ma-section-host-asleep")).toHaveCount(1);
+    await expect(win(page).locator('[data-host="spare-box"] .ma-workspaces')).toHaveCSS("opacity", "0.5");
+    await expect(win(page).locator('[data-host="build-box"] [data-ws="tide-import"]')).toHaveClass(/ma-workspace-active/);
+    await expect(win(page).locator(".ma-host-chip")).toHaveText("build-box");
+    await expect(win(page).locator(".ma-status-left")).toContainText("tide-import");
+    await expect(deskTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(sidebarRow(page).locator(".ma-needs-you")).toHaveCount(1);
+    await expect(desk(page)).toContainText("How should I backfill the old tide records?");
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(phone(page).locator(".ma-ch-card-header")).toHaveText("Backfill");
+    await expect(phone(page).locator("[data-other]")).toHaveText("Other…");
+    await expect(phone(page).locator(".ma-ch-input")).toHaveAttribute("placeholder", "Type / for commands");
+    expect(errors).toEqual([]);
+  });
+
+  test("an answer on the phone goes through the note to the desk, and the marks run from the hand through the spinner to read, with nothing on the desk moving", async ({ page }) => {
+    const errors = await openRemote(page);
+    const box = () => win(page).locator(".ma-term").evaluate((el) => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height, el.clientWidth]; });
+    const before = await box();
+    await phone(page).locator('[data-answer="1"]').click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveText("Answer sent, waiting for Claude…");
+    await expect(phone(page).locator('[data-answer="1"]')).toHaveAttribute("data-chosen", "true");
+    await expect(phone(page).locator('[data-answer="0"]')).toBeDisabled();
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+
+    await expect(desk(page)).toContainText("→ All at once");
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(0);
+    await expect(phone(page).locator("[data-answered]")).toHaveText(/Backfill\s*All at once/);
+    await expect(phone(page).locator(".ma-ch-card")).toHaveCount(0);
+    await expect(deskTab(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(sidebarRow(page).locator(".ma-spinner-thinking")).toHaveCount(1);
+    await expect(phone(page).locator("[data-thinking]")).toBeVisible();
+    await expect(phone(page).locator("[data-stop]")).toBeVisible();
+
+    await expect(deskTab(page).locator(".ma-spinner-working")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-working")).toHaveCount(1);
+    await expect(phone(page).locator(".ma-ch-pending")).toBeVisible();
+
+    await expect(desk(page)).toContainText("The dry run is clean.", { timeout: 6000 });
+    await expect(phone(page).locator(".ma-ch-assistant").last()).toContainText("The dry run is clean.");
+    await expect(phone(page).locator(".ma-ch-turn-end")).toContainText("Polished for");
+    await expect(deskTab(page).locator(".ma-spinner-idle")).toHaveCount(1);
+    await expect(phoneTab(page).locator(".ma-spinner-idle")).toHaveCount(1);
+    await expect(sidebarRow(page).locator("svg")).toHaveCount(1);
+    await expect(phone(page).locator("[data-send]")).toBeDisabled();
+
+    // The agent on screen has been seen; the one off screen is what lights the bell.
+    await expect(bellBadge(page)).toHaveCount(1, { timeout: 3000 });
+    await expect(win(page).locator('[data-ws="dock-fees"] .ma-done-unread')).toHaveCount(1);
+    await expect(win(page).locator(".ma-host-chip")).toHaveText("build-box");
+    expect(await box()).toEqual(before);
+    expect(errors).toEqual([]);
+  });
+
+  test("an option clicked in the desk's terminal lands on both sides straight away", async ({ page }) => {
+    const errors = await openRemote(page);
+    await desk(page).locator('[data-answer="2"]').click();
+    await expect(desk(page)).toContainText("→ Only this year's");
+    await expect(phone(page).locator("[data-answered]")).toHaveText(/Only this year's/);
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveCount(0);
+    await expect(desk(page)).toContainText("Older ones stay", { timeout: 6000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Other… opens Your answer, Submit waits for words, and Enter sends them, as written, to the desk", async ({ page }) => {
+    await openRemote(page);
+    await phone(page).locator("[data-other]").click();
+    const input = phone(page).getByPlaceholder("Your answer");
+    await expect(input).toBeFocused();
+    await expect(phone(page).locator("[data-submit]")).toBeDisabled();
+    await page.keyboard.type("Only ports with <gauges>");
+    await expect(phone(page).locator("[data-submit]")).toBeEnabled();
+    await page.keyboard.press("Enter");
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await expect(desk(page)).toContainText("→ Only ports with <gauges>");
+    await expect(phone(page).locator("[data-answered]")).toContainText("Only ports with <gauges>");
+  });
+
+  test("leaving resets it, and what it left pending never lands", async ({ page }) => {
+    await openRemote(page);
+    await phone(page).locator('[data-answer="0"]').click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await page.locator("#slide-tab-automations").click();
+    await page.locator("#slide-tab-remote-hosts").click();
+    await expect(phone(page).locator(".ma-ch-card-note")).toHaveCount(0);
+    await page.waitForTimeout(1300);
+    await expect(desk(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(phone(page).locator("[data-answer]")).toHaveCount(3);
+    await expect(deskTab(page).locator(".ma-hand")).toHaveCount(1);
+    await expect(bellBadge(page)).toHaveCount(0);
+  });
+
+  test("under reduced motion the note still holds, and the turn still finishes", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openRemote(page);
+    await phone(page).locator('[data-answer="0"]').click();
+    await page.waitForTimeout(500);
+    await expect(phone(page).locator(".ma-ch-card-note")).toBeVisible();
+    await expect(desk(page)).toContainText("The batches are set up", { timeout: 3000 });
+    await expect(bellBadge(page)).toHaveCount(1);
+  });
+});
+
+test.describe("the whole slideshow", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("seven tabs in order, and it plays through all of them and wraps to the first with no errors", async ({ page }) => {
+    test.setTimeout(90_000);
+    const errors = await open(page);
+    await expect(tabs(page)).toHaveText(["Side by side", "Themes", "Review", "Pull requests", "Browser", "Automations", "Remote hosts"]);
+    await windowOnScreen(page);
+    const seen = [await openTab(page).innerText()];
+    await expect
+      .poll(
+        async () => {
+          const now = await openTab(page).innerText();
+          if (now !== seen[seen.length - 1]) seen.push(now);
+          return seen.length;
+        },
+        { timeout: 75_000, intervals: [250] },
+      )
+      .toBe(8);
+    expect(seen).toEqual(["Side by side", "Themes", "Review", "Pull requests", "Browser", "Automations", "Remote hosts", "Side by side"]);
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe("slideshow at 390", () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+
+  test("the tabs scroll in their own box, the page doesn't, and the open tab stays in view", async ({ page }) => {
+    const errors = await open(page);
+    const pageWidth = () => page.evaluate(() => document.documentElement.scrollWidth);
+    expect(await pageWidth()).toBe(390);
+    const row = page.locator('.slideshow [role="tablist"]');
+    await expect(row).toHaveCSS("overflow-x", "auto");
+    const inRow = async () => {
+      const r = (await row.boundingBox())!;
+      const t = (await openTab(page).boundingBox())!;
+      return t.x >= r.x - 1 && t.x + t.width <= r.x + r.width + 1;
+    };
+    await tabs(page).first().focus();
+    await page.keyboard.press("End");
+    await expect.poll(inRow).toBe(true);
+    expect(await pageWidth()).toBe(390);
+    expect(await page.evaluate(() => window.scrollX)).toBe(0);
+    await page.keyboard.press("Home");
+    await expect.poll(inRow).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  test("with more tabs than fit, moving between them really scrolls the row", async ({ page }) => {
+    await open(page);
+    await page.addStyleTag({ content: ".slideshow-tab { min-width: 300px; }" });
+    const row = page.locator('.slideshow [role="tablist"]');
+    await tabs(page).first().focus();
+    await page.keyboard.press("End");
+    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.keyboard.press("Home");
+    await expect.poll(() => row.evaluate((el) => el.scrollLeft)).toBe(0);
+  });
+
+  test("the Review and Pull requests windows fit without sideways scroll, and their flows run", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    await page.locator(".ma-cm-chip").click();
+    await page.locator("[data-add]").click();
+    await expect(page.locator(".ma-rs-bar")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await page.locator("#slide-tab-pull-requests").click();
+    await page.locator("[data-pr-fix]").click();
+    await expect(page.locator(".ma-toast")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Browser window fits without sideways scroll, and a pin opens its note", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    await page.locator("#book").click();
+    await expect(page.locator("[data-note-input]")).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Automations window fits without sideways scroll, and Run now starts", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await page.locator('[data-au-open="morning-pr-triage"]').click();
+    await page.locator("[data-run-now]").click();
+    await expect(page.locator("[data-run-now]")).toHaveText("Starting…");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Remote hosts window fits without sideways scroll, and an answer on the phone lands", async ({ page }) => {
+    const errors = await open(page);
+    await expect(tabs(page)).toHaveCount(7);
+    await page.locator("#slide-tab-remote-hosts").click();
+    await page.locator('[data-phone] [data-answer="0"]').click();
+    await expect(page.locator(".ma-ch-card-note")).toBeVisible();
+    await expect(page.locator("[data-answered]")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("the Themes window fits without sideways scroll, and its list opens", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await page.locator("[data-theme-trigger]").click();
+    await expect(page.locator(".ma-select-search")).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+});
+
+test.describe("the phone crop", () => {
+  test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+
+  const view = (page: Page) => page.locator(".slideshow .mapp-view");
+  const scale = (page: Page) => page.locator(".slideshow .mapp").evaluate((el) => parseFloat((el as HTMLElement).style.getPropertyValue("--s")));
+  /** The layout's x at the box's left edge. */
+  const cropX = (page: Page) => page.locator(".slideshow .mapp").evaluate((el) => {
+    const style = (el as HTMLElement).style;
+    return Math.round(-parseFloat(style.getPropertyValue("--x")) / parseFloat(style.getPropertyValue("--s")));
+  });
+  const scrollWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth);
+
+  /** A finger on `selector`, which must be whole inside the box, the top thing there, and big enough to hit. */
+  async function tap(page: Page, selector: string, minHeight = 20) {
+    const target = page.locator(selector).first();
+    await target.waitFor();
+    await expect
+      .poll(async () => {
+        const [box, frame] = await Promise.all([target.boundingBox(), view(page).boundingBox()]);
+        return box!.x >= frame!.x - 1 && box!.y >= frame!.y - 1 && box!.x + box!.width <= frame!.x + frame!.width + 1 && box!.y + box!.height <= frame!.y + frame!.height + 1;
+      }, { message: `${selector} is inside the crop` })
+      .toBe(true);
+    await target.scrollIntoViewIfNeeded();
+    const box = (await target.boundingBox())!;
+    expect(box.height, `${selector} is tall enough to tap`).toBeGreaterThanOrEqual(minHeight);
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  }
+
+  test("every slide shows a readable crop in a box of one height, with no sideways scroll", async ({ page }) => {
+    const errors = await open(page);
+    const heights = new Set<number>();
+    for (const tab of await tabs(page).all()) {
+      await tab.click();
+      expect(await scale(page)).toBeGreaterThanOrEqual(0.6);
+      heights.add((await view(page).boundingBox())!.height);
+      expect(await scrollWidth(page)).toBe(390);
+    }
+    expect(heights.size).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  test("Side by side: Codex's prompt answers to a tap", async ({ page }) => {
+    const errors = await open(page);
+    await tap(page, '[data-act="yes"]', 10);
+    await expect(page.locator('.slideshow [data-pane="gtf"] .ma-term')).toContainText("Ran pnpm vitest run FileTree");
+    expect(errors).toEqual([]);
+  });
+
+  test("Themes: tap a project, open the list, tap a theme, all inside the crop", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-themes").click();
+    await tap(page, '[data-settings-project="almanac"]');
+    await tap(page, "[data-theme-trigger]");
+    await expect(page.locator(".ma-select-search")).toBeFocused();
+    await tap(page, '.ma-select-option:has-text("Dracula")');
+    await expect(page.locator("[data-theme-trigger]")).toContainText("Dracula");
+    expect(await scrollWidth(page)).toBe(390);
+    expect(errors).toEqual([]);
+  });
+
+  test("Review: comment and Send by tapping, then the crop goes to the agent and comes back to the fixed line", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-review").click();
+    const atDiff = await cropX(page);
+    await tap(page, "[data-comment-chip]");
+    await tap(page, "[data-add]");
+    await tap(page, ".ma-fp-float [data-send]");
+    await expect.poll(() => cropX(page)).toBeLessThan(atDiff);
+    await expect(page.locator('[data-pane="agent"] .ma-term')).toContainText("Rounded feet");
+    await expect.poll(() => cropX(page), { timeout: 6000 }).toBe(atDiff);
+    await expect(page.locator('[data-line="8"]')).toContainText("toFixed");
+    expect(errors).toEqual([]);
+  });
+
+  test("Pull requests: Fix checks and merge by tapping, with the agent in view while the card's shut", async ({ page }) => {
+    test.setTimeout(45_000);
+    const errors = await open(page);
+    await page.locator("#slide-tab-pull-requests").click();
+    const atCard = await cropX(page);
+    await tap(page, "[data-pr-fix]");
+    await expect(page.locator(".ma-toast")).toBeVisible();
+    await expect.poll(() => cropX(page)).toBeGreaterThan(atCard);
+    await expect(page.locator("[data-pr-merge]")).toBeEnabled({ timeout: 10_000 });
+    expect(await cropX(page)).toBe(atCard);
+    await tap(page, "[data-pr-merge]");
+    await expect(page.locator("[data-pr-state]")).toHaveText("Merged", { timeout: 10_000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Browser: a pin, its note, the pill and its menu are all in the crop, and the fix lands on the page", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-browser").click();
+    const atPage = await cropX(page);
+    await tap(page, "[data-note-save]");
+    await tap(page, "[data-notes-send]");
+    await tap(page, "[data-send-agent]");
+    await expect.poll(() => cropX(page)).toBeLessThan(atPage);
+    await expect.poll(() => cropX(page), { timeout: 8000 }).toBe(atPage);
+    await expect(page.locator("#longest-free")).toContainText("52 ft");
+    expect(errors).toEqual([]);
+  });
+
+  test("Automations: a card, then Run now, by tapping", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-automations").click();
+    await tap(page, '[data-au-open="morning-pr-triage"]');
+    await tap(page, "[data-run-now]");
+    await expect(page.locator("[data-run-now]")).toHaveText("Starting…");
+    await expect(page.locator("[data-au-run]")).toHaveCount(2, { timeout: 8000 });
+    expect(errors).toEqual([]);
+  });
+
+  test("Remote hosts: an answer on the phone pans to the desk it landed on, then back for the reply", async ({ page }) => {
+    const errors = await open(page);
+    await page.locator("#slide-tab-remote-hosts").click();
+    const atPhone = await cropX(page);
+    await tap(page, '[data-phone] .ma-ch-option[data-answer="0"]');
+    await expect.poll(() => cropX(page), { timeout: 4000 }).toBeLessThan(atPhone);
+    await expect(page.locator('[data-pane="agent"] .ma-term')).toContainText("In batches overnight");
+    await expect.poll(() => cropX(page), { timeout: 8000 }).toBe(atPhone);
+    await expect(page.locator(".ma-ch-turn-end")).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test("a pan glides, a new slide jumps, and reduced motion never glides", async ({ page }) => {
+    await open(page);
+    const duration = () => page.locator(".slideshow .mapp").evaluate((el) => getComputedStyle(el).transitionDuration);
+    await page.locator("#slide-tab-remote-hosts").click();
+    expect(await duration()).toBe("0s");
+    await tap(page, '[data-phone] .ma-ch-option[data-answer="0"]');
+    await expect.poll(duration, { timeout: 4000 }).not.toBe("0s");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await duration()).toBe("0s");
+  });
+
+  test("the crop follows the box's width, both ways", async ({ page }) => {
+    await open(page);
+    const v = view(page);
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await expect(v).not.toHaveAttribute("data-phone-crop");
+    await expect.poll(async () => { const b = (await v.boundingBox())!; return Math.round((b.width / b.height) * 100); }).toBe(160);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(v).toHaveAttribute("data-phone-crop");
+    await expect.poll(async () => { const b = (await v.boundingBox())!; return Math.round((b.width / b.height) * 100); }).toBe(75);
   });
 });

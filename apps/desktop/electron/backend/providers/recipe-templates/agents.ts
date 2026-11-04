@@ -60,6 +60,8 @@ for agent in $(printf '%s' "\${MANOR_AGENTS:-}" | tr ',' ' '); do
 ${cases}
     *) continue ;;
   esac
+  # $HOME and $1 are for the host's shell, so they stay in single quotes.
+  # shellcheck disable=SC2016
   if ! ${exec} sh -c 'PATH="$HOME/.local/bin:$PATH"; command -v "$1" >/dev/null 2>&1' sh "$bin" </dev/null; then
     echo "manor-stage: Installing $label" >&2
     if ! ${exec} sh -c 'npm i -g --prefix "$HOME/.local" --no-fund --no-audit --loglevel=error "$1"' sh "$pkg" </dev/null; then

@@ -1071,6 +1071,67 @@ test.describe("the Browser slide", () => {
     expect((await terminal(page).innerText()).match(/Longest free now reads/g)).toHaveLength(1);
   });
 
+  test("a second pin on an element whose fix is under way, sent once it's done, claims no second fix", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#longest-free").click();
+    await expect(win(page).locator("[data-note-input]")).toHaveValue("Says NaN. Should be 52 ft.");
+    await win(page).locator("[data-note-save]").click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("already fixed", { timeout: 5000 });
+    expect((await terminal(page).innerText()).match(/Longest free now reads/g)).toHaveLength(1);
+  });
+
+  test("two pins on one element, sent together, get one reply", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("#longest-free").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await expect(terminal(page)).toContainText("Longest free now reads 52 ft", { timeout: 5000 });
+    const said = await terminal(page).innerText();
+    expect(said.match(/Longest free now reads/g)).toHaveLength(1);
+    expect(said).not.toContain("already fixed");
+  });
+
+  test("a fix under way isn't claimed again by a send to a new agent", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#longest-free").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator("[data-send-new]").click();
+    await expect(win(page).locator('[data-pane="agent-2"] .ma-term')).toContainText("already fixed", { timeout: 5000 });
+  });
+
+  test("the Send to… menu takes the keyboard from a focused note without a focus ring", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("#book").click();
+    await expect(win(page).locator("[data-note-input]")).toBeFocused();
+    await win(page).locator("[data-notes-send]").click();
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toBeFocused();
+    expect(await menu.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+  });
+
+  test("a run's redraw after a key press leaves the Send to… menu without a focus ring", async ({ page }) => {
+    await openBrowser(page);
+    await win(page).locator("[data-notes-send]").click();
+    await win(page).locator('[data-send-agent="agent"]').click();
+    await win(page).locator("#book").click();
+    await win(page).locator("[data-note-save]").click();
+    await win(page).locator("[data-notes-send]").click();
+    await page.keyboard.press("Shift");
+    await expect(terminal(page)).toContainText("Update(", { timeout: 3000 });
+    const menu = win(page).locator("[data-send-menu]");
+    await expect(menu).toBeFocused();
+    expect(await menu.evaluate((el) => el.matches(":focus-visible") && getComputedStyle(el).outlineStyle)).toBe("none");
+  });
+
   test("New agent opens its own tab, and Clear empties the queue", async ({ page }) => {
     const errors = await openBrowser(page);
     await win(page).locator("[data-notes-send]").click();
@@ -1177,6 +1238,18 @@ test.describe("the Automations slide", () => {
     await page.keyboard.press("Escape");
     await expect(win(page).locator(".ma-settings-modal")).toHaveCount(0);
     await expectPageHasKeys(page);
+  });
+
+  test("the page's terminal keeps the keyboard through Run now's redraws", async ({ page }) => {
+    await openAutomations(page);
+    await card(page, "morning-pr-triage").click();
+    await runNow(page).click();
+    await page.keyboard.press("Control+k");
+    const input = page.locator("#term-in");
+    await expect(input).toBeFocused();
+    await input.pressSequentially("still here", { delay: 450 });
+    await expect(input).toHaveValue("still here");
+    await expect(input).toBeFocused();
   });
 
   test("only a run with an agent is a button", async ({ page }) => {

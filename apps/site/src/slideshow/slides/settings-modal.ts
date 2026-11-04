@@ -2,6 +2,7 @@
 import "./settings-modal.css";
 import { esc } from "../../shell/chrome";
 import { icon, type IconName } from "../../shell/icons";
+import { nothingFocused } from "../slide";
 
 const NAV: readonly [IconName, string][] = [
   ["settings", "General"],
@@ -26,11 +27,11 @@ type SettingsModal = {
 };
 
 /**
- * After a redraw that a click caused: the clicked control has gone and the keyboard fell to the page, so Esc wouldn't reach the slide. Hand it to the modal.
+ * After a redraw that a click caused: the clicked control has gone and the keyboard fell to the page, so Esc wouldn't reach the slide. Hand it to the modal, if nothing else has since taken it.
  * Not on a slide's own opening, which mustn't take the page's keys; and once the modal shuts, the keyboard is the page's again.
  */
 export function keepKeysInSettings(root: HTMLElement): void {
-  if (root.contains(document.activeElement)) return;
+  if (!nothingFocused()) return;
   root.querySelector<HTMLElement>(".ma-settings-modal")?.focus({ preventScroll: true });
 }
 

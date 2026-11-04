@@ -8,7 +8,7 @@ import { TICK_MS } from "../../shell/render";
 import { toWorkspaceIndicator, type AgentStatus } from "../../shell/state";
 import { claudeBox, cursor } from "../../shell/terminals";
 import { createToasts } from "../../shell/toasts";
-import type { Slide } from "../slide";
+import { nothingFocused, type Slide } from "../slide";
 
 const PAGE_URL = "http://localhost:5173/berths";
 const PAGE_TITLE = "Berths · Bilge & Barnacle";
@@ -217,6 +217,8 @@ export const browser: Slide = {
     let caret = 0;
     let menuOpen = false;
     const fixed = new Set<string>();
+    /** The elements a run still under way will fix, and the agent running it. */
+    const fixing = new Map<string, Agent>();
     /** A phone is looking at the agent beside the page: from a send until its reply has been read. */
     let watchingAgent = false;
 
@@ -369,27 +371,38 @@ export const browser: Slide = {
       ctx.render();
       toasts.show(target === "new" ? `Sent ${label} to a new agent` : `Sent ${label} to ${agent.title}`, TOAST_ID);
 
+      // Each element's fix is claimed here, at send: this agent's last run has just been dropped, so what it was fixing is open again.
+      for (const [owner, by] of fixing) if (by === agent) fixing.delete(owner);
       const asPrefilled = sent.filter((n) => n.note.trim() === n.prefill);
+      const fixes = new Set(asPrefilled.flatMap((n) => (n.fixes && !fixed.has(n.fixes) && !fixing.has(n.fixes) ? [n.fixes] : [])));
+      for (const owner of fixes) fixing.set(owner, agent);
+      // Two pins on one element are one thing said twice.
+      const replies = [
+        ...new Set(
+          sent.map((n, i) => {
+            if (n.note.trim() !== n.prefill) return `Took your note on [${i + 1}] on its own terms.`;
+            return n.fixes && !fixes.has(n.fixes) ? ALREADY_FIXED_REPLY : n.reply;
+          }),
+        ),
+      ];
       ctx.later(1000, () => {
         if (thisRun !== agent.run) return;
         agent.status = "working";
         agent.secs = 1;
         agent.log.push(
-          asPrefilled.some((n) => n.fixes)
-            ? '<span class="g">●</span> Update(<b>src/pages/Berths.tsx</b>)'
-            : '<span class="g">●</span> Read(<b>src/pages/Berths.tsx</b>)',
-          asPrefilled.some((n) => n.fixes) ? '  <span class="d">⎿  Updated with 4 additions and 3 removals</span>' : '  <span class="d">⎿  Read 84 lines</span>',
+          fixes.size > 0 ? '<span class="g">●</span> Update(<b>src/pages/Berths.tsx</b>)' : '<span class="g">●</span> Read(<b>src/pages/Berths.tsx</b>)',
+          fixes.size > 0 ? '  <span class="d">⎿  Updated with 4 additions and 3 removals</span>' : '  <span class="d">⎿  Read 84 lines</span>',
           "",
         );
       });
       ctx.later(2400, () => {
         if (thisRun !== agent.run) return;
         agent.status = "responded";
-        for (const n of asPrefilled) if (n.fixes) fixed.add(n.fixes);
-        sent.forEach((n, i) => {
-          const reply = n.note.trim() === n.prefill ? n.reply : `Took your note on [${i + 1}] on its own terms.`;
-          agent.log.push(...wrapped(reply, i === 0 ? '<span class="g">●</span> ' : "  ", "  ", TERMINAL_COLUMNS));
-        });
+        for (const owner of fixes) {
+          fixed.add(owner);
+          fixing.delete(owner);
+        }
+        replies.forEach((reply, i) => agent.log.push(...wrapped(reply, i === 0 ? '<span class="g">●</span> ' : "  ", "  ", TERMINAL_COLUMNS)));
         agent.log.push("");
         ctx.hold(REPLY_READ_MS, () => {
           if (thisRun !== agent.run) return;
@@ -551,14 +564,17 @@ export const browser: Slide = {
           const n = notes.find((x) => x.id === openNote?.id);
           if (n) n.note = input.value;
         });
-        if (input && noteFocused) {
+        // What a redraw took the keyboard from gets it back, unless it has gone elsewhere on the page in the meantime.
+        if (!nothingFocused()) return;
+        // Radix's menu takes the keyboard: the click that opened it redrew its button away, and Esc needs somewhere to land. Shut, the keyboard falls back to the note or the page.
+        if (menuOpen) {
+          root.querySelector<HTMLElement>("[data-send-menu]")?.focus({ preventScroll: true });
+        } else if (input && noteFocused) {
           input.focus({ preventScroll: true });
           input.setSelectionRange(caret, caret);
         } else if (pageFocused) {
           guest?.focus({ preventScroll: true });
         }
-        // Radix's menu takes the keyboard: the click that opened it redrew its button away, and Esc needs somewhere to land. Shut, the keyboard falls back to the page.
-        if (menuOpen) root.querySelector<HTMLElement>("[data-send-menu]")?.focus({ preventScroll: true });
       },
       onClick: (e) => {
         const t = e.target as Element | null;

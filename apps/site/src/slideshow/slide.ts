@@ -57,6 +57,12 @@ export type SlideFrame = {
   advancing: boolean;
 };
 
+/** No element has the keyboard: what a redraw leaves when it removes the focused control. Anything else, on the page or in the window, keeps it, or a timer's redraw would pull focus out of the page's terminal or off Play. */
+export const nothingFocused = (): boolean => {
+  const active = document.activeElement;
+  return !active || active === document.body;
+};
+
 /** A slide once entered: the closures over its fresh state. */
 export type OpenSlide = {
   /** The window as it stands now. For a slide that only owns the panel, `{ ...base, main }`. */

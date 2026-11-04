@@ -53,6 +53,16 @@ export interface FakeGhFixtures {
   mergeDelayMs?: Record<number, number>;
   /** `gh run view --job <id> --log-failed` output by job id. */
   jobLogs?: Record<string, string>;
+  /** Threads of `GET /notifications`. Absent: an empty inbox. */
+  inbox?: FakeThread[];
+}
+
+/** One thread of GitHub's `GET /notifications`. */
+export interface FakeThread {
+  id: string;
+  reason: string;
+  repository: { full_name: string };
+  subject: { title: string; type: string; url: string | null };
 }
 
 export interface FakeRepoSettings {
@@ -131,6 +141,11 @@ function answer() {
   }
   // The empty-state probe ("any issue assigned to me?") finds none.
   if (sub === "issue list") return "[]";
+  if (sub === "api user") return "tester";
+  // The Inbox: a 200 with the headers --include prints, from the fixture.
+  if (sub === "api --include") {
+    return "HTTP/2.0 200 OK\r\nX-Poll-Interval: 60\r\n\r\n" + JSON.stringify(fix.inbox);
+  }
   if (sub !== "api graphql") return null;
   const fields = {};
   for (let i = 0; i < args.length - 1; i++) {
@@ -196,6 +211,7 @@ export function fakeGhFixturesJson(fixtures: FakeGhFixtures): string {
     mergeQueue: fixtures.mergeQueue ?? [],
     mergeDelayMs: fixtures.mergeDelayMs ?? {},
     jobLogs: fixtures.jobLogs ?? {},
+    inbox: fixtures.inbox ?? [],
   });
 }
 
@@ -247,6 +263,14 @@ export function editFakePr(
   );
   if (!pr) throw new Error(`fake gh: no PR #${number}`);
   edit(pr);
+  fs.writeFileSync(file, JSON.stringify(fix));
+}
+
+/** Replace the fake's inbox, as GitHub would between checks. */
+export function setFakeInbox(tempHome: string, inbox: FakeThread[]): void {
+  const file = fixturesPathIn(tempHome);
+  const fix = JSON.parse(fs.readFileSync(file, "utf-8"));
+  fix.inbox = inbox;
   fs.writeFileSync(file, JSON.stringify(fix));
 }
 

@@ -22,7 +22,7 @@ export function createDesktopInboxPoller(opts: {
 }): InboxPoller {
   const { githubManager, linearManager, preferencesManager, notifier } = opts;
   const scope = new ProjectScope(opts.projectManager);
-  // A sign-in holds until it fails; a signed-out `gh` is asked again each check.
+  // A sign-in holds until a check fails; otherwise `gh` is asked each check.
   let githubReady = false;
   // A test's stand-in for waiting a minute between checks.
   const intervalMs = Number(process.env.MANOR_E2E_INBOX_POLL_MS) || undefined;
@@ -33,12 +33,15 @@ export function createDesktopInboxPoller(opts: {
       createGitHubSource({
         isReady: async () => {
           if (githubReady) return true;
-          const { installed, authenticated } = await githubManager.checkStatus();
-          githubReady = installed && authenticated;
+          githubReady = await githubManager.isSignedIn();
           return githubReady;
         },
         account: () => githubManager.getLogin(),
-        fetchInbox: (since, ifModifiedSince) => githubManager.getInbox(since, ifModifiedSince),
+        fetchInbox: (since, ifModifiedSince) =>
+          githubManager.getInbox(since, ifModifiedSince).catch((err: unknown) => {
+            githubReady = false;
+            throw err;
+          }),
         projectRepos: () => scope.repos(),
       }),
       createLinearSource({

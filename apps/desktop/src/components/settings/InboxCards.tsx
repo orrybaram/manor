@@ -9,12 +9,20 @@ import styles from "./SettingsModal/SettingsModal.module.css";
 
 const STATUS_REFRESH_MS = 15_000;
 
-const SOURCES: { id: InboxSourceId; name: string; unit: string; signedOut: string; none: string }[] = [
+const SOURCES: {
+  id: InboxSourceId;
+  name: string;
+  unit: string;
+  signedOut: string;
+  refused: string;
+  none: string;
+}[] = [
   {
     id: "github",
     name: "GitHub",
     unit: "repo",
     signedOut: "Not signed in. Run gh auth login on this computer, then these start on their own.",
+    refused: "GitHub refused your sign-in. Run gh auth login on this computer.",
     none: "None of your projects has a GitHub origin, so nothing will arrive.",
   },
   {
@@ -22,6 +30,7 @@ const SOURCES: { id: InboxSourceId; name: string; unit: string; signedOut: strin
     name: "Linear",
     unit: "team",
     signedOut: "Not connected. Add your Linear key in Settings › Integrations.",
+    refused: "Linear refused your key. Update it in Settings › Integrations.",
     none: "No teams linked. Link one in a project's settings to get these.",
   },
 ];
@@ -35,7 +44,7 @@ function ago(iso: string, now: number): string {
 
 /** The card's status line, and whether it needs the user to do something. */
 export function inboxStatusLine(
-  source: { unit: string; signedOut: string; none: string },
+  source: { unit: string; signedOut: string; refused: string; none: string },
   status: InboxSourceStatus | undefined,
   now: number,
 ): { text: string; warn: boolean } {
@@ -43,6 +52,7 @@ export function inboxStatusLine(
     case "signed-out":
       return { text: source.signedOut, warn: true };
     case "error":
+      if (/\b401\b|authenticat/i.test(status.message)) return { text: source.refused, warn: true };
       return {
         text: status.checkedAt
           ? `Couldn't check. Trying again soon. Last worked ${ago(status.checkedAt, now)}.`

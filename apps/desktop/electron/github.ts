@@ -1,5 +1,10 @@
 import { execFile } from "node:child_process";
-import { parseInboxResponse, type GitHubInboxResponse } from "./inbox/github-source";
+import {
+  fetchInboxPages,
+  INBOX_PAGE_SIZE,
+  parseInboxResponse,
+  type GitHubInboxResponse,
+} from "./inbox/github-source";
 import { promisify } from "node:util";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -178,14 +183,28 @@ export class GitHubManager {
   private login: string | null = null;
 
   /**
-   * One `GET /notifications`: unread threads, newest first. `gh` exits 1 on a
-   * 304, so its output is read whether or not it succeeded.
+   * `GET /notifications`: unread threads, newest first. `gh` exits 1 on a 304,
+   * so its output is read whether or not it succeeded.
    */
   async getInbox(
     since: string | undefined,
     ifModifiedSince: string | undefined,
   ): Promise<GitHubInboxResponse> {
-    const query = new URLSearchParams({ per_page: "50", ...(since ? { since } : {}) });
+    return fetchInboxPages((page) =>
+      this.getInboxPage(page, since, page === 1 ? ifModifiedSince : undefined),
+    );
+  }
+
+  private async getInboxPage(
+    page: number,
+    since: string | undefined,
+    ifModifiedSince: string | undefined,
+  ): Promise<GitHubInboxResponse> {
+    const query = new URLSearchParams({
+      per_page: String(INBOX_PAGE_SIZE),
+      page: String(page),
+      ...(since ? { since } : {}),
+    });
     const args = ["api", "--include", `notifications?${query}`];
     if (ifModifiedSince) args.push("-H", `If-Modified-Since: ${ifModifiedSince}`);
     let stdout: string;
@@ -201,6 +220,25 @@ export class GitHubManager {
       stdout = out;
     }
     return parseInboxResponse(stdout);
+  }
+
+  /**
+   * Whether `gh` is signed in. Unlike `checkStatus`, a failure that says neither
+   * (offline, say) throws instead of reading as signed out.
+   */
+  async isSignedIn(): Promise<boolean> {
+    try {
+      await execFileAsync("gh", ["auth", "status", "--hostname", "github.com"], {
+        encoding: "utf-8",
+        timeout: 5000,
+      });
+      return true;
+    } catch (err) {
+      const e = err as { code?: unknown; stderr?: unknown; stdout?: unknown };
+      if (e.code === "ENOENT") return false;
+      if (/not logged in|token.*invalid/i.test(`${String(e.stderr)}${String(e.stdout)}`)) return false;
+      throw err;
+    }
   }
 
   /** The signed-in login, or null if `gh` can't say. */

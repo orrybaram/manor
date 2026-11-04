@@ -14,12 +14,17 @@ export type GitHubInboxResponse =
   | { status: "not-modified"; pollSeconds: number | null }
   | { status: "ok"; threads: GitHubThread[]; lastModified: string | null; pollSeconds: number | null };
 
+/** Lowercase `owner/repo` of every project, and whether every project answered. */
+export interface ProjectRepos {
+  repos: Set<string>;
+  complete: boolean;
+}
+
 export interface GitHubSourceDeps {
   isReady(): Promise<boolean>;
   account(): Promise<string | null>;
   fetchInbox(since: string | undefined, ifModifiedSince: string | undefined): Promise<GitHubInboxResponse>;
-  /** Lowercase `owner/repo` of every project. */
-  projectRepos(): Promise<Set<string>>;
+  projectRepos(): Promise<ProjectRepos>;
 }
 
 const KIND_BY_REASON = new Map<string, InboxKind>(
@@ -93,7 +98,7 @@ export function createGitHubSource(deps: GitHubSourceDeps): InboxSource {
     intervalMs: DEFAULT_INTERVAL_MS,
     isReady: deps.isReady,
     account: deps.account,
-    coverage: async () => (await deps.projectRepos()).size,
+    coverage: async () => (await deps.projectRepos()).repos.size,
     async fetch(since, cursor): Promise<InboxFetch> {
       const response = await deps.fetchInbox(since, cursor);
       // GitHub names the interval it wants; never go faster than our default.
@@ -102,15 +107,48 @@ export function createGitHubSource(deps: GitHubSourceDeps): InboxSource {
           ? Math.max(response.pollSeconds * 1000, DEFAULT_INTERVAL_MS)
           : DEFAULT_INTERVAL_MS;
       if (response.status === "not-modified") return { status: "not-modified", nextDelayMs };
-      const repos = await deps.projectRepos();
+      const { repos, complete } = await deps.projectRepos();
+      // One malformed thread mustn't stop the rest, now or on every retry.
+      const items = response.threads.flatMap((thread) => {
+        try {
+          return [threadToItem(thread, repos)];
+        } catch {
+          return [];
+        }
+      });
       return {
         status: "ok",
-        items: response.threads.map((thread) => threadToItem(thread, repos)),
+        items,
+        hold: !complete && items.some((item) => !item.inScope),
         ...(response.lastModified ? { cursor: response.lastModified } : {}),
         nextDelayMs,
       };
     },
   };
+}
+
+/** How many pages one check reads. Past this, older threads wait for a bump. */
+export const MAX_INBOX_PAGES = 6;
+export const INBOX_PAGE_SIZE = 50;
+
+/**
+ * Every page of one check, so noise can't push a request off the first. Only
+ * the first page is conditional, and its answer speaks for the check.
+ */
+export async function fetchInboxPages(
+  fetchPage: (page: number) => Promise<GitHubInboxResponse>,
+): Promise<GitHubInboxResponse> {
+  const first = await fetchPage(1);
+  if (first.status !== "ok") return first;
+  const threads = [...first.threads];
+  let last = first.threads.length;
+  for (let page = 2; page <= MAX_INBOX_PAGES && last === INBOX_PAGE_SIZE; page += 1) {
+    const next = await fetchPage(page);
+    if (next.status !== "ok") break;
+    threads.push(...next.threads);
+    last = next.threads.length;
+  }
+  return { ...first, threads };
 }
 
 /**

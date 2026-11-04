@@ -72,7 +72,14 @@ export function createLinearSource(deps: LinearSourceDeps): InboxSource {
         deps.projectTeams(),
       ]);
       const now = (deps.now ?? Date.now)();
-      const items = nodes.flatMap((node) => nodeToItem(node, teams, now) ?? []);
+      // One malformed node mustn't stop the rest, now or on every retry.
+      const items = nodes.flatMap((node) => {
+        try {
+          return nodeToItem(node, teams, now) ?? [];
+        } catch {
+          return [];
+        }
+      });
       return { status: "ok", items };
     },
   };

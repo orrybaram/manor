@@ -1,4 +1,4 @@
-import { repoFromOrigin } from "./github-source";
+import { repoFromOrigin, type ProjectRepos } from "./github-source";
 
 interface ScopeProject {
   id: string;
@@ -7,7 +7,8 @@ interface ScopeProject {
 
 export interface ProjectScopeDeps {
   getProjects(): Promise<ScopeProject[]>;
-  getOriginUrl(projectId: string): Promise<string | null>;
+  /** Null when it has no origin; throws when its host can't say. */
+  readOriginUrl(projectId: string): Promise<string | null>;
 }
 
 /** Origins hardly ever change, and a remote project's costs a call to its host. */
@@ -17,7 +18,8 @@ const ORIGIN_MAX_AGE_MS = 10 * 60_000;
  * Which GitHub repos and Linear teams belong to Manor projects.
  *
  * A project's last known repo is kept when its host can't be reached, so a
- * remote host going offline doesn't put its repo out of scope for a while.
+ * remote host going offline doesn't put its repo out of scope. One never known
+ * (after a relaunch, say) makes the answer incomplete: see `InboxFetch.hold`.
  */
 export class ProjectScope {
   private repoByProject = new Map<string, { repo: string; at: number }>();
@@ -27,16 +29,21 @@ export class ProjectScope {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Lowercase `owner/repo` of every project. */
-  async repos(): Promise<Set<string>> {
+  async repos(): Promise<ProjectRepos> {
     const projects = await this.deps.getProjects();
+    let complete = true;
     await Promise.all(
       projects.map(async ({ id }) => {
         const known = this.repoByProject.get(id);
         if (known && this.now() - known.at < ORIGIN_MAX_AGE_MS) return;
-        const origin = await this.deps.getOriginUrl(id).catch(() => null);
-        const repo = origin ? repoFromOrigin(origin) : null;
-        if (repo) this.repoByProject.set(id, { repo, at: this.now() });
+        try {
+          const origin = await this.deps.readOriginUrl(id);
+          const repo = origin ? repoFromOrigin(origin) : null;
+          if (repo) this.repoByProject.set(id, { repo, at: this.now() });
+          else this.repoByProject.delete(id);
+        } catch {
+          if (!known) complete = false;
+        }
       }),
     );
     const repos = new Set<string>();
@@ -44,7 +51,7 @@ export class ProjectScope {
       const known = this.repoByProject.get(id);
       if (known) repos.add(known.repo);
     }
-    return repos;
+    return { repos, complete };
   }
 
   /** The ids of the Linear teams linked to projects. */

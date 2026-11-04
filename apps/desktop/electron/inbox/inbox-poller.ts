@@ -7,9 +7,9 @@ import type { InboxKind, InboxSourceId, InboxSourceStatus, InboxStatus } from ".
  * InboxPoller — checks each **Inbox** on its own timer and delivers what's new.
  *
  * A source's first successful check only records what is already there, so a
- * first run never floods the bell. After that every item fetched is recorded
- * as seen whether or not it was delivered: an item outside the user's projects,
- * or of a type switched off, never turns up late. Seen items survive a
+ * first run never floods the bell. After that every item of an offered type is
+ * recorded as seen whether or not it was delivered: an item outside the user's
+ * projects, or of a type switched off, never turns up late. Seen items survive a
  * relaunch, and each later check asks only for what changed since the last.
  *
  * Failures back off and show in `status()`; they never notify.
@@ -30,7 +30,17 @@ export interface InboxItem {
 
 export type InboxFetch =
   | { status: "not-modified"; nextDelayMs?: number }
-  | { status: "ok"; items: InboxItem[]; cursor?: string; nextDelayMs?: number };
+  | {
+      status: "ok";
+      items: InboxItem[];
+      cursor?: string;
+      nextDelayMs?: number;
+      /**
+       * Scope isn't fully known, so an item out of scope may only look it: leave
+       * those unseen and ask from the same point next time.
+       */
+      hold?: boolean;
+    };
 
 export interface InboxSource {
   id: InboxSourceId;
@@ -69,7 +79,7 @@ export const MAX_BACKOFF_MS = 15 * 60_000;
  */
 export const SINCE_OVERLAP_MS = 10 * 60_000;
 /** How many seen keys one source keeps. */
-export const MAX_SEEN = 2000;
+export const MAX_SEEN = 5000;
 
 interface SourceState {
   /** ISO time of the last successful check. Absent: never checked. */
@@ -90,6 +100,7 @@ export class InboxPoller {
   private timers = new Map<InboxSourceId, ReturnType<typeof setTimeout>>();
   private failures = new Map<InboxSourceId, number>();
   private running = false;
+  private stopped = false;
   private inFlight = new Set<Promise<void>>();
 
   constructor(private readonly deps: InboxPollerDeps) {
@@ -104,6 +115,7 @@ export class InboxPoller {
 
   async stop(): Promise<void> {
     this.running = false;
+    this.stopped = true;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     await Promise.allSettled(this.inFlight);
@@ -129,14 +141,21 @@ export class InboxPoller {
             ? undefined
             : new Date(Date.parse(state.since) - SINCE_OVERLAP_MS).toISOString();
         const result = await source.fetch(since, state.cursor);
+        // Stopping: the log has had its last save, so leave this for next launch.
+        if (this.stopped) return;
         if (result.nextDelayMs !== undefined && this.deps.intervalMs === undefined) {
           delay = result.nextDelayMs;
         }
+        // A 304 moves neither point: an item it hid (HTTP dates only go to the
+        // second) must still be in the window when the next 200 comes.
         if (result.status === "ok") {
-          this.process(source.id, state, result.items, baseline);
-          if (result.cursor !== undefined) state.cursor = result.cursor;
+          const hold = !baseline && result.hold === true;
+          this.process(source.id, state, result.items, baseline, hold);
+          if (!hold) {
+            if (result.cursor !== undefined) state.cursor = result.cursor;
+            state.since = startedAt;
+          }
         }
-        state.since = startedAt;
         this.state[source.id] = state;
         this.save();
         this.failures.delete(source.id);
@@ -174,14 +193,17 @@ export class InboxPoller {
     state: SourceState,
     items: InboxItem[],
     baseline: boolean,
+    hold: boolean,
   ): void {
     const seen = new Set(state.seen);
     let banners = 0;
     for (const item of items) {
-      if (seen.has(item.key)) continue;
+      // Never deliverable, so not worth a place in the list.
+      if (item.kind === null || seen.has(item.key)) continue;
+      if (hold && !item.inScope) continue;
       seen.add(item.key);
       state.seen.push(item.key);
-      if (baseline || !item.inScope || item.kind === null) continue;
+      if (baseline || !item.inScope) continue;
       if (!this.deps.isEnabled(item.kind)) continue;
       const banner = banners < MAX_BANNERS_PER_CHECK;
       if (banner) banners += 1;

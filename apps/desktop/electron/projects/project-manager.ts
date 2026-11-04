@@ -879,6 +879,26 @@ export class ProjectManager {
     }
   }
 
+  /**
+   * As `getOriginUrl`, telling "no origin" (null) from "couldn't ask" (throws):
+   * `git config --get` exits 1 for an unset key.
+   */
+  async readOriginUrl(projectId: string): Promise<string | null> {
+    const project = this.member(projectId);
+    if (!project) return null;
+    try {
+      const out = await this.hostFor(project.hostId).git.exec(project.path, [
+        "config",
+        "--get",
+        "remote.origin.url",
+      ]);
+      return out.trim() || null;
+    } catch (err) {
+      if ((err as { code?: unknown }).code === 1) return null;
+      throw err;
+    }
+  }
+
   /** Whether the project's `path` exists on the host it lives on. */
   async projectPathExists(projectId: string): Promise<boolean> {
     const project = this.member(projectId);

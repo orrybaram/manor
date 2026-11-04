@@ -63,6 +63,9 @@ export interface GetMyIssuesOptions {
   limit?: number;
 }
 
+/** How many pages of notifications one check reads. */
+const MAX_NOTIFICATION_PAGES = 6;
+
 export class LinearManager {
   private tokenPath: string;
   /** The decrypted key, loaded by `init()` so `getToken()` can stay synchronous. */
@@ -439,13 +442,22 @@ export class LinearManager {
   }
 
   /**
-   * The viewer's notifications updated since `since`, newest first; all of the
-   * latest 50 without it. Non-issue notifications come back with no `issue`.
+   * The viewer's notifications updated since `since`, or all of them without
+   * it, up to `MAX_NOTIFICATION_PAGES` pages so read items can't crowd out new
+   * ones. Non-issue notifications come back with no `issue`.
    */
   async getNotifications(since: string | undefined): Promise<LinearNotificationNode[]> {
-    const data = await this.graphql<{ notifications: { nodes: LinearNotificationNode[] } }>(
-      `query InboxNotifications($filter: NotificationFilter) {
-        notifications(first: 50, orderBy: updatedAt, filter: $filter) {
+    const nodes: LinearNotificationNode[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < MAX_NOTIFICATION_PAGES; page += 1) {
+      const data: {
+        notifications: {
+          nodes: LinearNotificationNode[];
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        };
+      } = await this.graphql(
+        `query InboxNotifications($filter: NotificationFilter, $after: String) {
+        notifications(first: 50, orderBy: updatedAt, filter: $filter, after: $after) {
           nodes {
             id
             category
@@ -456,11 +468,16 @@ export class LinearManager {
               issue { identifier title url }
             }
           }
+          pageInfo { hasNextPage endCursor }
         }
       }`,
-      since ? { filter: { updatedAt: { gt: since } } } : {},
-    );
-    return data.notifications.nodes;
+        { after, ...(since ? { filter: { updatedAt: { gt: since } } } : {}) },
+      );
+      nodes.push(...data.notifications.nodes);
+      if (!data.notifications.pageInfo.hasNextPage) break;
+      after = data.notifications.pageInfo.endCursor;
+    }
+    return nodes;
   }
 
   private async graphql<T>(

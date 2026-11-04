@@ -114,7 +114,7 @@ const FILTER_OPTIONS: { value: KindFilter; label: ReactNode }[] = [
 /** Linear items, and GitHub items whose page is an issue rather than a PR. */
 function isIssueRecord({ kind, target }: NotificationRecord): boolean {
   if (kind.startsWith("linear-")) return true;
-  return kind.startsWith("github-") && target?.type === "url" && target.url.includes("/issues/");
+  return kind.startsWith("github-") && target?.type === "url" && /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\//.test(target.url);
 }
 
 function matchesFilter(record: NotificationRecord, filter: KindFilter): boolean {

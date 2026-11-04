@@ -6,13 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { INBOX_TYPES, type InboxKind } from "../../src/lib/inbox";
 import {
   createGitHubSource,
+  fetchInboxPages,
+  INBOX_PAGE_SIZE,
+  MAX_INBOX_PAGES,
   parseInboxResponse,
   repoFromOrigin,
   threadPageUrl,
   threadToItem,
   type GitHubThread,
 } from "./github-source";
-import { InboxPoller, MAX_BANNERS_PER_CHECK, type InboxItem, type InboxSource } from "./inbox-poller";
+import { InboxPoller, MAX_BANNERS_PER_CHECK, type InboxFetch, type InboxItem, type InboxSource } from "./inbox-poller";
 import { nodeToItem, type LinearNotificationNode } from "./linear-source";
 import { ProjectScope } from "./project-scope";
 
@@ -143,22 +146,76 @@ describe("parseInboxResponse", () => {
   });
 });
 
+describe("fetchInboxPages", () => {
+  const page = (n: number) => ({
+    status: "ok" as const,
+    threads: Array.from({ length: n }, (_, i) => thread({ id: String(i) })),
+    lastModified: "LM",
+    pollSeconds: 60,
+  });
+
+  it("reads on while pages are full, then stops at a short one", async () => {
+    const fetchPage = vi.fn(async (p: number) => page(p === 1 ? INBOX_PAGE_SIZE : 3));
+    const result = await fetchInboxPages(fetchPage);
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+    expect(result.status === "ok" && result.threads).toHaveLength(INBOX_PAGE_SIZE + 3);
+  });
+
+  it("stops at the page cap", async () => {
+    const fetchPage = vi.fn(async () => page(INBOX_PAGE_SIZE));
+    await fetchInboxPages(fetchPage);
+    expect(fetchPage).toHaveBeenCalledTimes(MAX_INBOX_PAGES);
+  });
+
+  it("passes a 304 straight through", async () => {
+    const fetchPage = vi.fn(async () => ({ status: "not-modified" as const, pollSeconds: 60 }));
+    expect(await fetchInboxPages(fetchPage)).toEqual({ status: "not-modified", pollSeconds: 60 });
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("createGitHubSource", () => {
   it("never polls faster than a minute, even if GitHub allows it", async () => {
     const source = createGitHubSource({
       isReady: async () => true,
       account: async () => "me",
-      projectRepos: async () => new Set(),
+      projectRepos: async () => ({ repos: new Set(), complete: true }),
       fetchInbox: async () => ({ status: "not-modified", pollSeconds: 10 }),
     });
     expect(await source.fetch("x", undefined)).toEqual({ status: "not-modified", nextDelayMs: 60_000 });
+  });
+
+  it("holds when scope is incomplete and something looks out of scope", async () => {
+    const source = createGitHubSource({
+      isReady: async () => true,
+      account: async () => "me",
+      projectRepos: async () => ({ repos: new Set(), complete: false }),
+      fetchInbox: async () => ({ status: "ok", threads: [thread()], lastModified: null, pollSeconds: null }),
+    });
+    expect(await source.fetch("x", undefined)).toMatchObject({ status: "ok", hold: true });
+  });
+
+  it("skips a malformed thread and keeps the rest", async () => {
+    const source = createGitHubSource({
+      isReady: async () => true,
+      account: async () => "me",
+      projectRepos: async () => ({ repos: new Set(["acme/app"]), complete: true }),
+      fetchInbox: async () => ({
+        status: "ok",
+        threads: [{ id: "bad", repository: null } as unknown as GitHubThread, thread()],
+        lastModified: null,
+        pollSeconds: null,
+      }),
+    });
+    const result = await source.fetch("x", undefined);
+    expect(result.status === "ok" && result.items.map((i) => i.key)).toEqual(["100:review_requested"]);
   });
 
   it("follows a longer interval from GitHub", async () => {
     const source = createGitHubSource({
       isReady: async () => true,
       account: async () => "me",
-      projectRepos: async () => new Set(),
+      projectRepos: async () => ({ repos: new Set(), complete: true }),
       fetchInbox: async () => ({ status: "not-modified", pollSeconds: 300 }),
     });
     expect(await source.fetch("x", undefined)).toMatchObject({ nextDelayMs: 300_000 });
@@ -411,6 +468,78 @@ describe("InboxPoller", () => {
     expect(sinces).toEqual([undefined, "2026-11-04T11:50:00.000Z"]);
   });
 
+  it("keeps its place through a 304, so a later 200 still covers what it hid", async () => {
+    const sinces: Array<string | undefined> = [];
+    let times = 0;
+    const clock = { now: Date.parse("2026-11-04T12:00:00Z") };
+    const p = new InboxPoller({
+      sources: [],
+      isEnabled: () => true,
+      deliver: () => {},
+      dataDir,
+      now: () => clock.now,
+    });
+    pollers.push(p);
+    fetchImpl = async (since) => {
+      sinces.push(since);
+      times += 1;
+      return times === 1 ? { status: "ok", items: [] } : { status: "not-modified" };
+    };
+    await p.check(source());
+    clock.now += 60 * 60_000;
+    await p.check(source());
+    clock.now += 60 * 60_000;
+    await p.check(source());
+    expect(sinces[1]).toBe("2026-11-04T11:50:00.000Z");
+    expect(sinces[2]).toBe("2026-11-04T11:50:00.000Z");
+  });
+
+  it("on hold, delivers what's in scope and comes back for the rest", async () => {
+    const sinces: Array<string | undefined> = [];
+    const p = poller();
+    await p.check(source());
+    const looksOut = item("remote", { inScope: false });
+    fetchImpl = async (since) => {
+      sinces.push(since);
+      return { status: "ok", items: [item("local"), looksOut], hold: true };
+    };
+    await p.check(source());
+    expect(delivered.map((d) => d.key)).toEqual(["local"]);
+    fetchImpl = async (since) => {
+      sinces.push(since);
+      return { status: "ok", items: [item("local"), { ...looksOut, inScope: true }] };
+    };
+    await p.check(source());
+    expect(delivered.map((d) => d.key)).toEqual(["local", "remote"]);
+    expect(sinces[0]).toBe(sinces[1]);
+  });
+
+  it("doesn't deliver or record a check that returns after stop", async () => {
+    const p = poller();
+    await p.check(source());
+    let release: (r: InboxFetch) => void = () => {};
+    fetchImpl = () => new Promise((resolve) => (release = resolve));
+    const pending = p.check(source());
+    await vi.waitFor(() => expect(release).not.toEqual(expect.any(Number)));
+    await p.stop();
+    release({ status: "ok", items: [item("late")] });
+    await pending;
+    expect(delivered).toEqual([]);
+    const next = poller();
+    fetchImpl = async () => ({ status: "ok", items: [item("late")] });
+    await next.check(source());
+    expect(delivered.map((d) => d.key)).toEqual(["late"]);
+  });
+
+  it("gives items of no offered kind no place in the seen list", async () => {
+    const p = poller();
+    await p.check(source());
+    items = [item("noise", { kind: null })];
+    await p.check(source());
+    const saved = JSON.parse(fs.readFileSync(path.join(dataDir, "inbox-notifications.json"), "utf-8"));
+    expect(saved.github.seen).toEqual([]);
+  });
+
   it("passes the stored cursor back", async () => {
     const cursors: Array<string | undefined> = [];
     fetchImpl = async (_since, cursor) => {
@@ -433,9 +562,9 @@ describe("ProjectScope", () => {
   it("collects repos and teams from projects", async () => {
     const scope = new ProjectScope({
       getProjects: async () => projects,
-      getOriginUrl: async (id) => (id === "a" ? "git@github.com:Acme/App.git" : null),
+      readOriginUrl: async (id) => (id === "a" ? "git@github.com:Acme/App.git" : null),
     });
-    expect(await scope.repos()).toEqual(new Set(["acme/app"]));
+    expect(await scope.repos()).toEqual({ repos: new Set(["acme/app"]), complete: true });
     expect(await scope.teams()).toEqual(new Set(["t1"]));
   });
 
@@ -443,7 +572,7 @@ describe("ProjectScope", () => {
     let now = 0;
     let origin: () => Promise<string | null> = async () => "git@github.com:Acme/App.git";
     const scope = new ProjectScope(
-      { getProjects: async () => [projects[0]], getOriginUrl: () => origin() },
+      { getProjects: async () => [projects[0]], readOriginUrl: () => origin() },
       () => now,
     );
     await scope.repos();
@@ -451,17 +580,31 @@ describe("ProjectScope", () => {
     origin = async () => {
       throw new Error("offline");
     };
-    expect(await scope.repos()).toEqual(new Set(["acme/app"]));
+    expect(await scope.repos()).toEqual({ repos: new Set(["acme/app"]), complete: true });
+  });
+
+  it("is incomplete while a project's repo has never been known", async () => {
+    let fail = true;
+    const scope = new ProjectScope({
+      getProjects: async () => [projects[0]],
+      readOriginUrl: async () => {
+        if (fail) throw new Error("host offline");
+        return "git@github.com:Acme/App.git";
+      },
+    });
+    expect(await scope.repos()).toEqual({ repos: new Set(), complete: false });
+    fail = false;
+    expect(await scope.repos()).toEqual({ repos: new Set(["acme/app"]), complete: true });
   });
 
   it("asks for an origin once within its lifetime", async () => {
-    const getOriginUrl = vi.fn(async () => "git@github.com:Acme/App.git");
+    const readOriginUrl = vi.fn(async () => "git@github.com:Acme/App.git");
     const scope = new ProjectScope(
-      { getProjects: async () => [projects[0]], getOriginUrl },
+      { getProjects: async () => [projects[0]], readOriginUrl },
       () => 0,
     );
     await scope.repos();
     await scope.repos();
-    expect(getOriginUrl).toHaveBeenCalledTimes(1);
+    expect(readOriginUrl).toHaveBeenCalledTimes(1);
   });
 });

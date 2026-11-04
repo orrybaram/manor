@@ -1,7 +1,9 @@
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { createWorkspace, expect, importSeededProject, openTerminalTab, test } from "./fixtures";
-import { FAKE_AGENT } from "./helpers/fake-agent";
+import { FAKE_AGENT, FAKE_AGENT_LOG_ENV } from "./helpers/fake-agent";
 import { setAgentCommand } from "./helpers/settings";
 
 /**
@@ -26,6 +28,7 @@ test("an agent a page's notes started is offered for the next note", async ({ ap
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   const base = `http://127.0.0.1:${port}`;
+  const agentLog = path.join(tempHome, "pins-new-agent-input.log");
 
   const guest = <T,>(script: string) =>
     app.evaluate(
@@ -41,7 +44,7 @@ test("an agent a page's notes started is offered for the next note", async ({ ap
 
   try {
     await importSeededProject(app, window, tempHome);
-    await setAgentCommand(window, "test-project", `"${FAKE_AGENT}"`);
+    await setAgentCommand(window, "test-project", `${FAKE_AGENT_LOG_ENV}="${agentLog}" "${FAKE_AGENT}"`);
     await createWorkspace(window, "ws-pins-new");
     await openTerminalTab(window);
 
@@ -76,23 +79,20 @@ test("an agent a page's notes started is offered for the next note", async ({ ap
       await expect(window.getByTestId("browser-notes-pill")).toHaveCount(0);
     });
 
-    await test.step("the next note offers that agent", async () => {
-      // Let the new agent register.
-      await window.waitForTimeout(8_000);
-      await window.screenshot({ path: "tests/e2e/artifacts/pins-new-agent-launched.png" });
-      await browserTab.click().catch(() => undefined);
+    await test.step("the next note offers that agent, and goes to it", async () => {
+      await browserTab.click();
       await expect(window.locator("webview:visible")).toHaveCount(1, { timeout: 10_000 });
       await pick(2);
       await window.getByTestId("browser-notes-send").click();
       const menu = window.getByTestId("browser-notes-targets");
       await expect(menu).toBeVisible();
-      await window.screenshot({ path: "tests/e2e/artifacts/pins-new-agent-menu.png" });
-      const agents = await window.evaluate(() =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).electronAPI.agents.getAll({}),
-      );
-      console.log("AGENTS", JSON.stringify(agents.map((a: Record<string, unknown>) => ({ ws: a.workspacePath, host: a.hostId, status: a.status, pane: a.paneId, name: a.name }))));
-      await expect(menu.getByRole("button")).toHaveCount(4, { timeout: 15_000 });
+      const row = menu.getByRole("button", { name: /I left a note/ });
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await row.click();
+      await expect
+        .poll(() => (fs.existsSync(agentLog) ? fs.readFileSync(agentLog, "utf8") : ""), { timeout: 20_000 })
+        .toContain("div#card-2 — note 2");
+      await expect(window.getByTestId("browser-notes-pill")).toHaveCount(0);
     });
   } finally {
     server.close();

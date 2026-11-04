@@ -4,6 +4,7 @@ import { useAppStore } from "../../../store/app-store";
 import { toast } from "../../../toast";
 import { sendPromptToAgent, type AgentTarget } from "../../../lib/agent-send";
 import {
+  isEmptyNote,
   noteCountLabel,
   pageNotesPrompt,
   pageNotesReducer,
@@ -14,13 +15,18 @@ import { LOCAL_HOST_ID, parseWorkspaceKey, type WorkspaceKey } from "../../../li
 import type { PagePick, PagePinsLayout } from "../../../../electron/webview-pins";
 
 export type PageNotes = {
-  /** The queue, in pin order. */
+  /** Every note with a pin on the page, in pin order, the one just picked included. */
   notes: PageNote[];
+  /** The queue: what the pill counts and Send and Copy take. A new note joins once it has words or is saved. */
+  kept: PageNote[];
   /** Where the current page's pins are, or null before it has reported any. */
   layout: PagePinsLayout | null;
   /** The note whose popover is open. */
   openId: string | null;
-  setOpenId: (id: string | null) => void;
+  /** Close the open note and keep it, even empty: a bare pin is one to look at. */
+  saveOpen: () => void;
+  /** Close the open note; a new one left empty goes. */
+  skipOpen: () => void;
   /** Arm picking on the page; false if the page couldn't take it. */
   start: () => Promise<boolean>;
   stop: () => void;
@@ -47,6 +53,9 @@ function pinTheme(): { accent: string; bg: string } {
  * numbered by its place in the queue, and the page is told which pins to
  * draw. The queue outlives a navigation (each note keeps its URL); the pins
  * and their positions don't, since a new document starts without them.
+ *
+ * A pick only opens a new note. Left empty — by Escape, the next pick, another
+ * pin or a navigation — it goes, so clicking around the page collects nothing.
  */
 export function usePageNotes({
   paneId,
@@ -69,6 +78,27 @@ export function usePageNotes({
   const [layout, setLayout] = useState<PagePinsLayout | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // The note just picked and not yet saved, read at once by picks that land together.
+  const newNoteIdRef = useRef<string | null>(null);
+  const [newNoteId, setNewNoteId] = useState<string | null>(null);
+  const trackNewNote = useCallback((id: string | null) => {
+    newNoteIdRef.current = id;
+    setNewNoteId(id);
+  }, []);
+  /** Done with the new note, unless it is `except`: empty, it goes. */
+  const settleNewNote = useCallback(
+    (except?: string) => {
+      const id = newNoteIdRef.current;
+      if (id === null || id === except) return;
+      dispatch({ type: "drop-if-empty", id });
+      trackNewNote(null);
+    },
+    [trackNewNote],
+  );
+
+  const kept = notes.filter((n) => n.id !== newNoteId || !isEmptyNote(n));
+  const keptRef = useRef(kept);
+  keptRef.current = kept;
   const notesRef = useRef(notes);
   notesRef.current = notes;
   const pageUrlRef = useRef(pageUrl);
@@ -90,6 +120,9 @@ export function usePageNotes({
       if (pickPaneId !== paneId) return;
       // What an agent can read as the pane's last pick.
       useAppStore.getState().setPickedElement(paneId, pick);
+      // Landed after picking stopped: there is no note to open, so nothing to keep.
+      if (!isPickingRef.current()) return;
+      settleNewNote();
       dispatch({
         type: "add",
         note: {
@@ -102,14 +135,17 @@ export function usePageNotes({
           screenshot: pick.screenshot,
         },
       });
-      if (isPickingRef.current()) setOpenId(pick.pickId);
+      trackNewNote(pick.pickId);
+      setOpenId(pick.pickId);
     });
     const unsubStopped = window.electronAPI.webview.onPinsStopped((stopPaneId: string) => {
       if (stopPaneId === paneId) onPickingChangeRef.current(false);
     });
     const unsubOpened = window.electronAPI.webview.onPinOpened((openPaneId: string, pinId: string) => {
       if (openPaneId !== paneId) return;
-      if (notesRef.current.some((n) => n.id === pinId)) setOpenId(pinId);
+      if (!notesRef.current.some((n) => n.id === pinId)) return;
+      settleNewNote(pinId);
+      setOpenId(pinId);
     });
     const unsubMoved = window.electronAPI.webview.onPinsMoved(
       (movedPaneId: string, next: PagePinsLayout) => {
@@ -120,6 +156,7 @@ export function usePageNotes({
     // A new document has none of the page script: no pins, and no picking.
     const wv = webviewRef.current;
     const onNewDocument = () => {
+      settleNewNote();
       setLayout(null);
       setOpenId(null);
       onPickingChangeRef.current(false);
@@ -149,14 +186,27 @@ export function usePageNotes({
   }, [paneId]);
 
   const setNote = useCallback((id: string, note: string) => dispatch({ type: "set-note", id, note }), []);
-  const remove = useCallback((id: string) => {
-    dispatch({ type: "remove", id });
-    setOpenId((open) => (open === id ? null : open));
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      dispatch({ type: "remove", id });
+      if (newNoteIdRef.current === id) trackNewNote(null);
+      setOpenId((open) => (open === id ? null : open));
+    },
+    [trackNewNote],
+  );
   const clear = useCallback(() => {
     dispatch({ type: "clear" });
+    trackNewNote(null);
     setOpenId(null);
-  }, []);
+  }, [trackNewNote]);
+  const saveOpen = useCallback(() => {
+    trackNewNote(null);
+    setOpenId(null);
+  }, [trackNewNote]);
+  const skipOpen = useCallback(() => {
+    settleNewNote();
+    setOpenId(null);
+  }, [settleNewNote]);
 
   /**
    * Each note's screenshot where the workspace's agents run: this machine's
@@ -178,7 +228,7 @@ export function usePageNotes({
   );
 
   const copy = useCallback(async () => {
-    const list = notesRef.current;
+    const list = keptRef.current;
     if (list.length === 0) return;
     const prompt = pageNotesPrompt(list, await screenshotPaths(list));
     void window.electronAPI.clipboard.writeText(prompt);
@@ -190,7 +240,7 @@ export function usePageNotes({
 
   const send = useCallback(
     async (target: AgentTarget) => {
-      const list = notesRef.current;
+      const list = keptRef.current;
       if (list.length === 0 || !workspaceKey) return;
       const { path: workspacePath, hostId } = parseWorkspaceKey(workspaceKey);
       const sent = sendPromptToAgent(workspacePath, pageNotesPrompt(list, await screenshotPaths(list)), target, {
@@ -202,10 +252,10 @@ export function usePageNotes({
       if (!sent) return;
       // Only what was sent: a pick that landed during the upload stays.
       for (const n of list) dispatch({ type: "remove", id: n.id });
-      setOpenId(null);
+      skipOpen();
     },
-    [paneId, workspaceKey, screenshotPaths],
+    [paneId, workspaceKey, screenshotPaths, skipOpen],
   );
 
-  return { notes, layout, openId, setOpenId, start, stop, setNote, remove, clear, copy, send };
+  return { notes, kept, layout, openId, saveOpen, skipOpen, start, stop, setNote, remove, clear, copy, send };
 }

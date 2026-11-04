@@ -31,10 +31,16 @@ export interface PageNote {
   screenshot: PageNoteScreenshot | null;
 }
 
+/** Whether the user has said nothing about it. */
+export function isEmptyNote(note: PageNote): boolean {
+  return !note.note.trim();
+}
+
 export type PageNotesAction =
   | { type: "add"; note: PageNote }
   | { type: "set-note"; id: string; note: string }
   | { type: "remove"; id: string }
+  | { type: "drop-if-empty"; id: string }
   | { type: "clear" };
 
 export function pageNotesReducer(notes: PageNote[], action: PageNotesAction): PageNote[] {
@@ -45,6 +51,8 @@ export function pageNotesReducer(notes: PageNote[], action: PageNotesAction): Pa
       return notes.map((n) => (n.id === action.id ? { ...n, note: action.note } : n));
     case "remove":
       return notes.filter((n) => n.id !== action.id);
+    case "drop-if-empty":
+      return notes.filter((n) => n.id !== action.id || !isEmptyNote(n));
     case "clear":
       return notes.length === 0 ? notes : [];
   }

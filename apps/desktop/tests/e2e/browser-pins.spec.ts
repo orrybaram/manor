@@ -11,8 +11,9 @@ const AGENT_TITLE = "pins-agent";
 const NOTE = "Show seats used, e.g. 9 of 12";
 
 /**
- * Picking stays armed: three clicks on a page pin three numbered notes, the
- * first with a remark. Send to… hands them to an agent already in the
+ * Picking stays armed: a click opens a note, which stays if it is written or
+ * saved and goes if it is left empty. Three of them pin three numbered notes,
+ * the first with a remark. Send to… hands them to an agent already in the
  * workspace as one prompt, each with a screenshot saved where the agent runs.
  *
  * The pins are drawn in the page's closed shadow root, out of the page's
@@ -125,11 +126,30 @@ test("picked elements become pins and notes, and Send hands them to an agent in 
       await input.press("Enter");
       await expect(popover).toBeHidden();
 
+      const pill = window.getByTestId("browser-notes-pill");
+      const save = window.getByTestId("browser-note-save");
+
+      // Clicking around saves nothing: each pick left empty goes when the next
+      // lands. Bottom up, since a note's popover covers the card below it.
+      for (const n of [3, 2]) {
+        await clickCard(n);
+        await expect(popover).toContainText(`div#card-${n}`, { timeout: 10_000 });
+        await expect(pill).toContainText("1 note on this page");
+      }
+      await expect.poll(pinLabels, { timeout: 10_000 }).toEqual(["1", "2"]);
+      await window.screenshot({ path: "tests/e2e/artifacts/browser-pins-clicking-around.png" });
+
+      // Escape skips it too; picking stays armed.
+      await input.press("Escape");
+      await expect(popover).toBeHidden();
+      await expect(pill).toContainText("1 note on this page");
+      await expect.poll(pinLabels, { timeout: 10_000 }).toEqual(["1"]);
+
+      // Saved empty, it stays: a bare pin is one to look at.
       for (const n of [2, 3]) {
         await clickCard(n);
         await expect(popover).toContainText(`div#card-${n}`, { timeout: 10_000 });
-        // Escape skips the note; picking stays armed.
-        await input.press("Escape");
+        await save.click();
         await expect(popover).toBeHidden();
       }
       await expect(window.getByTestId("browser-picking-hint")).toBeVisible();

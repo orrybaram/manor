@@ -34,7 +34,7 @@ export function PageNotesOverlay({
   workspaceKey?: WorkspaceKey;
   webviewRef: RefObject<HTMLElement | null>;
 }) {
-  const { notes, layout, openId } = pageNotes;
+  const { notes, kept, layout, openId } = pageNotes;
   const workspace = workspaceKey ? parseWorkspaceKey(workspaceKey) : null;
   const agents = useSendableAgents(workspace?.path ?? "", workspace?.hostId);
 
@@ -66,8 +66,12 @@ export function PageNotesOverlay({
           element={toPaneRect(openPin, layout.viewport.width, pane.width)}
           pane={pane}
           onChange={(text) => pageNotes.setNote(notes[openIndex].id, text)}
-          onDone={() => {
-            pageNotes.setOpenId(null);
+          onSave={() => {
+            pageNotes.saveOpen();
+            backToPage();
+          }}
+          onSkip={() => {
+            pageNotes.skipOpen();
             backToPage();
           }}
           onDelete={() => {
@@ -76,9 +80,9 @@ export function PageNotesOverlay({
           }}
         />
       )}
-      {notes.length > 0 && (
+      {kept.length > 0 && (
         <NotesPill
-          notes={notes}
+          notes={kept}
           pageUrl={pageUrl}
           agents={agents}
           onCopy={() => void pageNotes.copy()}
@@ -105,14 +109,15 @@ const POPOVER_WIDTH = 240;
 /**
  * One note, beside its pin: the selector, the note itself, and Save. Typing
  * writes the note as it goes, so picking the next element keeps it; Escape
- * puts back what it said when the popover opened.
+ * puts back what it said when the popover opened. Save keeps it even empty.
  */
 export function PinNotePopover({
   note,
   number,
   element,
   pane,
-  onDone,
+  onSave,
+  onSkip,
   onDelete,
   onChange,
 }: {
@@ -121,8 +126,10 @@ export function PinNotePopover({
   /** Its element, in the pane's pixels. */
   element: Rect;
   pane: Size;
-  /** Close it, the note kept or (Escape) put back. */
-  onDone: () => void;
+  /** Close it and keep the note. */
+  onSave: () => void;
+  /** Escape: close it, the note put back; a new note left empty goes. */
+  onSkip: () => void;
   onDelete: () => void;
   onChange: (text: string) => void;
 }) {
@@ -180,12 +187,12 @@ export function PinNotePopover({
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            onDone();
+            onSave();
           } else if (e.key === "Escape") {
             e.preventDefault();
             e.stopPropagation();
             if (note.note !== openedWith) onChange(openedWith);
-            onDone();
+            onSkip();
           }
         }}
       />
@@ -193,7 +200,7 @@ export function PinNotePopover({
         <span className={styles.noteKeys}>
           <kbd className={styles.kbd}>↵</kbd> save · <kbd className={styles.kbd}>Esc</kbd> skip
         </span>
-        <Button variant="primary" size="sm" onClick={onDone} data-testid="browser-note-save">
+        <Button variant="primary" size="sm" onClick={onSave} data-testid="browser-note-save">
           Save
         </Button>
       </div>

@@ -45,6 +45,15 @@ describe("pageNotesReducer", () => {
   });
 });
 
+describe("pageNotesReducer drop-if-empty", () => {
+  it("drops an empty note, blank or not, and leaves a written one", () => {
+    const notes = [makeNote(), makeNote({ id: "p2", note: "  " }), makeNote({ id: "p3", note: "Too tall" })];
+    expect(pageNotesReducer(notes, { type: "drop-if-empty", id: "p1" }).map((n) => n.id)).toEqual(["p2", "p3"]);
+    expect(pageNotesReducer(notes, { type: "drop-if-empty", id: "p2" }).map((n) => n.id)).toEqual(["p1", "p3"]);
+    expect(pageNotesReducer(notes, { type: "drop-if-empty", id: "p3" })).toHaveLength(3);
+  });
+});
+
 describe("pinLabels", () => {
   it("numbers pins by their place in the queue, so a delete renumbers", () => {
     const notes = [makeNote({ id: "a" }), makeNote({ id: "b" }), makeNote({ id: "c" })];

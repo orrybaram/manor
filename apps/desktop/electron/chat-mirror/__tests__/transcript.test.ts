@@ -1389,3 +1389,62 @@ describe("TranscriptParser — thought and turn-end", () => {
     expect(p.entry("u1")).toMatchObject({ kind: "command", output: "a.txt" });
   });
 });
+
+describe("TranscriptParser — progress updates", () => {
+  /** One line of Claude Code's: a thinking block, as `thinkingDisplay` shows it. */
+  function thinking(uuid: string, text: string, ms: number, extra: Record<string, unknown> = { thinkingDisplay: "updates" }): string {
+    return line({
+      type: "assistant",
+      uuid,
+      thinkingDurationMs: ms,
+      ...extra,
+      message: { id: "msg_1", role: "assistant", content: [{ type: "thinking", thinking: text, signature: "x" }] },
+    });
+  }
+
+  it("keeps an update written before a question, in order, under its thought", () => {
+    const p = new TranscriptParser();
+    p.push(thinking("a1", "", 6000));
+    p.push(thinking("a2", "Yes, it works: the API returns the full article.", 1));
+    p.push(
+      line({
+        type: "assistant",
+        uuid: "a3",
+        message: {
+          id: "msg_1",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "AskUserQuestion", input: { questions: QUESTIONS } }],
+        },
+      }),
+    );
+    expect(p.entries().map((e) => e.kind)).toEqual(["thought", "assistant", "question"]);
+    expect(p.entries()[1]).toEqual({
+      kind: "assistant",
+      id: "a2:0",
+      ts: T,
+      text: "Yes, it works: the API returns the full article.",
+    });
+    expect(p.entries()[0]).toMatchObject({ durationMs: 6001 });
+  });
+
+  it("publishes the update from the line that carries it", () => {
+    const p = new TranscriptParser();
+    p.push(thinking("a1", "", 6000));
+    const pushed = p.push(thinking("a2", "Checking the API next.", 1));
+    expect(pushed.map((e) => e.kind)).toEqual(["thought", "assistant"]);
+  });
+
+  it("never shows thinking that isn't written as an update", () => {
+    for (const extra of [{}, { thinkingDisplay: "omitted" }, { thinkingDisplay: "summarized" }]) {
+      const p = new TranscriptParser();
+      p.push(thinking("a1", "private reasoning", 900, extra));
+      expect(p.entries().map((e) => e.kind)).toEqual(["thought"]);
+    }
+  });
+
+  it("draws nothing for an empty update block", () => {
+    const p = new TranscriptParser();
+    p.push(thinking("a1", "   ", 900));
+    expect(p.entries().map((e) => e.kind)).toEqual(["thought"]);
+  });
+});

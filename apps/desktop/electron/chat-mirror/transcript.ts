@@ -893,8 +893,11 @@ export class TranscriptParser {
     };
     content.forEach((block, i) => {
       if (!isObject(block)) return;
-      if (block.type === "text") {
-        const text = str(block.text);
+      // Under `thinkingDisplay: "updates"`, a thinking block with text is a
+      // progress update the terminal prints as a reply. Other thinking stays out.
+      const update = block.type === "thinking" && parsed.thinkingDisplay === "updates";
+      if (block.type === "text" || update) {
+        const text = str(update ? block.thinking : block.text);
         if (!text || !text.trim()) return;
         const e = this.add({
           kind: "assistant",
@@ -913,7 +916,7 @@ export class TranscriptParser {
         first(e);
         if (e) out.push(e);
       }
-      // thinking and unknown block types: dropped
+      // other thinking and unknown block types: dropped
     });
     return out;
   }

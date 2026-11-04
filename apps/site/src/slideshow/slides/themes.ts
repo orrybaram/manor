@@ -202,8 +202,8 @@ export const themes: Slide = {
   id: "themes",
   label: "Themes",
   title: "A different look for each project.",
-  description: "Pick from hundreds of themes or make your own. Give a project its own and you always know where you are.",
-  hint: "Switch projects in the sidebar, then pick a theme.",
+  description: "Use Manor's themes, your Ghostty themes, or make your own. Give a project its own and you always know where you are.",
+  hint: "Choose a project under Projects, then pick its theme.",
   alt: "An interactive mock of Manor's Settings, open on a project's page with its Name and Theme fields. Each project in the sidebar has its own theme, and switching project repaints the whole window.",
   enter(ctx) {
     const { root } = ctx;

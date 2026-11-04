@@ -1,6 +1,7 @@
 import fs from "node:fs";
 
 import { linearTokenFile } from "./paths";
+import type { LinearNotificationNode } from "./inbox/linear-source";
 import type { SecretBox } from "./platform/secret-box";
 import { readSealed, writeSealed } from "./platform/sealed-store";
 import { isLinearImageUrl } from "../src/lib/task-images";
@@ -435,6 +436,31 @@ export class LinearManager {
       authorization: token,
       isTrusted: (hop) => isLinearImageUrl(hop.href),
     });
+  }
+
+  /**
+   * The viewer's notifications updated since `since`, newest first; all of the
+   * latest 50 without it. Non-issue notifications come back with no `issue`.
+   */
+  async getNotifications(since: string | undefined): Promise<LinearNotificationNode[]> {
+    const data = await this.graphql<{ notifications: { nodes: LinearNotificationNode[] } }>(
+      `query InboxNotifications($filter: NotificationFilter) {
+        notifications(first: 50, orderBy: updatedAt, filter: $filter) {
+          nodes {
+            id
+            category
+            readAt
+            snoozedUntilAt
+            ... on IssueNotification {
+              team { id }
+              issue { identifier title url }
+            }
+          }
+        }
+      }`,
+      since ? { filter: { updatedAt: { gt: since } } } : {},
+    );
+    return data.notifications.nodes;
   }
 
   private async graphql<T>(

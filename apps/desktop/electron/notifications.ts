@@ -6,6 +6,7 @@ import type {
   NotificationStore,
   NotificationTarget,
 } from "./notification-store";
+import type { InboxKind } from "../src/lib/inbox";
 import type { PrComment } from "../src/lib/pr-info";
 import type { PreferencesManager } from "./preferences";
 import type { AgentInfo } from "./agent-persistence";
@@ -98,6 +99,11 @@ export interface ServerNotifier {
    * there is no window to focus-check, which reads as `false`.
    */
   showPrNotification?(payload: PrNotificationPayload, caller: Caller): boolean;
+  /** Absent on a server with no screen: only the desktop reads inboxes. */
+  showInboxNotification?(
+    item: { kind: InboxKind; title: string; body: string; url: string | null },
+    opts: { banner: boolean },
+  ): void;
 }
 
 export interface NotifierOptions {
@@ -194,6 +200,8 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
         target: NotificationTarget | null;
         comment?: PrComment;
       };
+      /** False: only the log, however unfocused the window. */
+      banner?: boolean;
     },
   ): boolean {
     // Record *before* the focus check. A notification suppressed because the
@@ -212,6 +220,7 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
     if (stat) statsStore.record(stat);
     this.sendNotificationsUpdate();
 
+    if (opts.banner === false) return false;
     if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) {
       return false;
     }
@@ -275,6 +284,25 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
       title,
       body: [agent.name || "Agent", agent.projectName].filter(Boolean).join(" — "),
       record: { kind, target: { type: "agent", agentId: agent.id } },
+    });
+  }
+
+  /** An **Inbox** item, in the bell and, if `banner`, as a banner when unfocused. */
+  showInboxNotification(
+    item: { kind: InboxKind; title: string; body: string; url: string | null },
+    { banner }: { banner: boolean },
+  ): void {
+    const focused = this.opts
+      .getRendererWindows()
+      .find((win) => !win.isDestroyed() && win.isFocused());
+    this.presentNotification(focused ?? this.opts.getMainWindow(), {
+      title: item.title,
+      body: item.body,
+      banner,
+      record: {
+        kind: item.kind,
+        target: item.url ? { type: "url", url: item.url } : null,
+      },
     });
   }
 

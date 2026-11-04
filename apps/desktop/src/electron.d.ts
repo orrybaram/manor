@@ -1,3 +1,4 @@
+import type { InboxKind } from "./lib/inbox";
 import type { PrComment } from "./lib/pr-info";
 import type { HostId } from "./lib/hosts";
 import type { PromptOverrides } from "./lib/prompts/catalog";
@@ -17,6 +18,19 @@ export interface AppPreferences {
   notifyOnPrApproved: boolean;
   notifyOnPrChangesRequested: boolean;
   notifyOnPrChecksFailed: boolean;
+  /** The Inbox types (`src/lib/inbox.ts`). */
+  notifyOnGithubReviewRequested: boolean;
+  notifyOnGithubMentioned: boolean;
+  notifyOnGithubAssigned: boolean;
+  notifyOnGithubTeamMentioned: boolean;
+  notifyOnGithubSecurityAlert: boolean;
+  notifyOnLinearAssigned: boolean;
+  notifyOnLinearMentioned: boolean;
+  notifyOnLinearComments: boolean;
+  notifyOnLinearStatusChanges: boolean;
+  notifyOnLinearTriage: boolean;
+  notifyOnLinearReviews: boolean;
+  notifyOnLinearReactions: boolean;
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
@@ -109,7 +123,8 @@ export type NotificationKind =
   | "pr-checks-failed"
   | "badge-unlocked"
   | "automation-ran"
-  | "automation-failed";
+  | "automation-failed"
+  | InboxKind;
 
 export type NotificationTarget =
   | { type: "agent"; agentId: string }

@@ -218,6 +218,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "notifications.clear": byHost(0),
   // A native banner on demand: the desktop's.
   "notifications.show": "home",
+  // GitHub's and Linear's inboxes are read by the desktop alone.
+  "notifications.inboxStatus": "home",
 
   // Each server keeps and fires its own host's automations; the renderer
   // asks each host it shows.

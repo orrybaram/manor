@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { parseInboxResponse, type GitHubInboxResponse } from "./inbox/github-source";
 import { promisify } from "node:util";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -173,6 +174,47 @@ interface GhTarget {
 }
 
 export class GitHubManager {
+  /** The signed-in login, once known. */
+  private login: string | null = null;
+
+  /**
+   * One `GET /notifications`: unread threads, newest first. `gh` exits 1 on a
+   * 304, so its output is read whether or not it succeeded.
+   */
+  async getInbox(
+    since: string | undefined,
+    ifModifiedSince: string | undefined,
+  ): Promise<GitHubInboxResponse> {
+    const query = new URLSearchParams({ per_page: "50", ...(since ? { since } : {}) });
+    const args = ["api", "--include", `notifications?${query}`];
+    if (ifModifiedSince) args.push("-H", `If-Modified-Since: ${ifModifiedSince}`);
+    let stdout: string;
+    try {
+      ({ stdout } = await execFileAsync("gh", args, {
+        encoding: "utf-8",
+        timeout: 20_000,
+        maxBuffer: 32 * 1024 * 1024,
+      }));
+    } catch (err) {
+      const out = (err as { stdout?: unknown }).stdout;
+      if (typeof out !== "string" || !out.startsWith("HTTP/")) throw err;
+      stdout = out;
+    }
+    return parseInboxResponse(stdout);
+  }
+
+  /** The signed-in login, or null if `gh` can't say. */
+  async getLogin(): Promise<string | null> {
+    if (this.login) return this.login;
+    try {
+      const { stdout } = await runGh(["api", "user", "--jq", ".login"], undefined);
+      this.login = stdout.trim() || null;
+    } catch {
+      return null;
+    }
+    return this.login;
+  }
+
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 

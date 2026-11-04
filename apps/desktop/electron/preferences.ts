@@ -19,6 +19,19 @@ export interface AppPreferences {
   notifyOnPrApproved: boolean;
   notifyOnPrChangesRequested: boolean;
   notifyOnPrChecksFailed: boolean;
+  /** The Inbox types (`src/lib/inbox.ts`). */
+  notifyOnGithubReviewRequested: boolean;
+  notifyOnGithubMentioned: boolean;
+  notifyOnGithubAssigned: boolean;
+  notifyOnGithubTeamMentioned: boolean;
+  notifyOnGithubSecurityAlert: boolean;
+  notifyOnLinearAssigned: boolean;
+  notifyOnLinearMentioned: boolean;
+  notifyOnLinearComments: boolean;
+  notifyOnLinearStatusChanges: boolean;
+  notifyOnLinearTriage: boolean;
+  notifyOnLinearReviews: boolean;
+  notifyOnLinearReactions: boolean;
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
@@ -94,6 +107,18 @@ const DEFAULTS: AppPreferences = {
   notifyOnPrApproved: true,
   notifyOnPrChangesRequested: true,
   notifyOnPrChecksFailed: true,
+  notifyOnGithubReviewRequested: true,
+  notifyOnGithubMentioned: true,
+  notifyOnGithubAssigned: true,
+  notifyOnGithubTeamMentioned: false,
+  notifyOnGithubSecurityAlert: false,
+  notifyOnLinearAssigned: true,
+  notifyOnLinearMentioned: true,
+  notifyOnLinearComments: false,
+  notifyOnLinearStatusChanges: false,
+  notifyOnLinearTriage: false,
+  notifyOnLinearReviews: false,
+  notifyOnLinearReactions: false,
   notificationSound: "Glass",
   defaultEditor: "",
   editorIsTerminal: false,

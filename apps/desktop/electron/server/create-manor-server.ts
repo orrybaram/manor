@@ -112,6 +112,7 @@ import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
 import { HostRouting } from "./host-routing";
+import { createDesktopInboxPoller } from "../inbox/desktop-inbox";
 import { readRecipe } from "../backend/providers/recipes";
 import type { HostProxy, HostPtyEvent } from "../backend/host-proxy";
 import type { PendingCommand } from "../layout/pending-commands";
@@ -772,6 +773,18 @@ export function createManorServer<D extends BridgeServerDeps>(
     paneContextMap,
   });
 
+  // GitHub's and Linear's own inboxes, into the bell. The desktop's alone: it
+  // has one sign-in, and a poller per host would report everything per host.
+  const inboxPoller = routing
+    ? createDesktopInboxPoller({
+        dataDir,
+        githubManager,
+        linearManager,
+        projectManager,
+        preferencesManager,
+        notifier,
+      })
+    : null;
   // Automations: fired on this server for the projects on its own host
   // (`../automations/fire-run.ts`). Started in `start()`, once hooks flow.
   const automationStore = new AutomationStore(dataDir);
@@ -993,6 +1006,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       agentFileAuthors,
       githubManager,
       linearManager,
+      ...(inboxPoller ? { inboxStatus: () => inboxPoller.status() } : {}),
       agentHookServer: agentPipeline.ingestion,
       agentManager,
       agentStatus: agentStatusDriver,
@@ -1080,9 +1094,11 @@ export function createManorServer<D extends BridgeServerDeps>(
       // sweep cadence, carries every time-based rule.
       agentPipeline.start();
       automationScheduler.start();
+      inboxPoller?.start();
     },
 
     stop() {
+      void inboxPoller?.stop();
       const automationFires = automationScheduler.stop();
       agentPipeline.ingestion.stop();
       // The layout debounce is 300ms; a stop inside that window must not be

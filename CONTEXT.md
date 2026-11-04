@@ -208,6 +208,11 @@ pane or a workspace) is what it is about: while the subject is on screen in any 
 the toast never appears, and one already up leaves when the subject gets there.
 _Avoid_: notification (the native banner and the bell's log), snackbar, alert
 
+**Inbox**:
+GitHub's or Linear's own notification list for the signed-in user, which the desktop polls
+to add items to the bell. Only items from repos and teams linked to a project count.
+_Avoid_: feed, webhook (nothing is pushed to Manor)
+
 ## Rules that span files
 
 - Hook signals decide an **Agent**'s turn statuses once its root session has sent one.

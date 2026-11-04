@@ -4,6 +4,7 @@ import { Stack } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 import { usePreferencesStore } from "../../store/preferences-store";
+import { InboxCards } from "./InboxCards";
 
 const isMac =
   navigator.platform.includes("Mac") || navigator.userAgent.includes("Mac");
@@ -161,6 +162,8 @@ export function NotificationsPage() {
           />
         </label>
       </Stack>
+
+      <InboxCards />
     </Stack>
   );
 }

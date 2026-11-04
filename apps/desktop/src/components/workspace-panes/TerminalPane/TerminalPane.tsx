@@ -5,10 +5,6 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import "@xterm/xterm/css/xterm.css";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ClipboardPaste from "lucide-react/dist/esm/icons/clipboard-paste";
-import PanelRight from "lucide-react/dist/esm/icons/panel-right";
-import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
-import PanelBottom from "lucide-react/dist/esm/icons/panel-bottom";
-import PanelTop from "lucide-react/dist/esm/icons/panel-top";
 import RotateCw from "lucide-react/dist/esm/icons/rotate-cw";
 import X from "lucide-react/dist/esm/icons/x";
 import { useThemeStore } from "../../../store/theme-store";
@@ -19,9 +15,7 @@ import { useLayerShown } from "../../../lib/layer-shown-context";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { Button } from "../../ui/Button/Button";
-import { ConvertToSubmenu } from "../ConvertToSubmenu";
-import { SplitWithSubmenu } from "../SplitWithSubmenu";
-import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
+import { PaneMenuItems } from "../PaneMenuItems";
 import { TerminalFileLinkMenuItems, TerminalLinkMenuItems } from "./TerminalLinkMenuItems";
 import type { TerminalLink } from "../../../terminal/link-hover";
 import { TerminalSearch } from "./TerminalSearchBar";
@@ -103,7 +97,6 @@ export function TerminalPane(props: TerminalPaneProps) {
     shown,
   );
   const [dismissed, setDismissed] = useState(false);
-  const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);
 
   // A finger on a phone: a tap focuses xterm and raises the
@@ -250,46 +243,7 @@ export function TerminalPane(props: TerminalPaneProps) {
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "horizontal", "second")}
-          >
-            <PanelRight size={14} />
-            Split Right
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "horizontal", "first")}
-          >
-            <PanelLeft size={14} />
-            Split Left
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "vertical", "second")}
-          >
-            <PanelBottom size={14} />
-            Split Down
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, "vertical", "first")}
-          >
-            <PanelTop size={14} />
-            Split Up
-          </ContextMenu.Item>
-
-          <ContextMenu.Separator className={styles.contextMenuSeparator} />
-
-          <SplitWithSubmenu paneId={paneId} containerRef={containerRef} />
-
-          <ContextMenu.Separator className={styles.contextMenuSeparator} />
-
-          <ConvertToSubmenu paneId={paneId} />
-
-          <ContextMenu.Separator className={styles.contextMenuSeparator} />
-
-          <PaneWindowMenuItems paneId={paneId} workspaceKey={workspaceKey} />
+          <PaneMenuItems paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} />
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 

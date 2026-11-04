@@ -210,6 +210,30 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
     add(files);
   };
 
+  /**
+   * `pasteImage` for a paste no key made: reads the clipboard itself, by the
+   * same rule. False when it holds no image to attach, or won't say: the
+   * async read may be refused or missing, and text is read separately.
+   */
+  const pasteClipboardImage = async (): Promise<boolean> => {
+    let items: ClipboardItem[];
+    try {
+      items = (await navigator.clipboard.read?.()) ?? [];
+    } catch {
+      return false;
+    }
+    if (items.some((item) => item.types.includes("text/plain"))) return false;
+    const files: File[] = [];
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (!type) continue;
+      const blob = await item.getType(type);
+      files.push(new File([blob], `pasted.${type.split("/")[1]}`, { type }));
+    }
+    add(files);
+    return files.length > 0;
+  };
+
   // Dropped files are taken whatever they are, so a dropped PDF doesn't
   // navigate the window; only images are attached.
   const dropProps = {
@@ -263,6 +287,7 @@ export function useImageAttachments(opts: UseImageAttachmentsOptions) {
     clear: () => drop(),
     takeMessage,
     pasteImage,
+    pasteClipboardImage,
     dropProps,
     attachButton,
   };

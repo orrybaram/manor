@@ -20,6 +20,11 @@ import type { ChatEntry, ChatPush } from "../../../../electron.d";
 import { ChatPane } from "../ChatPane";
 import { EARLIER_ITEMS, WINDOW_ITEMS } from "../chat-window";
 
+// The pane's menu has its own e2e spec, and the rest of the app behind it.
+vi.mock("../ChatPaneMenu", () => ({
+  ChatPaneMenu: ({ children }: { children: unknown }) => children,
+}));
+
 const PANE = "pane-window";
 const ROW_PX = 40;
 const VIEW_PX = 800;

@@ -27,6 +27,11 @@ vi.hoisted(() => {
 import type { ChatEntry, ChatPush } from "../../../../electron.d";
 import { ChatPane } from "../ChatPane";
 
+// The pane's menu has its own e2e spec, and the rest of the app behind it.
+vi.mock("../ChatPaneMenu", () => ({
+  ChatPaneMenu: ({ children }: { children: unknown }) => children,
+}));
+
 /** One push, any length. */
 const PUSH_BUDGET_MS = 100;
 /** The DOM the chat keeps, any length (the window mounts ~1.2k). */

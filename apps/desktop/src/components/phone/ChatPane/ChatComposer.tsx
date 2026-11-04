@@ -1,6 +1,6 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
-import { useRef, useState } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { ChatSessionInfo } from "../../../electron.d";
 import type { LayoutMode } from "../../../hooks/useLayoutMode";
 import { agentChat } from "../../../lib/agent-chat";
@@ -24,7 +24,14 @@ import {
 } from "./usePaneChatView";
 import { useSlashCommands } from "./useSlashCommands";
 
+/** What the chat's right-click menu asks of its composer. */
+export type ChatComposerHandle = {
+  /** The clipboard into the composer, as ⌘V would: an image attaches, text lands at the caret. */
+  paste: () => void;
+};
+
 type ChatComposerProps = {
+  ref?: Ref<ChatComposerHandle>;
   paneId: string;
   /** The pane's **Agent kind**: what the composer calls the agent and which
    *  `/` menu it offers (`agentChat`). */
@@ -73,7 +80,7 @@ type ChatComposerProps = {
  * keyboard.
  */
 export function ChatComposer(props: ChatComposerProps) {
-  const { paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, lastMessageAt, onToggleAgents, taskViewOpen, taskViewDocked, session, layout } =
+  const { ref, paneId, agentKind, busy, transcript, contextTokens, tasks, onRevealTask, lastMessageAt, onToggleAgents, taskViewOpen, taskViewDocked, session, layout } =
     props;
   const chatOf = agentChat(agentKind);
 
@@ -153,6 +160,23 @@ export function ChatComposer(props: ChatComposerProps) {
     const { message, sent } = images.takeMessage(text);
     sendText(message, sent);
   };
+
+  useImperativeHandle(ref, () => ({
+    paste: () => {
+      void (async () => {
+        try {
+          if (await images.pasteClipboardImage()) return;
+          const pasted = await navigator.clipboard.readText();
+          const el = inputRef.current;
+          if (!pasted || !el) return;
+          const { value, selectionStart: start, selectionEnd: end } = el;
+          fill(value.slice(0, start) + pasted + value.slice(end), start + pasted.length);
+        } catch {
+          setError("Couldn't read the clipboard.");
+        }
+      })();
+    },
+  }));
 
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {

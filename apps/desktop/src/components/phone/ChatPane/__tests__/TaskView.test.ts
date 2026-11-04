@@ -18,6 +18,11 @@ import type { LayoutMode } from "../../../../hooks/useLayoutMode";
 import { useAppStore } from "../../../../store/app-store";
 import { ChatPane } from "../ChatPane";
 
+// The pane's menu has its own e2e spec, and the rest of the app behind it.
+vi.mock("../ChatPaneMenu", () => ({
+  ChatPaneMenu: ({ children }: { children: unknown }) => children,
+}));
+
 const PANE = "pane-tasks";
 
 function agent(id: string, over: Partial<Extract<ChatEntry, { kind: "task" }>> = {}): ChatEntry {

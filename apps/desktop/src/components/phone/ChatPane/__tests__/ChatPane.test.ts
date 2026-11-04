@@ -33,6 +33,11 @@ import { useAppStore } from "../../../../store/app-store";
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
 import { emitBridgeResync } from "../../../../bridge/resync";
 
+// The pane's menu has its own e2e spec, and the rest of the app behind it.
+vi.mock("../ChatPaneMenu", () => ({
+  ChatPaneMenu: ({ children }: { children: unknown }) => children,
+}));
+
 const PANE = "pane-1";
 /** The live line: a present-tense Manor verb, "…", and the time so far. */
 const LIVE_LINE = new RegExp(`^(${MANOR_VERBS.map((v) => v.present).join("|")})…\\d`);

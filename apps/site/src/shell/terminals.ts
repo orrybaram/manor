@@ -57,7 +57,7 @@ function codexAsk(): string[] {
     askRow('<span class="y">Allow command?</span>', width),
     askRow("pnpm vitest run FileTree", width),
     askRow("", width),
-    `<span class="y">│</span> ${choice("yes", "▸ Yes", true)}   ${choice("always", "Always for this session")}   ${choice("no", "No, tell me")} <span class="y">│</span>`,
+    `<span class="y">│</span> ${choice("yes", '<span class="ma-choice-mark">▸</span> Yes', true)}   ${choice("always", "Always for this session")}   ${choice("no", "No, tell me")} <span class="y">│</span>`,
     `<span class="y">╰${line}╯</span>`,
   ];
 }

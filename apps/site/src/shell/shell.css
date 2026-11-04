@@ -298,6 +298,9 @@
 .ma-cursor-outline { background: transparent; box-shadow: inset 0 0 0 1px var(--term-cursor); }
 .ma-choice { display: inline; font: inherit; line-height: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 .ma-choice:hover, .ma-choice.sel { background: var(--fg); color: var(--bg); }
+/* Buttons reset text-rendering, which rounds cells to 8px, and ▸ falls back to a wider font: hold both to the grid, or the box's edge jogs. */
+.ma-term button { text-rendering: inherit; }
+.ma-choice-mark { display: inline-block; width: 1ch; overflow: hidden; vertical-align: top; }
 
 /* components/ui/Toast/Toast.module.css, in the window rather than the viewport */
 .ma-toasts { position: absolute; bottom: 16px; right: 16px; width: 340px; z-index: 9999; pointer-events: none; }

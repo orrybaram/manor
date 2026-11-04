@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.26.3] - 2026-11-04
+
+### Features
+
+- **GitHub and Linear in the bell**
+  - Review requests, mentions and assignments now reach the bell for repos and teams linked to a project. This runs on the desktop only.
+  - Settings › Notifications has a switch for each type. Review requested, Mentioned and Assigned are on by default for GitHub, and Assigned and Mentioned for Linear.
+  - GitHub's Team mentioned and Security alert start off. So do Linear's Comments and replies, Status changes, Triage, Reviews and Reactions.
+- Right-clicking in a desktop chat now offers what the pane's terminal does, including on links. Copy and Paste work on the chat's text and composer, and Show Terminal replaces Reset Terminal.
+
+### Fixes
+
+- Clicking around a page while picking no longer runs up the notes count on the pill. A pick now only opens a new note, which joins the queue once you type in it or save it.
+
 ## [0.26.2] - 2026-11-03
 
 ### Improvements

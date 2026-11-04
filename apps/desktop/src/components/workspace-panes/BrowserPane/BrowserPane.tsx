@@ -73,7 +73,7 @@ export interface BrowserPaneRef {
   goForward(): void;
   reload(): void;
   stop(): void;
-  /** Arm picking: each click on the page adds a note, until Escape. */
+  /** Arm picking: each click on the page opens a new note, until Escape. */
   startPicker(): void;
   cancelPicker(): void;
   togglePicker(): void;

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * `usePageNotes`: each pick the page reports becomes a numbered note whose
- * pin the page is told to draw; Send uploads each screenshot to the
+ * `usePageNotes`: each pick the page reports opens a numbered note whose pin
+ * the page is told to draw, and joins the queue once written or saved; Send uploads each screenshot to the
  * workspace's host and delivers one prompt citing those paths, then the
  * queue and its pins are gone.
  */
@@ -91,13 +91,18 @@ afterEach(() => {
 const latestNotes = () => probe.current!;
 
 describe("usePageNotes", () => {
-  it("queues picks in order, opens each note, and numbers their pins", () => {
+  const picked = (id: string, paneId = "pane-1") =>
+    (handlers.picked as (p: string, k: PagePick) => void)(paneId, pick(id));
+  const ids = (list: { id: string }[]) => list.map((n) => n.id);
+
+  it("queues written picks in order, opens each note, and numbers their pins", () => {
     act(() => {
-      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1"));
-      (handlers.picked as (p: string, k: PagePick) => void)("other-pane", pick("x"));
-      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("2"));
+      picked("1");
+      latestNotes().setNote("1", "Too tall");
+      picked("x", "other-pane");
+      picked("2");
     });
-    expect(latestNotes().notes.map((n) => n.id)).toEqual(["1", "2"]);
+    expect(ids(latestNotes().notes)).toEqual(["1", "2"]);
     expect(latestNotes().notes[0].url).toBe("http://localhost:3000/");
     expect(latestNotes().openId).toBe("2");
     expect(webview.syncPins).toHaveBeenLastCalledWith("pane-1", [
@@ -107,9 +112,77 @@ describe("usePageNotes", () => {
 
     // Typing a note doesn't redraw the pins.
     const syncs = webview.syncPins.mock.calls.length;
-    act(() => latestNotes().setNote("1", "Too tall"));
-    expect(latestNotes().notes[0].note).toBe("Too tall");
+    act(() => latestNotes().setNote("1", "Taller"));
+    expect(latestNotes().notes[0].note).toBe("Taller");
     expect(webview.syncPins.mock.calls.length).toBe(syncs);
+  });
+
+  it("counts a new note only once it has words, and clicking around collects nothing", () => {
+    act(() => picked("1"));
+    expect(ids(latestNotes().notes)).toEqual(["1"]);
+    expect(latestNotes().kept).toEqual([]);
+
+    act(() => picked("2"));
+    act(() => picked("3"));
+    expect(ids(latestNotes().notes)).toEqual(["3"]);
+    expect(latestNotes().kept).toEqual([]);
+    expect(webview.syncPins).toHaveBeenLastCalledWith("pane-1", [{ id: "3", label: "1" }]);
+
+    act(() => latestNotes().setNote("3", "Too tall"));
+    expect(ids(latestNotes().kept)).toEqual(["3"]);
+    act(() => picked("4"));
+    expect(ids(latestNotes().kept)).toEqual(["3"]);
+  });
+
+  it("keeps a new note saved empty, and a saved one stays however it is closed", () => {
+    act(() => picked("1"));
+    act(() => latestNotes().saveOpen());
+    expect(latestNotes().openId).toBeNull();
+    expect(ids(latestNotes().kept)).toEqual(["1"]);
+
+    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "1"));
+    act(() => latestNotes().skipOpen());
+    expect(ids(latestNotes().kept)).toEqual(["1"]);
+    act(() => picked("2"));
+    expect(ids(latestNotes().kept)).toEqual(["1"]);
+  });
+
+  it("drops a new note on Escape, even one typed into and put back", () => {
+    act(() => picked("1"));
+    act(() => latestNotes().setNote("1", "Too tall"));
+    act(() => {
+      latestNotes().setNote("1", "");
+      latestNotes().skipOpen();
+    });
+    expect(latestNotes().notes).toEqual([]);
+    expect(latestNotes().openId).toBeNull();
+  });
+
+  it("drops an empty new note when another pin opens, or the page navigates", () => {
+    act(() => picked("1"));
+    act(() => latestNotes().saveOpen());
+    act(() => picked("2"));
+    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "1"));
+    expect(ids(latestNotes().notes)).toEqual(["1"]);
+    expect(latestNotes().openId).toBe("1");
+
+    act(() => picked("3"));
+    act(() => {
+      page.dispatchEvent(new Event("did-navigate"));
+    });
+    expect(ids(latestNotes().notes)).toEqual(["1"]);
+  });
+
+  it("leaves an open empty note out of Send, and drops it after", async () => {
+    act(() => picked("1"));
+    act(() => latestNotes().setNote("1", "Too tall"));
+    act(() => picked("2"));
+    await act(() => latestNotes().send({ kind: "new" }));
+    const [, prompt] = sendPromptToAgent.mock.calls[0] as [string, string];
+    expect(prompt).toContain("I left a note");
+    expect(prompt).not.toContain("nth-child(2)");
+    expect(latestNotes().notes).toEqual([]);
+    expect(latestNotes().openId).toBeNull();
   });
 
   it("ends picking when the page says Escape", () => {
@@ -118,10 +191,12 @@ describe("usePageNotes", () => {
   });
 
   it("sends one prompt citing each screenshot on the workspace's host, then empties", async () => {
-    act(() => {
-      for (const id of ["1", "2", "3"]) (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick(id));
-    });
+    act(() => picked("1"));
     act(() => latestNotes().setNote("1", "Show seats used"));
+    for (const id of ["2", "3"]) {
+      act(() => picked(id));
+      act(() => latestNotes().saveOpen());
+    }
 
     const target = { kind: "agent", agent: { id: "a", paneId: "pane-a" } as AgentInfo } as const;
     await act(() => latestNotes().send(target));
@@ -145,7 +220,8 @@ describe("usePageNotes", () => {
   });
 
   it("copies citing the screenshots on the workspace's host, and keeps the queue", async () => {
-    act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
+    act(() => picked("1"));
+    act(() => latestNotes().saveOpen());
     await act(() => latestNotes().copy());
     expect(webview.uploadPinShot).toHaveBeenCalledWith("shot-1", "box");
     const text = (window.electronAPI.clipboard.writeText as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -154,27 +230,35 @@ describe("usePageNotes", () => {
   });
 
   it("keeps the notes when the send didn't go", async () => {
-    act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
+    act(() => picked("1"));
+    act(() => latestNotes().saveOpen());
     sendPromptToAgent.mockReturnValueOnce(false);
     await act(() => latestNotes().send({ kind: "new" }));
     expect(sendPromptToAgent).toHaveBeenCalledTimes(1);
     expect(latestNotes().notes).toHaveLength(1);
   });
 
-  it("opens a note only for a pick made while armed, or a pin it holds", () => {
+  it("takes a pick only while armed, and opens a note only for a pin it holds", () => {
     picking = false;
-    act(() => (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1")));
-    expect(latestNotes().openId).toBeNull();
-    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "not-a-pin"));
+    act(() => picked("1"));
+    expect(latestNotes().notes).toEqual([]);
     expect(latestNotes().openId).toBeNull();
     act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "1"));
-    expect(latestNotes().openId).toBe("1");
+    expect(latestNotes().openId).toBeNull();
+
+    picking = true;
+    act(() => picked("2"));
+    act(() => latestNotes().saveOpen());
+    act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "2"));
+    expect(latestNotes().openId).toBe("2");
   });
 
   it("keeps the notes over a navigation, but not their pins, the open note or picking", () => {
+    act(() => picked("1"));
+    act(() => latestNotes().saveOpen());
+    act(() => picked("2"));
+    act(() => latestNotes().setNote("2", "Too tall"));
     act(() => {
-      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1"));
-      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("2"));
       (handlers.moved as (p: string, l: unknown) => void)("pane-1", {
         pins: [{ id: "1", x: 0, y: 0, width: 10, height: 10, gone: false }],
         viewport: { width: 800, height: 600 },

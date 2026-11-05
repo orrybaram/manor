@@ -115,6 +115,12 @@ describe("resolveBindings", () => {
 });
 
 describe("DEFAULT_KEYBINDINGS", () => {
+  it("lists Toggle Blame, to bind, with no key of its own", () => {
+    const def = DEFAULT_KEYBINDINGS.find((d) => d.id === "toggle-file-blame");
+    expect(def?.label).toBe("Toggle Blame");
+    expect(def?.defaultCombo).toBeUndefined();
+  });
+
   it("has unique ids", () => {
     const ids = DEFAULT_KEYBINDINGS.map((d) => d.id);
     expect(new Set(ids).size).toBe(ids.length);

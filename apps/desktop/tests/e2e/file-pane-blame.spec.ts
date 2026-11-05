@@ -2,9 +2,10 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import type { Page, TestInfo } from "@playwright/test";
-import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
+import { bootWorkspaceWithTerminal, expect, killApp, launchApp, test } from "./fixtures";
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
 import { header, openFileFromPalette, openFromTree, pane } from "./helpers/file-pane";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * Inline blame in the file pane (#499): a toggle in the header and the
@@ -40,6 +41,10 @@ const toggle = (window: Page) => header(window).locator('[data-testid="file-pane
 const firsts = (window: Page) => column(window).locator(".cm-blameFirst");
 
 function commit(ws: string, file: string, text: string, ...message: string[]): void {
+  commitAs("Ada Lovelace", ws, file, text, ...message);
+}
+
+function commitAs(author: string, ws: string, file: string, text: string, ...message: string[]): void {
   fs.writeFileSync(path.join(ws, file), text);
   execSync(`git add ${file}`, { cwd: ws });
   const args = message.map((m) => `-m ${JSON.stringify(m)}`).join(" ");
@@ -47,7 +52,7 @@ function commit(ws: string, file: string, text: string, ...message: string[]): v
     cwd: ws,
     env: {
       ...process.env,
-      GIT_AUTHOR_NAME: "Ada Lovelace",
+      GIT_AUTHOR_NAME: author,
       GIT_AUTHOR_EMAIL: "ada@example.com",
       GIT_AUTHOR_DATE: "2024-03-01T12:00:00Z",
     },
@@ -74,7 +79,7 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
   const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
 
-  commit(ws, "story.txt", "one\ntwo\n", "Start the story");
+  commitAs("Grace Hopper", ws, "story.txt", "one\ntwo\n", "Start the story");
   commit(
     ws,
     "story.txt",
@@ -103,7 +108,8 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(toggle(window)).toHaveAttribute("aria-pressed", "true");
   await expect(firsts(window)).toHaveCount(2);
   await expect(firsts(window).nth(0)).toContainText("Start the story");
-  await expect(firsts(window).nth(0).locator(".cm-blameInitials")).toHaveText("AL");
+  await expect(firsts(window).nth(0).locator(".cm-blameInitials")).toHaveText("GH");
+  await expect(firsts(window).nth(1).locator(".cm-blameInitials")).toHaveText("AL");
   await expect(firsts(window).nth(0).locator(".cm-blameAge")).toHaveText(/\d+y$/);
   await expect(firsts(window).nth(1)).toContainText("Finish the story");
   await window.waitForTimeout(300);
@@ -116,6 +122,15 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   }));
   expect(sides.column).toBeGreaterThan(sides.code);
   expect(sides.columnRight).toBeLessThanOrEqual(sides.editorRight + 1);
+  // Each author's bracket is drawn, in their own colour.
+  const brackets = await firsts(window).evaluateAll((cells) =>
+    cells.map((cell) => {
+      const before = getComputedStyle(cell.querySelector(".cm-blameRow")!, "::before");
+      return { color: before.backgroundColor, width: before.width };
+    }),
+  );
+  expect(brackets[0].width).toBe("2px");
+  expect(brackets[0].color).not.toBe(brackets[1].color);
   await window.screenshot({ path: shot(testInfo, "blame-on") });
 
   // The choice outlives the window's page.
@@ -147,6 +162,9 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(firsts(window)).toHaveCount(3);
   await expect(firsts(window).nth(0)).toContainText("Not committed yet");
   await expect(firsts(window).nth(1)).toContainText("Start the story");
+  // The change marks keep working beside it: the bar on the line, and the lane.
+  await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(1);
+  await expect(pane(window).locator('[data-testid="file-pane-mark"][data-kind="mine"]')).toHaveCount(1);
   await window.screenshot({ path: shot(testInfo, "blame-unsaved") });
 
   // Undo gives the line's blame back.
@@ -190,6 +208,21 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   commit(ws, "draft.txt", "not in git\n", "Commit the draft");
   await expect(toggle(window)).toBeEnabled({ timeout: 30_000 });
   await expect(firsts(window).first()).toContainText("Commit the draft", { timeout: 30_000 });
+
+  // A save runs blame again: with git set to refuse, the save brings its message.
+  execSync("git config blame.ignoreRevsFile no-such-file", { cwd: ws });
+  await editor.locator(".cm-content").click();
+  await window.keyboard.press("ControlOrMeta+End");
+  await window.keyboard.type("saved line");
+  await window.keyboard.press("ControlOrMeta+s");
+  const saveNote = pane(window).locator('[data-testid="file-pane-blame-note"]');
+  await expect(saveNote).toContainText("no-such-file", { timeout: 30_000 });
+  await expect(column(window)).toHaveCount(0);
+  execSync("git config --unset blame.ignoreRevsFile", { cwd: ws });
+  await window.keyboard.press("Backspace");
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect(saveNote).toHaveCount(0, { timeout: 30_000 });
+  await expect(firsts(window).first()).toBeVisible();
 
   // Blame that hangs (git blocks opening a pipe nobody writes): the real time
   // limit ends it, the note says why, and the editor works throughout.
@@ -314,4 +347,41 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(column(window)).toHaveCount(0);
   await window.screenshot({ path: shot(testInfo, "blame-no-repo") });
   fs.renameSync(path.join(ws, ".git-away"), path.join(ws, ".git"));
+});
+
+/** Launches its own apps: the fixture owns the shutdown of the one it made. */
+test("the choice survives a restart, and comes back on with the file", async ({ tempHome }) => {
+  test.setTimeout(120_000);
+  const first = await launchApp(tempHome);
+  try {
+    const window = await first.firstWindow();
+    await waitForAppDocument(window);
+    await bootWorkspaceWithTerminal(first, window, tempHome, "ws-relaunch");
+    const termId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, termId);
+    await runInTerminal(window, 'pwd > "$HOME/ws-path"');
+    await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+    const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+    commit(ws, "story.txt", "one\n", "Start the story");
+    await openFileFromPalette(window);
+    await openFromTree(window, ["story.txt"]);
+    await toggle(window).click();
+    await expect(firsts(window).first()).toContainText("Start the story");
+    await window.waitForTimeout(1_500); // past localStorage's write to disk
+  } finally {
+    await killApp(first);
+  }
+
+  const relaunched = await launchApp(tempHome);
+  try {
+    const window = await relaunched.firstWindow();
+    await waitForAppDocument(window);
+    await expect
+      .poll(() => window.evaluate(() => localStorage.getItem("manor:fileBlame")), { timeout: 30_000 })
+      .toBe("1");
+    await expect(firsts(window).first()).toContainText("Start the story", { timeout: 30_000 });
+    await expect(toggle(window)).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await killApp(relaunched);
+  }
 });

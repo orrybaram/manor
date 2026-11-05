@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.26.4] - 2026-11-04
+
+### Features
+
+- **Inline git blame in the file pane**
+  - A column to the right of the code shows which commit each run of lines came from, with a bracket in each author's colour. Hovering shows the full message, short SHA and date.
+  - It works in the plain editor and the diff view, and on a remote workspace blame runs on its host. Lines keep their commits through unsaved edits.
+  - The toggle is remembered, applies to every window, and can be bound to a key. The code doesn't move when you toggle it.
+- **Open any file in the file viewer**
+  - Run `manor <path>` from the CLI. An argument counts as a file only if it isn't a command and either contains a `/` or exists in the current directory, so a mistyped command is still reported as unknown. Use `./api` to reach a file named `api`.
+  - Go to File (⌘P) also accepts a full path, and agents can do the same with the `open_file` tool.
+
+### Fixes
+
+- Replies that Claude Code saves as an "updates" thinking block now show in desktop and phone chats, as they already did in the terminal.
+
 ## [0.26.3] - 2026-11-04
 
 ### Features

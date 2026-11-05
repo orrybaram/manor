@@ -198,7 +198,9 @@ export function openFileInActiveWorkspace(path: string): void {
  * The CLI asked to see a file (`layout.showFile`). The window showing the
  * pane's workspace brings it forward; another workspace's tab just waits
  * there, so a background agent can't pull the user away. A phone keeps its
- * place.
+ * place. The event comes from whichever host sent it, so it only brings
+ * forward a pane already holding that file: which file a pane holds is the
+ * layout's to say, and the route put the file there before asking.
  */
 export function showFileFromCli({ paneId, path, line, col }: LayoutShowFilePayload): void {
   // A detached window holds one tab; the primary window shows the rest.
@@ -206,5 +208,6 @@ export function showFileFromCli({ paneId, path, line, col }: LayoutShowFilePaylo
   const app = useAppStore.getState();
   const place = placeOf(app.workspaceLayouts, paneId);
   if (!place || place.workspaceKey !== selectActiveWorkspaceKey(app)) return;
+  if (selectPaneFilePath(app, paneId) !== path) return;
   showFileInPane(paneId, path, { line, col });
 }

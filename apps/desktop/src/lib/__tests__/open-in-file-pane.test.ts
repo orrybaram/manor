@@ -252,5 +252,15 @@ describe("showFileFromCli", () => {
     showFileFromCli({ paneId: "gone", path: "/etc/hosts" });
     expect(app.focusPane).not.toHaveBeenCalled();
   });
+
+  // The event comes from a host; which file a pane holds is the layout's.
+  it("never changes the file a pane holds", () => {
+    app.setPaneFilePath.mockClear();
+    files.dispatch.mockClear();
+    showFileFromCli({ paneId: "file", path: "/home/me/.ssh/config" });
+    expect(app.setPaneFilePath).not.toHaveBeenCalled();
+    expect(files.dispatch).not.toHaveBeenCalled();
+    expect(app.focusPane).not.toHaveBeenCalled();
+  });
 });
 

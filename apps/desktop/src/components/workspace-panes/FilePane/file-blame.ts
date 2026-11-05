@@ -62,6 +62,14 @@ export function useFileBlameAvailable(paneId: string): boolean {
   return known && opened;
 }
 
+/** `useFileBlameAvailable`, right now, for a command. */
+export function fileBlameAvailable(paneId: string): boolean {
+  return (
+    (usePaneBlame.getState().byPane[paneId]?.available ?? false) &&
+    useOpenFileStore.getState().byPane[paneId]?.status === "ready"
+  );
+}
+
 /** How a follower reaches git for one file. */
 export type BlameReads = {
   revision: () => Promise<string | null>;

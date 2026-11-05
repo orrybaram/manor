@@ -100,6 +100,8 @@ export interface SharedCommandContext {
   focusedPaneId(): string | null;
   /** Flip an agent pane between its chat and its terminal; nothing for a pane with no chat. */
   togglePaneChat(paneId: string): void;
+  /** Show or hide blame in file panes, if the focused pane's file can be blamed. */
+  toggleFileBlame(): void;
   copyToClipboard(text: string, label: string): void;
   startNewAgent(): void;
   /** Move the active panel's selected tab to the next panel, wrapping. */
@@ -388,6 +390,16 @@ export const COMMANDS: readonly CommandDef[] = [
       const paneId = ctx.focusedPaneId();
       if (paneId) ctx.togglePaneChat(paneId);
     },
+  },
+  {
+    id: "toggle-file-blame",
+    label: "Toggle Blame",
+    category: "workspace",
+    defaultCombo: null,
+    scope: "any",
+    // The phone's file pane doesn't show blame.
+    web: false,
+    run: (ctx) => ctx.toggleFileBlame(),
   },
   {
     id: "history-back",

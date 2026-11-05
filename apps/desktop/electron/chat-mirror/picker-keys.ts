@@ -107,7 +107,8 @@ export function encodePlanApproval(): string {
  *
  * Submit with a separate `CHAT_SUBMIT` write (`chat-keys.ts`): in the same write as the text,
  * Claude Code sometimes reads the whole burst as a paste and the CR becomes a
- * new line instead of submitting.
+ * new line instead of submitting. Its adapter wraps these bytes in a bracketed
+ * paste (`adapters/claude.ts`).
  */
 export function encodeChatMessage(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");

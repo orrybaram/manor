@@ -59,3 +59,16 @@ describe("claudeAdapter.createParser", () => {
     ]);
   });
 });
+
+describe("claudeAdapter.promptWrites", () => {
+  it("sends the text as one bracketed paste, then Enter on its own", () => {
+    expect(claudeAdapter.promptWrites("fix it\r\nthen test")).toEqual([
+      "\x1b[200~fix it\nthen test\x1b[201~",
+      "\r",
+    ]);
+  });
+
+  it("doesn't let the text close the paste early", () => {
+    expect(claudeAdapter.promptWrites("a\x1b[201~b")).toEqual(["\x1b[200~a[201~b\x1b[201~", "\r"]);
+  });
+});

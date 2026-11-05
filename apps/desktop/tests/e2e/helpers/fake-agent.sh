@@ -62,6 +62,9 @@ line=""
 while IFS= read -r -n 1 char; do
   # An empty read is a newline; bash strips its own delimiter.
   if [ -z "$char" ] || [ "$char" = $'\r' ]; then
+    # A prompt arrives as a bracketed paste, its Escs already dropped below.
+    line="${line//\[200~/}"
+    line="${line//\[201~/}"
     [ -n "$line" ] || continue
     # With FAKE_AGENT_CLEARS set, "/clear" does what a real agent's does: this
     # session ends, and a new one starts in the same process, with no turn.

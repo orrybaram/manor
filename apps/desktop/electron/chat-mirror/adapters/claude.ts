@@ -27,7 +27,14 @@ export const claudeAdapter: TranscriptAdapter = {
       `agent-${task.taskRef}.jsonl`,
     );
   },
-  // Text, then Enter on its own: in one write Claude Code can read the burst
-  // as a paste and the Enter as a new line.
-  promptWrites: (text) => [encodeChatMessage(text), CHAT_SUBMIT],
+  /**
+   * The text as one bracketed paste, then Enter on its own (in one write the
+   * Enter can read as a new line). Unbracketed, Claude Code guesses at pastes
+   * from how the bytes arrive, and a long prompt arrives in pieces where a pty
+   * splits it (1022 bytes on macOS): each piece became its own paste, cut
+   * mid-word. Brackets span the pieces. Short text still arrives as typed, and
+   * a slash command still runs. `encodeChatMessage` drops Esc and other control
+   * bytes, so the text can't close the paste early.
+   */
+  promptWrites: (text) => [`\x1b[200~${encodeChatMessage(text)}\x1b[201~`, CHAT_SUBMIT],
 };

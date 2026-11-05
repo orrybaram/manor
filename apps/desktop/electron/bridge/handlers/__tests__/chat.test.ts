@@ -29,16 +29,16 @@ describe("chat.send and chat.interrupt per agent kind", () => {
     vi.useRealTimers();
   });
 
-  it("types a Claude prompt as LF-joined text, then Enter after a pause", async () => {
+  it("types a Claude prompt as one LF-joined paste, then Enter after a pause", async () => {
     vi.useFakeTimers();
     const { write, ctx } = setup();
     const sent = chatSend(ctx, "p1", "one\r\ntwo");
     await vi.advanceTimersByTimeAsync(0);
-    expect(write.mock.calls).toEqual([["p1", "one\ntwo"]]);
+    expect(write.mock.calls).toEqual([["p1", "\x1b[200~one\ntwo\x1b[201~"]]);
     await vi.advanceTimersByTimeAsync(120);
     await sent;
     expect(write.mock.calls).toEqual([
-      ["p1", "one\ntwo"],
+      ["p1", "\x1b[200~one\ntwo\x1b[201~"],
       ["p1", "\r"],
     ]);
   });
@@ -51,7 +51,7 @@ describe("chat.send and chat.interrupt per agent kind", () => {
     await sent;
     await chatInterrupt(ctx, "p0");
     expect(write.mock.calls).toEqual([
-      ["p0", "hi"],
+      ["p0", "\x1b[200~hi\x1b[201~"],
       ["p0", "\r"],
       ["p0", "\x1b"],
     ]);
@@ -110,9 +110,9 @@ describe("serialized per-pane writes", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await Promise.all([a, b]);
     expect(write.mock.calls).toEqual([
-      ["p1", "A"],
+      ["p1", "\x1b[200~A\x1b[201~"],
       ["p1", "\r"],
-      ["p1", "B"],
+      ["p1", "\x1b[200~B\x1b[201~"],
       ["p1", "\r"],
     ]);
   });
@@ -126,7 +126,7 @@ describe("serialized per-pane writes", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await Promise.all([send, key, stop]);
     expect(write.mock.calls).toEqual([
-      ["p1", "A"],
+      ["p1", "\x1b[200~A\x1b[201~"],
       ["p1", "\r"],
       ["p1", "\x1b[A"],
       ["p1", "\x1b"],
@@ -141,7 +141,7 @@ describe("serialized per-pane writes", () => {
     await vi.advanceTimersByTimeAsync(0);
     await k;
     expect(write.mock.calls).toEqual([
-      ["p1", "A"],
+      ["p1", "\x1b[200~A\x1b[201~"],
       ["p2", "\r"],
     ]);
     await vi.advanceTimersByTimeAsync(1000);

@@ -30,8 +30,9 @@ function paneLocator(page: Page, paneId: string) {
   return page.locator(`[data-testid="workspace-pane"][data-pane-id="${paneId}"]`);
 }
 
+/** What the agent was sent, without the bracketed paste a prompt arrives in. */
 function inputLog(file: string): string {
-  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER) : "";
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER).replace(/\x1b\[20[01]~/g, "") : "";
 }
 
 function agentPid(transcriptFile: string): number {

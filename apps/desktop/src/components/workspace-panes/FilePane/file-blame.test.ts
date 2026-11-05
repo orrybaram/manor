@@ -1,6 +1,7 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BlameResult } from "../../../electron.d";
-import { createBlameFollower, type PaneBlame } from "./file-blame";
+import { createBlameFollower, useBlamePref, type PaneBlame } from "./file-blame";
 
 const ok = (sha: string): BlameResult => ({
   ok: true,
@@ -16,10 +17,11 @@ function setup() {
   const status: PaneBlame[] = [];
   const revision = vi.fn(async (): Promise<string | null> => "head1");
   const blame = vi.fn(async (): Promise<BlameResult> => ok("a"));
-  const follower = createBlameFollower({ revision, blame }, (s) => status.push(s));
+  const text = vi.fn(async (): Promise<string | null> => "one\n");
+  const follower = createBlameFollower({ revision, blame, text }, (s) => status.push(s));
   const shown: (string | null)[] = [];
   follower.follow((b) => shown.push(b ? b.commits[0].sha : null));
-  return { follower, revision, blame, status, shown };
+  return { follower, revision, blame, text, status, shown };
 }
 
 describe("createBlameFollower", () => {
@@ -69,6 +71,34 @@ describe("createBlameFollower", () => {
     answer(ok("late"));
     await flush();
     expect(t.shown).toEqual([]);
+  });
+
+  it("clears the column at once when turned off, whatever git is doing", async () => {
+    t.follower.start(true);
+    await flush();
+    t.blame.mockReturnValue(new Promise(() => {}));
+    t.follower.fileChanged();
+    await flush();
+    t.follower.setOn(false);
+    expect(t.shown).toEqual(["a", null]);
+    expect(t.status[t.status.length - 1]).toEqual({ available: true, note: null });
+  });
+
+  it("gives each blame the text git read", async () => {
+    const heard: unknown[] = [];
+    t.follower.follow((b) => heard.push(b?.text));
+    t.text.mockResolvedValue("on disk\n");
+    t.follower.start(true);
+    await flush();
+    expect(heard).toEqual(["on disk\n"]);
+  });
+
+  it("shows nothing, with a note, when the file can't be read for its blame", async () => {
+    t.text.mockResolvedValue(null);
+    t.follower.start(true);
+    await flush();
+    expect(t.shown).toEqual([]);
+    expect(t.status[t.status.length - 1].note).toContain("Couldn't read");
   });
 
   it("hands a new listener the blame already there", async () => {
@@ -145,5 +175,17 @@ describe("createBlameFollower", () => {
     await flush();
     expect(t.status).toEqual([]);
     expect(t.blame).not.toHaveBeenCalled();
+  });
+});
+
+describe("the remembered choice", () => {
+  it("follows a toggle in another window", () => {
+    useBlamePref.setState({ on: false });
+    window.dispatchEvent(new StorageEvent("storage", { key: "manor:fileBlame", newValue: "1" }));
+    expect(useBlamePref.getState().on).toBe(true);
+    window.dispatchEvent(new StorageEvent("storage", { key: "other", newValue: "0" }));
+    expect(useBlamePref.getState().on).toBe(true);
+    window.dispatchEvent(new StorageEvent("storage", { key: "manor:fileBlame", newValue: "0" }));
+    expect(useBlamePref.getState().on).toBe(false);
   });
 });

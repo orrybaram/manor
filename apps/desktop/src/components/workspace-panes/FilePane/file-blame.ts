@@ -15,6 +15,14 @@ function loadPref(): boolean {
 /** Whether file panes show blame: off until you turn it on, and then kept across relaunches. */
 export const useBlamePref = create<{ on: boolean }>(() => ({ on: loadPref() }));
 
+// Another window's toggle: each window has its own store, and they share the
+// remembered choice.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === PREF_KEY) useBlamePref.setState({ on: event.newValue === "1" });
+  });
+}
+
 export function toggleBlame(): void {
   const on = !useBlamePref.getState().on;
   useBlamePref.setState({ on });
@@ -74,13 +82,18 @@ export function fileBlameAvailable(paneId: string): boolean {
 export type BlameReads = {
   revision: () => Promise<string | null>;
   blame: () => Promise<BlameResult>;
+  /** The file on disk, as the editor would show it; null when it can't be read. */
+  text: () => Promise<string | null>;
 };
+
+/** A blame, and the text it counts lines of: what was on disk when it was read. */
+export type ShownBlame = FileBlame & { text: string };
 
 export type BlameFollower = {
   /** Begin, or begin again after `stop`, with blame `on` or off. */
   start(on: boolean): void;
   /** Hear each new blame to show (null for none), starting with the current one. */
-  follow(onChange: (blame: FileBlame | null) => void): () => void;
+  follow(onChange: (blame: ShownBlame | null) => void): () => void;
   /** Blame on or off. */
   setOn(on: boolean): void;
   /** The file on disk changed (a save, a reload): the blame is out of date. */
@@ -100,15 +113,15 @@ export function createBlameFollower(
   onStatus: (status: PaneBlame) => void,
 ): BlameFollower {
   let on = false;
-  let listener: ((blame: FileBlame | null) => void) | null = null;
-  let shown: FileBlame | null = null;
+  let listener: ((blame: ShownBlame | null) => void) | null = null;
+  let shown: ShownBlame | null = null;
   let stopped = true;
   let running = false;
   let again = false;
   let due = true;
   let revision: string | null | undefined;
 
-  const show = (blame: FileBlame | null) => {
+  const show = (blame: ShownBlame | null) => {
     if (blame === shown) return;
     shown = blame;
     listener?.(blame);
@@ -131,23 +144,26 @@ export function createBlameFollower(
     }
     if (!due) return;
     due = false;
-    const result = await reads.blame().catch(
-      (err: unknown): BlameResult => ({
-        ok: false,
-        reason: "failed",
-        message: err instanceof Error ? err.message : "Couldn't read blame",
-      }),
-    );
-    // Turned off while it ran: the pass that turned it off has cleared the column.
+    const [result, text] = await Promise.all([
+      reads.blame().catch(
+        (err: unknown): BlameResult => ({
+          ok: false,
+          reason: "failed",
+          message: err instanceof Error ? err.message : "Couldn't read blame",
+        }),
+      ),
+      reads.text().catch(() => null),
+    ]);
+    // Turned off while it ran: the column has already gone.
     if (stopped || !on) return;
     // The file changed while git read it: this answer is for a file that's gone, and the next pass reads it again.
     if (due) return;
-    if (result.ok) {
-      show({ commits: result.commits, lines: result.lines });
+    if (result.ok && text !== null) {
+      show({ commits: result.commits, lines: result.lines, text });
       onStatus({ available: true, note: null });
     } else {
       show(null);
-      onStatus({ available: true, note: result.message });
+      onStatus({ available: true, note: result.ok ? "Couldn't read this file for blame" : result.message });
     }
   };
 
@@ -180,7 +196,13 @@ export function createBlameFollower(
     setOn(next) {
       if (stopped || next === on) return;
       on = next;
-      if (on) due = true;
+      if (on) {
+        due = true;
+      } else {
+        // At once: a blame still running could keep the column up for seconds.
+        show(null);
+        if (revision) onStatus({ available: true, note: null });
+      }
       void run();
     },
     fileChanged() {

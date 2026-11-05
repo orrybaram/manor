@@ -16,7 +16,7 @@ import {
 } from "@codemirror/view";
 import type { BlameCommit, FileBlame } from "../../../../electron.d";
 
-/** A new blame, and the text its line numbers count: the clean copy it was read for. */
+/** A new blame, and the text its line numbers count: what git read. */
 export const setBlame = StateEffect.define<{ blame: FileBlame; doc: Text }>();
 /** The line under the pointer, by position; null when it left the column. */
 const setHovered = StateEffect.define<number | null>();
@@ -353,7 +353,8 @@ const theme = EditorView.theme({
     gap: "6px",
     width: "max-content",
     maxWidth: "min(420px, 70vw)",
-    maxHeight: "40vh",
+    // The card can't be scrolled, since it closes as the pointer leaves the column.
+    maxHeight: "70vh",
     overflow: "auto",
     padding: "6px 8px",
   },

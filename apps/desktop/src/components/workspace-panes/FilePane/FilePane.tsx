@@ -44,6 +44,7 @@ import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import { pendingLines } from "./pending-line";
+import { readFileText } from "./file-text";
 import { createBlameFollower, useBlamePref, usePaneBlame, type BlameFollower } from "./file-blame";
 import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
 import {
@@ -684,6 +685,10 @@ function OpenFile({
       {
         revision: () => window.electronAPI.files.blameRevision(workspace, path),
         blame: () => window.electronAPI.files.blame(workspace, path),
+        text: async () => {
+          const result = await window.electronAPI.files.read(workspace, path);
+          return result.ok ? readFileText(result.content).text : null;
+        },
       },
       (status) => usePaneBlame.getState().set(paneId, status),
     ),
@@ -756,8 +761,10 @@ function OpenFile({
         a?.path === path &&
         sameWorkspace(a.workspace, workspace) &&
         b?.path === path &&
-        b.status === "ready" &&
-        (a.expectedHash !== b.expectedHash || a.baseVersion !== b.baseVersion)
+        // A file that was gone or unreadable and is back, or one that moved while open.
+        ((b.status === "failed" && a.status === "ready") ||
+          (b.status === "ready" &&
+            (a.expectedHash !== b.expectedHash || a.baseVersion !== b.baseVersion)))
       ) {
         blame.fileChanged();
       }

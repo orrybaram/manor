@@ -21,12 +21,12 @@ import {
   search,
   searchKeymap,
 } from "@codemirror/search";
-import type { FileBlame } from "../../../../electron.d";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
-import { EditorFile } from "../file-text";
+import { EditorFile, toText } from "../file-text";
+import type { ShownBlame } from "../file-blame";
 import { pendingLines, type LineRequest } from "../pending-line";
 import { pendingComments } from "../pending-comment";
 import { stepEdit } from "../file-changes";
@@ -64,7 +64,7 @@ export type AgentMarksSource = {
 
 /** Where the open file's blame comes from: `follow` hears each new one, or null for none. */
 export type BlameSource = {
-  follow(onChange: (blame: FileBlame | null) => void): () => void;
+  follow(onChange: (blame: ShownBlame | null) => void): () => void;
 };
 
 type Lane = { marks: LaneMark[]; lines: number };
@@ -340,12 +340,13 @@ export function CodeEditor({
     const stopBlame = blame?.follow((next) => {
       if (destroyed) return;
       // Already showing, the column stays and takes the new blame, so it doesn't blink.
+      const doc = next ? toText(next.text) : null;
       view.dispatch({
-        effects: !next
+        effects: !next || !doc
           ? blameColumn.reconfigure([])
           : blameShown
-            ? setBlame.of({ blame: next, doc: file.cleanDoc })
-            : blameColumn.reconfigure(blameGutter(next, file.cleanDoc)),
+            ? setBlame.of({ blame: next, doc })
+            : blameColumn.reconfigure(blameGutter(next, doc)),
       });
       blameShown = next !== null;
     });

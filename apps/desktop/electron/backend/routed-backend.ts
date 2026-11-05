@@ -204,6 +204,8 @@ export class RoutedBackend implements WorkspaceBackend {
         byPath(cwd).git.getFullDiff(cwd, defaultBranch),
       getLocalDiff: (cwd) => byPath(cwd).git.getLocalDiff(cwd),
       getStagedFiles: (cwd) => byPath(cwd).git.getStagedFiles(cwd),
+      blameRevision: (cwd, relPath) => byPath(cwd).git.blameRevision(cwd, relPath),
+      blame: (cwd, relPath) => byPath(cwd).git.blame(cwd, relPath),
       worktreeList: (cwd) => byPath(cwd).git.worktreeList(cwd),
       worktreeAdd: (cwd, path, branch, opts) =>
         byPath(cwd).git.worktreeAdd(cwd, path, branch, opts),

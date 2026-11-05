@@ -1,8 +1,9 @@
 import { errorMessage } from "../lib/errors";
-import type { GitBackend, WorktreeInfo } from "./types";
+import type { BlameResult, GitBackend, WorktreeInfo } from "./types";
 import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } from "./exec";
 import { localFacts, type MachineFacts } from "./machine-facts";
 import { MergeBaseCache, resolveBasePoint } from "./merge-base";
+import { parseBlamePorcelain, parseCommitMessages } from "./git-blame";
 
 /** Git run through an `Exec`, on whichever machine that reaches. */
 export class ExecGitBackend implements GitBackend {
@@ -245,6 +246,54 @@ export class ExecGitBackend implements GitBackend {
     }
   }
 
+  async blameRevision(cwd: string, relPath: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execGit(cwd, ["rev-parse", "HEAD", `HEAD:./${relPath}`], {
+        timeout: BLAME_CHECK_TIMEOUT_MS,
+      });
+      return stdout.split("\n")[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async blame(cwd: string, relPath: string): Promise<BlameResult> {
+    let porcelain: string;
+    try {
+      ({ stdout: porcelain } = await this.execGit(cwd, ["blame", "--porcelain", "--", relPath], {
+        timeout: BLAME_TIMEOUT_MS,
+        maxBuffer: BLAME_MAX_BUFFER,
+      }));
+    } catch (err) {
+      return blameFailure(err);
+    }
+    const blame = parseBlamePorcelain(porcelain);
+    const messages = await this.commitMessages(
+      cwd,
+      blame.commits.map((c) => c.sha).filter((sha) => !/^0+$/.test(sha)),
+    );
+    for (const commit of blame.commits) commit.message = messages.get(commit.sha) ?? commit.summary;
+    return { ok: true, ...blame };
+  }
+
+  /** Full messages by sha. One that can't be read just isn't there: blame still has its summary. */
+  private async commitMessages(cwd: string, shas: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (let i = 0; i < shas.length; i += SHA_CHUNK) {
+      try {
+        const { stdout } = await this.execGit(
+          cwd,
+          ["log", "--no-walk=unsorted", "--format=%H%x00%B%x00", ...shas.slice(i, i + SHA_CHUNK)],
+          { timeout: BLAME_CHECK_TIMEOUT_MS, maxBuffer: BLAME_MAX_BUFFER },
+        );
+        for (const [sha, message] of parseCommitMessages(stdout)) out.set(sha, message);
+      } catch {
+        return out;
+      }
+    }
+    return out;
+  }
+
   async worktreeList(cwd: string): Promise<WorktreeInfo[]> {
     const { stdout } = await this.execGit(
       cwd,
@@ -440,6 +489,29 @@ export const MAX_UNTRACKED_DIFF_BYTES = 512 * 1024;
 
 /** Paths per `find`/`git grep` call, to stay well under the argument limit. */
 const PATH_CHUNK = 200;
+
+/** A blame past this answers with a message; the editor never waits on it. */
+const BLAME_TIMEOUT_MS = 20_000;
+/** Whether a file can be blamed, and each read of commit messages. */
+const BLAME_CHECK_TIMEOUT_MS = 10_000;
+/** The largest file the pane opens (2 MB) as one-line commits, with room to spare. */
+const BLAME_MAX_BUFFER = 64 * 1024 * 1024;
+/** Commit messages read per `git log`, keeping its command line short. */
+const SHA_CHUNK = 200;
+
+/** Why a `git blame` gave no answer, in words the file pane can show. */
+function blameFailure(err: unknown): BlameResult {
+  const { code, stderr } = err as Partial<ExecError>;
+  // A remote host losing its connection is a null code too, but says so in stderr.
+  if (code === null && !stderr?.trim()) {
+    return { ok: false, reason: "timeout", message: "Blame took too long for this file" };
+  }
+  if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+    return { ok: false, reason: "too-large", message: "Blame is too large to show for this file" };
+  }
+  const line = stderr?.trim().split("\n")[0];
+  return { ok: false, reason: "failed", message: line || errorMessage(err) };
+}
 
 /**
  * Extract a readable summary from a git commit failure.

@@ -12,6 +12,8 @@ import {
   filesDelete,
   filesList,
   filesRead,
+  filesBlame,
+  filesBlameRevision,
   filesRename,
   filesWrite,
   type FilesDeps,
@@ -70,6 +72,23 @@ describe("files handlers", () => {
     ];
     for (const call of bad) expect(call).toThrow();
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it("blame on the workspace's host, and never a path outside it", async () => {
+    const blame = vi.fn(async () => ({ ok: true as const, commits: [], lines: [] }));
+    const blameRevision = vi.fn(async () => "abc");
+    const get = vi.fn(() => ({ git: { blame, blameRevision } }));
+    const ctx = { deps: { backendRegistry: { get } }, caller: {} } as never;
+    const ws = { path: "/w", hostId: "box" };
+    await expect(filesBlame(ctx, ws, "a.ts")).resolves.toMatchObject({ ok: true });
+    await expect(filesBlameRevision(ctx, ws, "a.ts")).resolves.toBe("abc");
+    expect(get).toHaveBeenCalledWith("box");
+    expect(blame).toHaveBeenCalledWith("/w", "a.ts");
+    await expect(filesBlame(ctx, ws, "../a.ts")).resolves.toMatchObject({ ok: false });
+    await expect(filesBlameRevision(ctx, ws, "../a.ts")).resolves.toBeNull();
+    expect(blame).toHaveBeenCalledTimes(1);
+    expect(blameRevision).toHaveBeenCalledTimes(1);
+    expect(DESKTOP_TABLE.mutating.has("files.blame")).toBe(false);
   });
 
   it("mark the writes mutating and the reads not", () => {

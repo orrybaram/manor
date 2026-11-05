@@ -517,6 +517,7 @@ export type {
   FileReadResult,
   FileWriteResult,
 } from "../electron/workspace-files";
+export type { BlameCommit, BlameResult, FileBlame } from "../electron/backend/types";
 export type { FileAuthor } from "../electron/agent-file-authors";
 
 /** What `terminal.pasteClipboardImage` resolves to. */

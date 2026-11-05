@@ -147,6 +147,8 @@ import {
   filesDelete,
   filesRename,
   filesList,
+  filesBlame,
+  filesBlameRevision,
   filesRead,
   filesUnwatch,
   filesWatch,
@@ -698,6 +700,8 @@ const METHODS = flatten({
   files: {
     list: method(filesList),
     read: method(filesRead),
+    blameRevision: method(filesBlameRevision),
+    blame: method(filesBlame),
     write: method(filesWrite, { mutating: true }),
     create: method(filesCreate, { mutating: true }),
     rename: method(filesRename, { mutating: true }),

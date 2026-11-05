@@ -36,6 +36,94 @@ describe("ExecGitBackend", () => {
     });
   });
 
+  describe("blame", () => {
+    it("says which commit each line came from, with its full message", async () => {
+      await writeFile(path.join(tmpDir, "file.txt"), "hello\nworld\n");
+      git(tmpDir, "add", ".");
+      git(tmpDir, "commit", "-m", "add world", "-m", "because it was lonely");
+      const result = await backend.blame(tmpDir, "file.txt");
+      if (!result.ok) throw new Error(result.message);
+      const at = (line: number) => result.commits[result.lines[line]];
+      expect(result.lines).toHaveLength(2);
+      expect(at(0)).toMatchObject({ author: "Test", summary: "initial", message: "initial" });
+      expect(at(1)).toMatchObject({
+        author: "Test",
+        summary: "add world",
+        message: "add world\n\nbecause it was lonely",
+      });
+      expect(at(1).sha).toBe(git(tmpDir, "rev-parse", "HEAD").trim());
+      expect(at(1).time).toBeGreaterThan(1_000_000_000);
+    });
+
+    it("gives lines changed on disk the all-zero commit", async () => {
+      await writeFile(path.join(tmpDir, "file.txt"), "hello\nnew\n");
+      const result = await backend.blame(tmpDir, "file.txt");
+      if (!result.ok) throw new Error(result.message);
+      expect(result.commits[result.lines[0]].summary).toBe("initial");
+      expect(result.commits[result.lines[1]].sha).toMatch(/^0+$/);
+    });
+
+    it("answers with git's reason when it can't blame", async () => {
+      await expect(backend.blame(tmpDir, "nope.txt")).resolves.toMatchObject({
+        ok: false,
+        reason: "failed",
+      });
+    });
+
+    it("tells a timeout from a failure and passes a limit to git", async () => {
+      const file = vi.fn(() =>
+        Promise.reject(
+          Object.assign(new Error("killed"), { stdout: "", stderr: "", code: null }),
+        ),
+      );
+      const timed = new ExecGitBackend({ ...localExec, file });
+      await expect(timed.blame("/w", "a.ts")).resolves.toMatchObject({
+        ok: false,
+        reason: "timeout",
+      });
+      expect(file).toHaveBeenCalledTimes(1);
+      expect(file).toHaveBeenCalledWith(
+        "git",
+        ["blame", "--porcelain", "--", "a.ts"],
+        expect.objectContaining({ cwd: "/w", timeout: expect.any(Number) }),
+      );
+    });
+
+    it("keeps the summary when messages can't be read", async () => {
+      const real = localExec.file.bind(localExec);
+      const failLog = new ExecGitBackend({
+        ...localExec,
+        file: (cmd, args, opts) =>
+          args[0] === "log" ? Promise.reject(new Error("no")) : real(cmd, args, opts),
+      });
+      const result = await failLog.blame(tmpDir, "file.txt");
+      if (!result.ok) throw new Error(result.message);
+      expect(result.commits[0].message).toBe("initial");
+    });
+
+    describe("blameRevision", () => {
+      it("is HEAD for a committed file, also one changed on disk", async () => {
+        const head = git(tmpDir, "rev-parse", "HEAD").trim();
+        await writeFile(path.join(tmpDir, "file.txt"), "changed\n");
+        await expect(backend.blameRevision(tmpDir, "file.txt")).resolves.toBe(head);
+      });
+
+      it("is null for an untracked file, and one added but not committed", async () => {
+        await writeFile(path.join(tmpDir, "new.txt"), "x\n");
+        await expect(backend.blameRevision(tmpDir, "new.txt")).resolves.toBeNull();
+        git(tmpDir, "add", "new.txt");
+        await expect(backend.blameRevision(tmpDir, "new.txt")).resolves.toBeNull();
+      });
+
+      it("is null outside a repo", async () => {
+        const outside = await mkdtemp(path.join(os.tmpdir(), "manor-no-repo-"));
+        await writeFile(path.join(outside, "a.txt"), "x\n");
+        await expect(backend.blameRevision(outside, "a.txt")).resolves.toBeNull();
+        await rm(outside, { recursive: true, force: true });
+      });
+    });
+  });
+
   describe("stage / unstage / getStagedFiles", () => {
     it("stages and unstages files", async () => {
       await writeFile(path.join(tmpDir, "new.txt"), "new\n");

@@ -66,6 +66,12 @@ function makeGit() {
     async stash(cwd, files) {
       record("stash", [cwd, files]);
     },
+    async blameRevision() {
+      return null;
+    },
+    async blame() {
+      return { ok: true, commits: [], lines: [] };
+    },
     pushStream(cwd, opts, callbacks) {
       record("pushStream", [cwd, opts]);
       callbacks.onLine("Enumerating objects");

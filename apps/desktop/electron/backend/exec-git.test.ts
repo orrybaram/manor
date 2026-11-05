@@ -89,6 +89,41 @@ describe("ExecGitBackend", () => {
       );
     });
 
+    it("ends a real process at the limit, and calls that a timeout", async () => {
+      const slow = new ExecGitBackend({
+        ...localExec,
+        file: (_cmd, _args, opts) => localExec.file("sleep", ["5"], { ...opts, timeout: 100 }),
+      });
+      await expect(slow.blame(tmpDir, "file.txt")).resolves.toMatchObject({ reason: "timeout" });
+    });
+
+    it("calls a host daemon's timeout a timeout, and a lost connection a failure", async () => {
+      const failing = (stderr: string) =>
+        new ExecGitBackend({
+          ...localExec,
+          file: () =>
+            Promise.reject(Object.assign(new Error("x"), { stdout: "", stderr, code: null })),
+        });
+      await expect(
+        failing("\n[timed out after 20000ms]").blame("/w", "a.ts"),
+      ).resolves.toMatchObject({ reason: "timeout" });
+      await expect(failing("connection lost").blame("/w", "a.ts")).resolves.toMatchObject({
+        reason: "failed",
+        message: "connection lost",
+      });
+    });
+
+    it("calls a host daemon's cut-off output too large, not a short blame", async () => {
+      const cut = new ExecGitBackend({
+        ...localExec,
+        file: async () => ({ stdout: `${"a".repeat(40)} 1 1 1\nauthor A\n\n…[truncated]`, stderr: "" }),
+      });
+      await expect(cut.blame("/w", "a.ts")).resolves.toMatchObject({
+        ok: false,
+        reason: "too-large",
+      });
+    });
+
     it("keeps the summary when messages can't be read", async () => {
       const real = localExec.file.bind(localExec);
       const failLog = new ExecGitBackend({

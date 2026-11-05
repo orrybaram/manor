@@ -172,7 +172,9 @@ export interface GitBackend {
   /**
    * The commit a blame of `relPath` would start from, or null when it has
    * nothing to blame: outside a repo, no commits, or not in HEAD (untracked,
-   * or added and not committed yet).
+   * or added and not committed yet), or when git couldn't be asked (the host
+   * is away). It doesn't look inside the file: a committed binary file has a
+   * revision, and the file pane leaves those out because it can't open them.
    */
   blameRevision(cwd: string, relPath: string): Promise<string | null>;
   /** `git blame` of `relPath` as it is on disk, with a time limit. */

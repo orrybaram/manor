@@ -267,6 +267,10 @@ export class ExecGitBackend implements GitBackend {
     } catch (err) {
       return blameFailure(err);
     }
+    // A host's daemon cuts output at the limit and exits 0, rather than failing as Node does.
+    if (porcelain.endsWith(TRUNCATED_MARK)) {
+      return { ok: false, reason: "too-large", message: TOO_LARGE_MESSAGE };
+    }
     const blame = parseBlamePorcelain(porcelain);
     const messages = await this.commitMessages(
       cwd,
@@ -499,15 +503,20 @@ const BLAME_MAX_BUFFER = 64 * 1024 * 1024;
 /** Commit messages read per `git log`, keeping its command line short. */
 const SHA_CHUNK = 200;
 
+/** What a host's daemon ends output with when it passes `maxBuffer`. */
+const TRUNCATED_MARK = "…[truncated]";
+const TOO_LARGE_MESSAGE = "Blame is too large to show for this file";
+
 /** Why a `git blame` gave no answer, in words the file pane can show. */
 function blameFailure(err: unknown): BlameResult {
-  const { code, stderr } = err as Partial<ExecError>;
-  // A remote host losing its connection is a null code too, but says so in stderr.
-  if (code === null && !stderr?.trim()) {
+  const { code, stderr, killed } = err as Partial<ExecError> & { killed?: boolean };
+  // Node marks its own timeout `killed`; a host's daemon says so in stderr. A
+  // lost connection is a null code too, but with its own message there.
+  if (code === null && (killed || !stderr?.trim() || stderr.includes("[timed out after"))) {
     return { ok: false, reason: "timeout", message: "Blame took too long for this file" };
   }
   if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-    return { ok: false, reason: "too-large", message: "Blame is too large to show for this file" };
+    return { ok: false, reason: "too-large", message: TOO_LARGE_MESSAGE };
   }
   const line = stderr?.trim().split("\n")[0];
   return { ok: false, reason: "failed", message: line || errorMessage(err) };

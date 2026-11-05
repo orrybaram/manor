@@ -117,6 +117,18 @@ describe("createBlameFollower", () => {
     expect(t.blame).toHaveBeenCalledTimes(2);
   });
 
+  it("drops a blame read before the file changed, and shows the next", async () => {
+    let answer!: (r: BlameResult) => void;
+    t.blame.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    t.blame.mockResolvedValueOnce(ok("fresh"));
+    t.follower.start(true);
+    await flush();
+    t.follower.fileChanged();
+    answer(ok("stale"));
+    await flush();
+    expect(t.shown).toEqual(["fresh"]);
+  });
+
   it("becomes available once the file is committed, while off", async () => {
     t.revision.mockResolvedValue(null);
     t.follower.start(false);

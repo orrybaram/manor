@@ -140,6 +140,8 @@ export function createBlameFollower(
     );
     // Turned off while it ran: the pass that turned it off has cleared the column.
     if (stopped || !on) return;
+    // The file changed while git read it: this answer is for a file that's gone, and the next pass reads it again.
+    if (due) return;
     if (result.ok) {
       show({ commits: result.commits, lines: result.lines });
       onStatus({ available: true, note: null });

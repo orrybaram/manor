@@ -68,28 +68,95 @@ const blameField = StateField.define<BlameState>({
   },
 });
 
+/** Past this many line pairs, a chunk's lines all count as changed. */
+const MAX_ALIGNED_PAIRS = 1_000_000;
+
+/** The numbers of the lines starting in `from`..`to`, which may run one past the end. */
+function linesStartingIn(text: Text, from: number, to: number): number[] {
+  if (from >= to || from > text.length) return [];
+  const first = text.lineAt(from).number;
+  const last = text.lineAt(Math.min(to - 1, text.length)).number;
+  return Array.from({ length: last - first + 1 }, (_, i) => first + i);
+}
+
 /**
- * The blamed text's line for a position at the start of a line of the editor's
- * text, or null for a line your edits changed. A chunk's B side runs from the
- * start of its first line to the start of the line after its last, so a pure
- * deletion covers no line and the line after it keeps its blame.
+ * Each of `b`'s lines' match among `a`'s, or null: the longest common
+ * subsequence of whole lines, the way git counts a changed line.
  */
-function blamedLine({ doc, chunks }: BlameState, pos: number): number | null {
+function alignLines(a: readonly string[], b: readonly string[]): (number | null)[] {
+  const out = new Array<number | null>(b.length).fill(null);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) {
+    out[start] = start;
+    start++;
+  }
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) out[--endB] = --endA;
+  const rows = endA - start;
+  const cols = endB - start;
+  if (rows === 0 || cols === 0 || rows * cols > MAX_ALIGNED_PAIRS) return out;
+  const width = cols + 1;
+  const lengths = new Uint32Array((rows + 1) * width);
+  for (let i = rows - 1; i >= 0; i--) {
+    for (let j = cols - 1; j >= 0; j--) {
+      lengths[i * width + j] =
+        a[start + i] === b[start + j]
+          ? lengths[(i + 1) * width + j + 1] + 1
+          : Math.max(lengths[(i + 1) * width + j], lengths[i * width + j + 1]);
+    }
+  }
+  for (let i = 0, j = 0; i < rows && j < cols; ) {
+    if (a[start + i] === b[start + j]) out[start + j++] = start + i++;
+    else if (lengths[(i + 1) * width + j] >= lengths[i * width + j + 1]) i++;
+    else j++;
+  }
+  return out;
+}
+
+/** A chunk's lines of the editor's text, as lines of the blamed text or null, kept per chunk. */
+const chunkLines = new WeakMap<Chunk, (number | null)[]>();
+
+function alignedChunk(chunk: Chunk, blamed: Text, doc: Text): (number | null)[] {
+  let lines = chunkLines.get(chunk);
+  if (lines) return lines;
+  const inA = linesStartingIn(blamed, chunk.fromA, chunk.toA);
+  const inB = linesStartingIn(doc, chunk.fromB, chunk.toB);
+  const aligned = alignLines(
+    inA.map((n) => blamed.line(n).text),
+    inB.map((n) => doc.line(n).text),
+  );
+  lines = aligned.map((i) => (i === null ? null : inA[i]));
+  chunkLines.set(chunk, lines);
+  return lines;
+}
+
+/**
+ * The blamed text's line for the editor's line starting at `pos`, or null for
+ * a line your edits changed. A chunk is wider than its changed lines (Enter on
+ * an indented line takes in the next line's indent), so its lines are matched
+ * up whole. A pure deletion has no lines of its own, and the line after it
+ * keeps its blame.
+ */
+function blamedLine({ doc: blamed, chunks }: BlameState, doc: Text, pos: number): number | null {
   let shift = 0;
   for (const chunk of chunks) {
     if (pos < chunk.fromB) break;
-    if (pos < chunk.toB) return null;
+    if (pos < chunk.toB) {
+      const first = doc.lineAt(chunk.fromB).number;
+      return alignedChunk(chunk, blamed, doc)[doc.lineAt(pos).number - first] ?? null;
+    }
     shift = chunk.toB - chunk.toA;
   }
   const at = pos - shift;
-  return at > doc.length ? null : doc.lineAt(at).number;
+  return at > blamed.length ? null : blamed.lineAt(at).number;
 }
 
 /** The blame of the line starting at `pos`, or undefined with no blame on. */
 function blameAt(state: EditorState, pos: number): LineBlame {
   const value = state.field(blameField, false);
   if (!value) return undefined;
-  const line = blamedLine(value, pos);
+  const line = blamedLine(value, state.doc, pos);
   if (line === null) return null;
   const index = value.blame.lines[line - 1];
   if (index === undefined) return undefined;
@@ -226,7 +293,7 @@ const hoverField = StateField.define<number | null>({
     return tr.docChanged ? null : value;
   },
   provide: (field) =>
-    showTooltip.compute([field], (state) => {
+    showTooltip.compute([field, blameField], (state) => {
       const pos = state.field(field);
       if (pos === null) return null;
       const blame = blameAt(state, pos);
@@ -313,23 +380,39 @@ export function blameGutter(blame: FileBlame, doc: Text): Extension {
         const { state } = view;
         const here = blameAt(state, line.from);
         if (here === undefined) return null;
-        const number = state.doc.lineAt(line.from).number;
+        const { doc } = state;
         const differs = (n: number) => {
-          if (n < 1 || n > state.doc.lines) return true;
+          if (n < 1 || n > doc.lines) return true;
           const other = lineBlame(state, n);
           return other === undefined || other?.sha !== here?.sha;
         };
-        return new BlameMarker(here, differs(number - 1), differs(number + 1));
+        const above = doc.lineAt(line.from).number - 1;
+        // A row under hidden lines (a fold, a diff's collapsed stretch) says
+        // whose it is: the row above it may be another commit's.
+        const hiddenAbove =
+          above >= 1 && view.lineBlockAt(line.from - 1).from !== doc.line(above).from;
+        return new BlameMarker(
+          here,
+          hiddenAbove || differs(above),
+          differs(doc.lineAt(line.to).number + 1),
+        );
       },
       lineMarkerChange: (update) =>
-        update.docChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(setBlame))),
+        update.docChanged ||
+        // A fold opening or closing changes which rows start a run.
+        update.heightChanged ||
+        update.transactions.some((tr) => tr.effects.some((e) => e.is(setBlame))),
       domEventHandlers: {
         mousemove(view, line) {
           clearTimeout(timer);
           const hovered = view.state.field(hoverField);
           if (hovered === line.from) return false;
           // Already showing one: the next line's follows without another wait.
-          const show = () => view.dispatch({ effects: setHovered.of(line.from) });
+          const { doc } = view.state;
+          const show = () => {
+            // An edit moved the line while the pointer rested.
+            if (view.state.doc === doc) view.dispatch({ effects: setHovered.of(line.from) });
+          };
           if (hovered !== null) show();
           else timer = setTimeout(show, HOVER_DELAY_MS);
           return false;

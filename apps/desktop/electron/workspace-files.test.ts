@@ -261,9 +261,10 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
             () => 0,
             (err: { code?: unknown }) => err.code,
           );
-        await writeFile(path.join(ws, "tmp.upload"), "pwned");
+        await mkdir(path.join(ws, "tmp.upload"));
+        await writeFile(path.join(ws, "tmp.upload/content"), "pwned");
         expect(await run(HOST_SCRIPTS.read, [rel, String(MAX_FILE_BYTES)])).toBe(HOST_SCRIPTS.outsideExit);
-        expect(await run(HOST_SCRIPTS.writePrepare, [rel, ""])).toBe(HOST_SCRIPTS.outsideExit);
+        expect(await run(HOST_SCRIPTS.writePrepare, [rel, "", "tmp.prepared"])).toBe(HOST_SCRIPTS.outsideExit);
         expect(await run(HOST_SCRIPTS.writeCommit, [rel, "tmp.upload", ""])).toBe(HOST_SCRIPTS.outsideExit);
         expect(await run(HOST_SCRIPTS.create, ["a\n/new.txt"])).toBe(HOST_SCRIPTS.outsideExit);
         expect(await readFile(path.join(tmp, "outside/secret.txt"), "utf-8")).toBe("secret");
@@ -454,5 +455,111 @@ describe("isSafeRelPath", () => {
     for (const bad of ["", "/a", "C:/a", "a/../b", "..", ".", "a/./b", "a\\b", "a\0b", "a/", "a\n/b", "a\r", "a\tb", "a\x7fb", "a\x1bb"]) {
       expect(isSafeRelPath(bad)).toBe(false);
     }
+  });
+});
+
+/** A file outside every workspace is read and written with `/` as its root. */
+describe("/ as the root", () => {
+  const backend = {
+    shell: new ExecShellBackend(localExec),
+  } as unknown as FilesBackend;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "manor-root-files-")));
+  });
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  const rel = (p: string) => p.slice(1);
+
+  it("reads and writes a file by its path from /", async () => {
+    const file = path.join(dir, "notes.md");
+    await writeFile(file, "one\n");
+    const read = await readWorkspaceFile(backend, "/", rel(file));
+    expect(read).toEqual({ ok: true, content: "one\n", hash: contentHash("one\n") });
+    const written = await writeWorkspaceFile(backend, "/", rel(file), "two\n", contentHash("one\n"));
+    expect(written.ok).toBe(true);
+    expect(await readFile(file, "utf-8")).toBe("two\n");
+  });
+
+  it("follows a symlink to anywhere and writes through it", async () => {
+    await mkdir(path.join(dir, "dotfiles"));
+    const target = path.join(dir, "dotfiles", "zshrc");
+    await writeFile(target, "alias a=b\n");
+    const link = path.join(dir, ".zshrc");
+    await symlink(target, link);
+    expect(await readWorkspaceFile(backend, "/", rel(link))).toMatchObject({ ok: true, content: "alias a=b\n" });
+    await writeWorkspaceFile(backend, "/", rel(link), "alias c=d\n");
+    expect(await readFile(target, "utf-8")).toBe("alias c=d\n");
+  });
+
+  it("still refuses a workspace's file behind a symlink out of it", async () => {
+    const workspace = path.join(dir, "ws");
+    await mkdir(workspace);
+    await writeFile(path.join(dir, "secret"), "x");
+    await symlink(path.join(dir, "secret"), path.join(workspace, "link"));
+    expect(await readWorkspaceFile(backend, workspace, "link")).toMatchObject({
+      ok: false,
+      reason: "outside-workspace",
+    });
+  });
+});
+
+/** A save's new content is on disk before it replaces the file. */
+describe("a save's upload", () => {
+  const real = new ExecShellBackend(localExec);
+  let dir: string;
+  let uploads: Array<{ folderMode: number; inTarget: boolean }>;
+  const backend = {
+    shell: {
+      exec: (...args: Parameters<typeof real.exec>) => real.exec(...args),
+      writeFile: async (p: string, data: Buffer) => {
+        uploads.push({
+          folderMode: (await stat(path.dirname(p))).mode & 0o777,
+          inTarget: path.dirname(p) === dir,
+        });
+        await real.writeFile(p, data);
+      },
+    },
+  } as unknown as FilesBackend;
+
+  beforeEach(async () => {
+    dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "manor-upload-")));
+    await chmod(dir, 0o777);
+    uploads = [];
+  });
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  it("sits in a folder only this user can enter, and keeps a secret's mode", async () => {
+    const file = path.join(dir, "secret");
+    await writeFile(file, "one");
+    await chmod(file, 0o600);
+    const written = await writeWorkspaceFile(backend, dir, "secret", "two", contentHash("one"));
+    expect(written.ok).toBe(true);
+    expect(uploads).toEqual([{ folderMode: 0o700, inTarget: false }]);
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(await readFile(file, "utf-8")).toBe("two");
+    expect(await readdir(dir)).toEqual(["secret"]);
+  });
+
+  it("gives a new file the mode any new file gets, not the folder's", async () => {
+    const sibling = path.join(dir, "sibling");
+    await writeFile(sibling, "");
+    const written = await writeWorkspaceFile(backend, dir, "new", "text");
+    expect(written.ok).toBe(true);
+    expect((await stat(path.join(dir, "new"))).mode & 0o777).toBe((await stat(sibling)).mode & 0o777);
+    expect((await readdir(dir)).sort()).toEqual(["new", "sibling"]);
+  });
+
+  it("leaves nothing behind when the upload fails", async () => {
+    await writeFile(path.join(dir, "a"), "one");
+    const failing = {
+      shell: {
+        exec: backend.shell.exec,
+        writeFile: () => Promise.reject(new Error("link down")),
+      },
+    } as unknown as FilesBackend;
+    await expect(writeWorkspaceFile(failing, dir, "a", "two")).rejects.toThrow("link down");
+    expect(await readdir(dir)).toEqual(["a"]);
   });
 });

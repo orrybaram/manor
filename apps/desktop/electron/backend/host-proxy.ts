@@ -271,6 +271,13 @@ export class HostProxy {
           this.opts.bus.publish("layout", "paneTitle", payload as unknown as EventArgs<"layout", "paneTitle">[0]);
         }
       }),
+      // A CLI on the host asking to see a file: panes are the host's, and a
+      // window here is what shows them.
+      client.subscribe("layout", "showFile", undefined, (payload) => {
+        if (!this.disposed && isPlainObject(payload)) {
+          this.opts.bus.publish("layout", "showFile", payload as unknown as EventArgs<"layout", "showFile">[0]);
+        }
+      }),
       client.subscribe("agents", "updated", undefined, (agent, unseen) =>
         this.onAgentUpdated(
           agent as AgentInfo,

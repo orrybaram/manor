@@ -1022,6 +1022,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       paneContextMap,
       unseen,
       notifyProjectsChanged,
+      showFile: (payload) => bus.publish("layout", "showFile", payload),
       notifier,
       sessionOwners: backendRegistry.sessions,
       hostStatus: (hostId) => backendRegistry.status(hostId),

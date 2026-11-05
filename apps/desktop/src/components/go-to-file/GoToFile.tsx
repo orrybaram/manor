@@ -7,6 +7,7 @@ import { useAppStore } from "../../store/app-store";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
 import { openFileInActiveWorkspace } from "../../lib/open-in-file-pane";
 import { normalizeHostId } from "../../lib/workspace-key";
+import { filePathFor } from "../../lib/file-location";
 import { isHomePath } from "../../lib/home";
 import { rankFiles, type FileMatch } from "./file-match";
 import paletteStyles from "../command-palette/CommandPalette.module.css";
@@ -22,7 +23,8 @@ interface GoToFileProps {
 
 /**
  * Go to File (⌘P): the active workspace's files, fuzzy-matched as you type;
- * Enter opens the highlighted one in a file pane. Lists with the same
+ * Enter opens the highlighted one in a file pane. A full path opens that file,
+ * wherever on the workspace's host it is. Lists with the same
  * `files.list` query as the file pane's drawer, so each shares the other's
  * cached listing.
  */
@@ -94,12 +96,14 @@ function FileSearch({
     () => (paths ? rankFiles(paths, query, RESULT_LIMIT) : []),
     [paths, query],
   );
+  // An absolute path is that file, in the workspace or not: what's typed opens.
+  const typedPath = query.trim().startsWith("/") ? query.trim() : null;
 
   return (
     <Command className={paletteStyles.command} shouldFilter={false} loop>
       <Command.Input
         className={paletteStyles.input}
-        placeholder="Go to file…"
+        placeholder="Go to file, or type a full path…"
         autoFocus
         value={query}
         onValueChange={(v) => {
@@ -108,7 +112,19 @@ function FileSearch({
         }}
       />
       <Command.List ref={listRef} className={paletteStyles.list}>
-        {paths === null ? (
+        {typedPath !== null ? (
+          <Command.Item
+            value={typedPath}
+            className={paletteStyles.item}
+            data-testid="go-to-file-path"
+            onSelect={() => onPick(filePathFor(workspace.path, typedPath))}
+          >
+            <span className={paletteStyles.icon}>
+              <FileCode size={14} />
+            </span>
+            <span className={styles.name}>Open {typedPath}</span>
+          </Command.Item>
+        ) : paths === null ? (
           <div className={styles.status}>
             {listing.isError
               ? "Couldn't list this workspace's files."
@@ -133,7 +149,7 @@ function FileSearch({
           </>
         )}
       </Command.List>
-      {listing.data?.truncated && (
+      {typedPath === null && listing.data?.truncated && (
         <div className={styles.truncated}>
           Too many files to list them all; some are missing.
         </div>

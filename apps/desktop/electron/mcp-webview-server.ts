@@ -59,7 +59,8 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: TOOLS,
+  // `positional` is the CLI's; an MCP client calls by name.
+  tools: TOOLS.map(({ positional: _positional, ...tool }) => tool),
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {

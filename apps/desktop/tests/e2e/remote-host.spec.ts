@@ -31,6 +31,7 @@ import {
   resetRemoteBox,
   seedRemoteRepo,
   setAppTargetReachable,
+  remoteHome,
 } from "./helpers/remote-host";
 import {
   CONNECT_TIMEOUT,
@@ -309,6 +310,52 @@ test.describe("remote host", () => {
     onRemote(`printf 'export const a = 2;\\n' > "${file}"`);
     await expect(editor).toContainText("export const a = 2;", { timeout: STEP });
     await expect(editor).not.toContainText("// from the desk");
+  });
+
+  // `manor open-file` on the box: its server adds the tab, with the desktop
+  // only watching, and the desktop brings it forward. The file is outside the
+  // workspace, and read and saved on the box.
+  test("open-file: the box's CLI opens one of its files outside the workspace on the desktop", async ({
+    window,
+    request,
+    tempHome,
+  }) => {
+    await openRemoteProject(window, request, tempHome);
+    const notes = `${remoteHome()}/.manor-e2e/outside/notes.md`;
+    onRemote(
+      `mkdir -p "$(dirname "${notes}")" && printf 'one\\ntwo\\nthree\\n' > "${notes}" && ` +
+        'rm -f "$HOME/.manor-e2e/open-out"',
+    );
+
+    await runInTerminal(
+      window,
+      `manor open-file "${notes}" --line 2 > "$HOME/.manor-e2e/open-out" 2>&1`,
+    );
+    const said = await pollFor(
+      "the CLI's answer",
+      () => onRemote('cat "$HOME/.manor-e2e/open-out" 2>/dev/null; true').stdout.trim() || null,
+      STEP,
+    );
+    expect(said).toContain(`Opened ${notes}`);
+
+    const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+    await expect(editor).toContainText("three", { timeout: STEP });
+    await expect(pane(window).locator(".cm-lineNumbers .cm-activeLineGutter")).toHaveText("2");
+    await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toHaveAttribute("title", notes);
+
+    await typeAtEnd(window, "from the desk");
+    await window.keyboard.press("ControlOrMeta+s");
+    await expect
+      .poll(() => onRemote(`cat "${notes}"`).stdout, { timeout: STEP })
+      .toContain("from the desk");
+
+    // ⌘P takes a path on the box too; a missing one says so in its pane.
+    await window.keyboard.press("ControlOrMeta+p");
+    await window.keyboard.type(`${remoteHome()}/.manor-e2e/outside/missing.md`);
+    await window.keyboard.press("Enter");
+    await expect(pane(window).locator('[data-testid="file-pane-error"]')).toContainText("does not exist", {
+      timeout: STEP,
+    });
   });
 
   // The phone chat for an agent on a remote host. The agent runs on

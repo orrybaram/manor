@@ -20,6 +20,7 @@ import type { RoutedBackend } from "../backend/routed-backend";
 import type { BackendRegistry } from "../backend/registry";
 import type { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { LayoutStore } from "../layout/layout-store";
+import type { LayoutShowFilePayload } from "../../src/lib/layout/protocol";
 import type { ProjectManager } from "../persistence";
 import type { ThemeManager } from "../theme";
 import type { PortScanner } from "../ports";
@@ -174,6 +175,8 @@ export interface ServerDeps {
    * the control routes (MCP, `manor` CLI) and has no return path to them.
    */
   notifyProjectsChanged: () => void;
+  /** Ask the windows showing a pane's workspace to bring it forward (`layout.showFile`). */
+  showFile: (payload: LayoutShowFilePayload) => void;
   /**
    * Notification state and side effects: the agent broadcast, the
    * dock badge, the log. The desktop fills in a `Notifier`.
@@ -249,6 +252,7 @@ export type SharedDeps = Pick<
   | "paneContextMap"
   | "unseen"
   | "notifyProjectsChanged"
+  | "showFile"
   | "notifier"
   | "sessionOwners"
   | "hostStatus"

@@ -9,12 +9,18 @@
  * the size and binary refusals and the content), so a remote read is one
  * round trip.
  *
- * **Paths stay inside the workspace.** A `relPath` is refused before anything
+ * **A `relPath` stays inside its root.** It is refused before anything
  * runs if it is absolute or has an empty, `.` or `..` segment; on the host,
  * the nearest existing directory of the target is resolved physically
  * (`cd -P`) and must be under the workspace's own physical path, and a
  * symlink at the target must resolve under it too. A symlink planted between
  * the check and the read is not guarded against.
+ *
+ * This keeps a stray path or a symlink a repo planted from reaching outside
+ * the folder being browsed. It is no limit on the caller, who names the root:
+ * any folder of the host will do, `/` included, which is how a file outside
+ * every workspace is opened (`src/lib/file-location.ts`). A caller here can
+ * run a terminal on the host anyway.
  *
  * Content is UTF-8 text. `hash` is the SHA-256 of that text, so a caller
  * compares what it read, what it wrote and what `files.changed` reports
@@ -113,6 +119,9 @@ export function isSafeRelPath(relPath: string): boolean {
 // the size limit. Its exit code says why it refused (`EXIT`); anything else
 // non-zero is an error.
 
+/** The upload's name inside its private folder. */
+const UPLOAD_NAME = "content";
+
 const EXIT = {
   noWorkspace: 10,
   notFound: 11,
@@ -138,6 +147,7 @@ const EXIT = {
 const CONTAIN = `
 root=$(cd -P -- "$1" 2>/dev/null && pwd -P && echo x) || exit ${EXIT.noWorkspace}
 root=\${root%??}
+root=\${root%/}
 f="$1/$2"
 p=$(dirname -- "$f"; echo x); p=\${p%??}
 while [ ! -d "$p" ]; do p=$(dirname -- "$p"; echo x); p=\${p%??}; done
@@ -161,9 +171,12 @@ base64 < "$f"
 `;
 
 /**
- * Before a write's temp file is uploaded: contain, refuse a directory at the
- * target (and, `$3` set, a target that is gone), and make the target's folder
- * so the temp file can sit beside it, checking it is still inside.
+ * Before a write's content is uploaded: contain, refuse a directory at the
+ * target (and, `$3` set, a target that is gone), make the target's folder,
+ * checking it is still inside, and make `$4`, the private folder beside the
+ * target the content is uploaded into. Only this user can enter it, so the
+ * new content of a `0600` file is never readable by anyone else, whatever
+ * mode the upload gives it or whoever else can write to the target's folder.
  */
 const WRITE_PREPARE_SCRIPT = `${CONTAIN}
 if [ -e "$f" ] && [ ! -f "$f" ]; then exit ${EXIT.notAFile}; fi
@@ -173,19 +186,21 @@ mkdir -p -- "$dir" || exit 1
 d=$(cd -P -- "$dir" 2>/dev/null && pwd -P && echo x) || exit ${EXIT.outside}
 d=\${d%??}
 case "$d/" in "$root"/*) ;; *) exit ${EXIT.outside} ;; esac
+( umask 077; mkdir -- "$1/$4" ) || exit 1
 `;
 
 /**
- * The write itself, one step on the host: `$3` is the uploaded temp file
+ * The write itself, one step on the host: `$3` is the private upload folder
  * (relative, beside the target), `$4` the expected hash or empty. Contain
  * again, then — `$4` set — hash the target and refuse unless it matches; keep
- * the target's mode; and `mv` the temp file over it. The temp file is
- * removed whichever way this ends. A symlink at the target (inside, as
- * contained) is written through, as a plain write would.
+ * the target's mode; and `mv` the upload over it. The folder is removed
+ * whichever way this ends. A symlink at the target (inside, as contained) is
+ * written through, as a plain write would.
  */
 const WRITE_COMMIT_SCRIPT = `
-tmp="$1/$3"
-trap 'rm -f -- "$tmp"' EXIT
+tmpdir="$1/$3"
+tmp="$tmpdir/${UPLOAD_NAME}"
+trap 'rm -f -- "$tmp"; rmdir -- "$tmpdir" 2>/dev/null' EXIT
 ${CONTAIN}
 if [ -L "$f" ]; then f=$t; fi
 if [ -e "$f" ] && [ ! -f "$f" ]; then exit ${EXIT.notAFile}; fi
@@ -359,19 +374,19 @@ export async function readWorkspaceFile(
  * Write `content` to a file of `workspace`, creating it (and its folders) if
  * need be. A symlink at the path (one that stays inside) is written through.
  *
- * The content is uploaded to a temp file beside the target, then one host
- * command checks and replaces: with `expectedHash`, it hashes the file on
- * disk and answers `changed-on-disk` (with `diskHash`, or null when the file
- * is gone) unless it matches; then it renames the temp file over the target.
+ * The content is uploaded into a private temp folder beside the target, then
+ * one host command checks and replaces: with `expectedHash`, it hashes the file
+ * on disk and answers `changed-on-disk` (with `diskHash`, or null when the file
+ * is gone) unless it matches; then it renames the upload over the target.
  * So:
  * - a reader on the host sees the old file or the new one, never half of it
- *   (the rename is atomic: the temp file is in the same folder);
+ *   (the rename is atomic: the temp folder is on the same disk);
  * - a change made on disk before that command runs is never overwritten; one
  *   that lands inside it, between its hash and its rename (no round trip
  *   apart), still can be;
  * - the file's permission bits are kept (`stat` on Linux and macOS); its
  *   owner, and any hard links to it, are not, as with any save-by-rename.
- * The temp file is removed whichever way the write ends, unless the host is
+ * The temp folder is removed whichever way the write ends, unless the host is
  * lost partway.
  */
 export async function writeWorkspaceFile(
@@ -384,19 +399,22 @@ export async function writeWorkspaceFile(
   const refused = shapeRefusal(relPath);
   if (refused) return refused;
   const expecting = expectedHash ?? "";
-  try {
-    await sh(backend, WRITE_PREPARE_SCRIPT, [workspace, relPath, expecting === "" ? "" : "1"]);
-  } catch (err) {
-    return refusal(err, relPath);
-  }
   const tmpRel = posix.join(
     posix.dirname(relPath),
     `.${posix.basename(relPath)}.manor-${randomBytes(6).toString("hex")}.tmp`,
   );
   try {
-    await backend.shell.writeFile(posix.join(workspace, tmpRel), Buffer.from(content, "utf-8"));
+    await sh(backend, WRITE_PREPARE_SCRIPT, [workspace, relPath, expecting === "" ? "" : "1", tmpRel]);
   } catch (err) {
-    await backend.shell.exec("rm", ["-f", "--", posix.join(workspace, tmpRel)]).catch(() => {
+    return refusal(err, relPath);
+  }
+  try {
+    await backend.shell.writeFile(
+      posix.join(workspace, tmpRel, UPLOAD_NAME),
+      Buffer.from(content, "utf-8"),
+    );
+  } catch (err) {
+    await backend.shell.exec("rm", ["-rf", "--", posix.join(workspace, tmpRel)]).catch(() => {
       /* best effort; the upload's error is what matters */
     });
     throw err;

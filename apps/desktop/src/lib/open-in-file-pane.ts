@@ -1,18 +1,22 @@
 /**
- * Opening a workspace file in a file pane from somewhere else: a path
- * printed in a terminal, or Go to File.
+ * Opening a file in a file pane from somewhere else: a path printed in a
+ * terminal, Go to File, or the CLI.
  */
 
 import { hasUnsavedEdits, useOpenFileStore } from "../store/open-file-store";
 import {
+  selectActiveWorkspaceKey,
   selectFocusedPaneOfActiveTab,
   selectPaneContentType,
   selectPaneFilePath,
   useAppStore,
 } from "../store/app-store";
 import { pendingLines } from "../components/workspace-panes/FilePane/pending-line";
+import { isWebApp } from "./platform";
+import { pathInFileRoot } from "./file-location";
 import type { PaneNode, SplitDirection } from "./layout/pane-tree";
 import type { WorkspaceLayout } from "./layout/workspace-layout";
+import type { LayoutShowFilePayload } from "./layout/protocol";
 import { parseWorkspaceKey, type ParsedWorkspaceKey, type WorkspaceKey } from "./workspace-key";
 
 /** Where in the file to put the cursor, 1-based. */
@@ -71,7 +75,11 @@ export function splitDirectionBeside(el: HTMLElement | null): SplitDirection {
  * asking to open `path` without opening it (Cancel, or a save that failed).
  */
 function requestLine(paneId: string, path: string, at: At): void {
-  const request = pendingLines.request(paneId, { path, line: at.line, col: at.col });
+  const request = pendingLines.request(paneId, {
+    path: pathInFileRoot(path),
+    line: at.line,
+    col: at.col,
+  });
   let shown = selectPaneFilePath(useAppStore.getState(), paneId);
   let asking = useOpenFileStore.getState().byPane[paneId]?.pendingOpen === path;
   const waiting = () => pendingLines.waiting(paneId) === request;
@@ -184,4 +192,22 @@ export function openFileInActiveWorkspace(path: string): void {
   }
   const opened = app.addFileTab(path);
   if (opened) requestLine(opened.paneId, path, {});
+}
+
+/**
+ * The CLI asked to see a file (`layout.showFile`). The window showing the
+ * pane's workspace brings it forward; another workspace's tab just waits
+ * there, so a background agent can't pull the user away. A phone keeps its
+ * place. The event comes from whichever host sent it, so it only brings
+ * forward a pane already holding that file: which file a pane holds is the
+ * layout's to say, and the route put the file there before asking.
+ */
+export function showFileFromCli({ paneId, path, line, col }: LayoutShowFilePayload): void {
+  // A detached window holds one tab; the primary window shows the rest.
+  if (isWebApp() || window.electronAPI.claim) return;
+  const app = useAppStore.getState();
+  const place = placeOf(app.workspaceLayouts, paneId);
+  if (!place || place.workspaceKey !== selectActiveWorkspaceKey(app)) return;
+  if (selectPaneFilePath(app, paneId) !== path) return;
+  showFileInPane(paneId, path, { line, col });
 }

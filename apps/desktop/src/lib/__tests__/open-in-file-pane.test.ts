@@ -24,6 +24,7 @@ const app = vi.hoisted(() => ({
   splitPaneAt: vi.fn(() => "new-file-pane"),
   addFileTab: vi.fn(() => ({ tabId: "t-new", paneId: "tab-file-pane" })),
 }));
+const activeKey = vi.hoisted(() => ({ value: "/repo" }));
 const appStore = vi.hoisted(() => subscribable());
 type FakePane = { dirty: boolean; pendingOpen: string | null };
 const files = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ const fileStore = vi.hoisted(() => subscribable());
 vi.mock("../../store/app-store", () => ({
   useAppStore: { getState: () => app, subscribe: appStore.subscribe },
   selectPaneFilePath: (_s: unknown, paneId: string) => app.filePaths[paneId] ?? null,
+  selectActiveWorkspaceKey: () => activeKey.value,
 }));
 vi.mock("../../store/open-file-store", () => ({
   hasUnsavedEdits: (paneId: string) => files.byPane[paneId]?.dirty ?? false,
@@ -46,7 +48,7 @@ vi.mock("../../store/open-file-store", () => ({
 }));
 
 const { pendingLines } = await import("../../components/workspace-panes/FilePane/pending-line");
-const { filePaneInTabOf, openFileBeside, openFileInNewTab } = await import(
+const { filePaneInTabOf, openFileBeside, openFileInNewTab, showFileFromCli } = await import(
   "../open-in-file-pane"
 );
 
@@ -216,3 +218,49 @@ describe("openFileInNewTab", () => {
     expect(app.addFileTab).toHaveBeenCalledWith("src/a.ts", undefined);
   });
 });
+
+describe("showFileFromCli", () => {
+  const layouts = () => ({
+    "/repo": {
+      panels: {
+        p1: { id: "p1", tabs: [{ id: "t1", rootNode: leaf("file", "file") }] },
+      },
+    },
+  });
+
+  beforeEach(() => {
+    app.workspaceLayouts = layouts();
+    app.filePaths = { file: "/etc/hosts" };
+    app.focusPane.mockClear();
+    activeKey.value = "/repo";
+    pendingLines.clearLine("file");
+  });
+
+  it("brings the pane forward and asks for the line by its path from /", () => {
+    showFileFromCli({ paneId: "file", path: "/etc/hosts", line: 3 });
+    expect(app.focusPane).toHaveBeenCalledWith("file");
+    expect(pendingLines.take("file", "etc/hosts")).toMatchObject({ line: 3 });
+  });
+
+  it("leaves a window on another workspace where it is", () => {
+    activeKey.value = "/other";
+    showFileFromCli({ paneId: "file", path: "/etc/hosts" });
+    expect(app.focusPane).not.toHaveBeenCalled();
+  });
+
+  it("ignores a pane it doesn't have", () => {
+    showFileFromCli({ paneId: "gone", path: "/etc/hosts" });
+    expect(app.focusPane).not.toHaveBeenCalled();
+  });
+
+  // The event comes from a host; which file a pane holds is the layout's.
+  it("never changes the file a pane holds", () => {
+    app.setPaneFilePath.mockClear();
+    files.dispatch.mockClear();
+    showFileFromCli({ paneId: "file", path: "/home/me/.ssh/config" });
+    expect(app.setPaneFilePath).not.toHaveBeenCalled();
+    expect(files.dispatch).not.toHaveBeenCalled();
+    expect(app.focusPane).not.toHaveBeenCalled();
+  });
+});
+

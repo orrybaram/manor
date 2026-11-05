@@ -19,6 +19,7 @@ import type { RouteDeps, Json, ReadBody, Route } from "./types";
 import { agentRoutes } from "./agents";
 import { automationRoutes } from "./automations";
 import { contextRoutes } from "./context";
+import { fileRoutes } from "./files";
 import { paneRoutes } from "./panes";
 import { folderRoutes } from "./folders";
 import { projectRoutes, workspaceMoveRoutes } from "./projects";
@@ -47,6 +48,7 @@ export const routes: readonly Route[] = [
   ...gitRoutes,
   ...integrationRoutes,
   ...automationRoutes,
+  ...fileRoutes,
   ...systemRoutes,
   ...webviewRoutes,
 ];

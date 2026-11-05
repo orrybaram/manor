@@ -39,6 +39,7 @@ import type { AutomationsChanged } from "../../src/lib/automation-views";
 import type {
   LayoutBroadcast,
   LayoutPaneTitlePayload,
+  LayoutShowFilePayload,
 } from "../../src/lib/layout/protocol";
 import type {
   ForwardedCommandPayload,
@@ -93,6 +94,7 @@ export interface BridgeEvents {
   layout: {
     changed: [payload: LayoutBroadcast];
     paneTitle: [payload: LayoutPaneTitlePayload];
+    showFile: [payload: LayoutShowFilePayload];
   };
   projects: {
     changed: [];
@@ -257,6 +259,7 @@ export const SUBSCRIPTIONS = {
   "chat.onTaskEntry": "chat.taskEntry",
   "layout.onChanged": "layout.changed",
   "layout.onPaneTitle": "layout.paneTitle",
+  "layout.onShowFile": "layout.showFile",
   "projects.onChanged": "projects.changed",
   "projects.onRemoveWorktreeProgress": "projects.removeWorktreeProgress",
   "projects.onWorktreeSetupProgress": "projects.worktreeProgress",

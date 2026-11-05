@@ -410,6 +410,7 @@ export function fakeLayoutApi(): LayoutApi {
         listeners.delete(listener);
       };
     },
+    onShowFile: () => () => {},
     onPaneTitle: (listener: PaneTitleListener) => {
       paneTitleListeners.add(listener);
       return () => {

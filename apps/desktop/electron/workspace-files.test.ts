@@ -456,3 +456,51 @@ describe("isSafeRelPath", () => {
     }
   });
 });
+
+/** A file outside every workspace is read and written with `/` as its root. */
+describe("/ as the root", () => {
+  const backend = {
+    shell: new ExecShellBackend(localExec),
+  } as unknown as FilesBackend;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "manor-root-files-")));
+  });
+  afterEach(() => rm(dir, { recursive: true, force: true }));
+
+  const rel = (p: string) => p.slice(1);
+
+  it("reads and writes a file by its path from /", async () => {
+    const file = path.join(dir, "notes.md");
+    await writeFile(file, "one\n");
+    const read = await readWorkspaceFile(backend, "/", rel(file));
+    expect(read).toEqual({ ok: true, content: "one\n", hash: contentHash("one\n") });
+    const written = await writeWorkspaceFile(backend, "/", rel(file), "two\n", contentHash("one\n"));
+    expect(written.ok).toBe(true);
+    expect(await readFile(file, "utf-8")).toBe("two\n");
+  });
+
+  it("follows a symlink to anywhere and writes through it", async () => {
+    await mkdir(path.join(dir, "dotfiles"));
+    const target = path.join(dir, "dotfiles", "zshrc");
+    await writeFile(target, "alias a=b\n");
+    const link = path.join(dir, ".zshrc");
+    await symlink(target, link);
+    expect(await readWorkspaceFile(backend, "/", rel(link))).toMatchObject({ ok: true, content: "alias a=b\n" });
+    await writeWorkspaceFile(backend, "/", rel(link), "alias c=d\n");
+    expect(await readFile(target, "utf-8")).toBe("alias c=d\n");
+  });
+
+  it("still refuses a workspace's file behind a symlink out of it", async () => {
+    const workspace = path.join(dir, "ws");
+    await mkdir(workspace);
+    await writeFile(path.join(dir, "secret"), "x");
+    await symlink(path.join(dir, "secret"), path.join(workspace, "link"));
+    expect(await readWorkspaceFile(backend, workspace, "link")).toMatchObject({
+      ok: false,
+      reason: "outside-workspace",
+    });
+  });
+});
+

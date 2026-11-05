@@ -169,6 +169,21 @@ export type WorkspaceMoveResult =
  * so a route, an MCP call or another renderer's edit reads the same way a
  * local terminal's own title does.
  */
+/**
+ * Bring a pane forward showing the file it holds: a CLI's `open-file`. Pane ids
+ * are the same on a host and on its desktop, so it travels as it is. A window
+ * not showing the pane's workspace ignores it.
+ */
+export interface LayoutShowFilePayload {
+  paneId: string;
+  /** The pane's `filePath`. */
+  path: string;
+  /** 1-based. */
+  line?: number;
+  /** 1-based. */
+  col?: number;
+}
+
 export interface LayoutPaneTitlePayload {
   paneId: string;
   title: string | null;

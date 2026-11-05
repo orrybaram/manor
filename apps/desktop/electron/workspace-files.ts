@@ -16,6 +16,9 @@
  * symlink at the target must resolve under it too. A symlink planted between
  * the check and the read is not guarded against.
  *
+ * A file outside every workspace is opened with `/` as its root
+ * (`src/lib/file-location.ts`): the same checks, with nothing left to leave.
+ *
  * Content is UTF-8 text. `hash` is the SHA-256 of that text, so a caller
  * compares what it read, what it wrote and what `files.changed` reports
  * (`./open-file-watcher.ts`) without the content.
@@ -138,6 +141,7 @@ const EXIT = {
 const CONTAIN = `
 root=$(cd -P -- "$1" 2>/dev/null && pwd -P && echo x) || exit ${EXIT.noWorkspace}
 root=\${root%??}
+root=\${root%/}
 f="$1/$2"
 p=$(dirname -- "$f"; echo x); p=\${p%??}
 while [ ! -d "$p" ]; do p=$(dirname -- "$p"; echo x); p=\${p%??}; done

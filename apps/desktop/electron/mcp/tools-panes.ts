@@ -4,7 +4,9 @@
  * pin, reorder, move, extract, reopen) and workspace switching.
  */
 
-import { resolveWorkspacePath } from "./context";
+import * as path from "node:path";
+
+import { resolveContext, resolveWorkspacePath } from "./context";
 // Type-only: erased at compile time, so the MCP process stays Electron-free.
 import type { LayoutSnapshot } from "../../src/lib/layout/snapshot";
 import type { Http, ToolDef, ToolModule } from "./types";
@@ -142,6 +144,33 @@ const tools: ToolDef[] = [
         },
       },
       required: ["url"],
+    },
+  },
+  {
+    name: "open_file",
+    description:
+      "Open any text file in Manor's file viewer, inside the workspace or anywhere else on this machine. It opens in a new tab, or brings forward the tab already showing it, in the workspace this agent is running in. Files that are binary, over 2 MB or missing are refused.",
+    positional: "path",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        path: {
+          type: "string",
+          description: "The file. A relative path is relative to the current directory.",
+        },
+        line: { type: "number", description: "Line to put the cursor on, 1-based." },
+        col: { type: "number", description: "Column on that line, 1-based." },
+        workspacePath: {
+          type: "string",
+          description:
+            "Filesystem path of the workspace to open the tab in. Defaults to the workspace this agent is running in, then the last active one.",
+        },
+        background: {
+          type: "boolean",
+          description: "Open the tab without switching focus to it.",
+        },
+      },
+      required: ["path"],
     },
   },
   {
@@ -505,6 +534,30 @@ const handlers: ToolModule["handlers"] = {
     return text(
       `Opened browser tab ${result.tabId} at ${args.url} (pane: ${result.paneId}).`,
     );
+  },
+
+  async open_file(args, http) {
+    // A caller outside any project still opens the file, in the last active
+    // workspace; the route decides whether there is one.
+    const workspacePath =
+      (args.workspacePath as string | undefined) ??
+      (await resolveContext(http).then(
+        (context) => context.workspacePath,
+        () => undefined,
+      ));
+    const body: Record<string, unknown> = {
+      path: path.resolve(args.path as string),
+    };
+    if (workspacePath) body.workspacePath = workspacePath;
+    if (args.line !== undefined) body.line = args.line;
+    if (args.col !== undefined) body.col = args.col;
+    if (args.background !== undefined) body.background = args.background;
+    const result = (await http.post("/files/open", body)) as {
+      paneId: string;
+      tabId: string;
+      path: string;
+    };
+    return text(`Opened ${result.path} in tab ${result.tabId} (pane: ${result.paneId}).`);
   },
 
   async focus_pane(args, http) {

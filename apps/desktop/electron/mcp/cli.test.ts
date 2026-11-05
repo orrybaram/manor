@@ -696,3 +696,136 @@ describe("api", () => {
     expect(io.stderr).toBe("HTTP 500: boom\n");
   });
 });
+
+describe("open-file", () => {
+  it("takes the file as a bare argument, resolved against the current directory", async () => {
+    const http = fakeHttp({
+      get: async () => ({ workspacePath: "/repo" }),
+      post: async () => ({ paneId: "p", tabId: "t", path: "notes.md" }),
+    });
+    const cap = captureIo();
+    const code = await runCli(["open-file", "notes.md", "--line", "12"], http, cap.io);
+    expect(code).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/files/open", {
+      path: path.resolve("notes.md"),
+      workspacePath: "/repo",
+      line: 12,
+    });
+    expect(cap.stdout).toContain("Opened notes.md in tab t");
+  });
+
+  it("still opens with the flag, and from outside any project", async () => {
+    const http = fakeHttp({
+      get: async () => {
+        throw new HttpError(404, { error: "no project", candidates: [] }, "");
+      },
+      post: async () => ({ paneId: "p", tabId: "t", path: "/etc/hosts" }),
+    });
+    const code = await runCli(["open-file", "--path", "/etc/hosts"], http, captureIo().io);
+    expect(code).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/files/open", { path: "/etc/hosts" });
+  });
+
+  it("says what a second bare argument is, and shows the argument in help", async () => {
+    const http = fakeHttp();
+    const extra = captureIo();
+    expect(await runCli(["open-file", "a", "b"], http, extra.io)).toBe(2);
+    expect(extra.stderr).toContain('Unexpected argument "b"');
+    const help = captureIo();
+    await runCli(["open-file", "--help"], http, help.io);
+    expect(help.stdout).toContain("Usage: manor open-file [path] [flags]");
+  });
+
+  it("needs a file", async () => {
+    const cap = captureIo();
+    expect(await runCli(["open-file"], fakeHttp(), cap.io)).toBe(2);
+    expect(cap.stderr).toContain("--path");
+  });
+
+  it("prints the server's refusal", async () => {
+    const http = fakeHttp({
+      post: async () => {
+        throw new HttpError(400, { error: "nope.txt does not exist" }, "");
+      },
+    });
+    const cap = captureIo();
+    expect(await runCli(["open-file", "/nope.txt"], http, cap.io)).toBe(1);
+    expect(cap.stderr).toContain("nope.txt does not exist");
+  });
+});
+
+describe("manor <file>", () => {
+  const opened = () =>
+    fakeHttp({
+      get: async () => ({ workspacePath: "/repo" }),
+      post: async () => ({ paneId: "p", tabId: "t", path: "x" }),
+    });
+  let dir: string;
+  const cwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(cwd);
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  function inTempDir(): void {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "manor-cli-")));
+    process.chdir(dir);
+  }
+
+  it("opens a path, with open-file's flags", async () => {
+    const http = opened();
+    expect(await runCli(["/etc/hosts", "--line", "3"], http, captureIo().io)).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/files/open", {
+      path: "/etc/hosts",
+      workspacePath: "/repo",
+      line: 3,
+    });
+  });
+
+  it("opens a bare name only when that file is here", async () => {
+    inTempDir();
+    fs.writeFileSync("Makefile", "all:\n");
+    const http = opened();
+    expect(await runCli(["Makefile"], http, captureIo().io)).toBe(0);
+    expect(http.post).toHaveBeenCalledWith(
+      "/files/open",
+      expect.objectContaining({ path: path.join(dir, "Makefile") }),
+    );
+
+    const cap = captureIo();
+    expect(await runCli(["README.md"], http, cap.io)).toBe(2);
+    expect(cap.stderr).toBe("Unknown command: README.md. Run manor --help.\n");
+  });
+
+  it("lets a command win over a file of that name, and ./ reach the file", async () => {
+    inTempDir();
+    fs.writeFileSync("list-panes", "x\n");
+    const http = fakeHttp({
+      get: async () => ({ workspacePath: "/repo", tabs: [] }),
+      post: async () => ({ paneId: "p", tabId: "t", path: "x" }),
+    });
+    expect(await runCli(["list-panes"], http, captureIo().io)).toBe(0);
+    expect(http.post).not.toHaveBeenCalled();
+    expect(await runCli(["./list-panes"], http, captureIo().io)).toBe(0);
+    expect(http.post).toHaveBeenCalledWith(
+      "/files/open",
+      expect.objectContaining({ path: path.join(dir, "list-panes") }),
+    );
+  });
+
+  it("keeps a mistyped command and an unknown flag as they were", async () => {
+    inTempDir();
+    const http = opened();
+    expect(await runCli(["list-agent"], http, captureIo().io)).toBe(2);
+    expect(await runCli(["--nope"], http, captureIo().io)).toBe(2);
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it("shows the form in help", async () => {
+    const cap = captureIo();
+    await runCli(["--help"], fakeHttp(), cap.io);
+    expect(cap.stdout).toContain("manor <file>");
+  });
+});
+

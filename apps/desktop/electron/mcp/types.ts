@@ -25,6 +25,8 @@ export interface ToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** CLI only: the property a bare argument fills, as `manor open-file a.ts`. */
+  positional?: string;
 }
 
 export interface ToolModule {

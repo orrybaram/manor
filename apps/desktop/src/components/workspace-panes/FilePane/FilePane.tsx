@@ -25,6 +25,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { isNavRegionKeyboardFocused } from "../../../lib/focus-regions";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
+import { fileRoot, isOutsideWorkspace, pathInFileRoot } from "../../../lib/file-location";
 import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { Button } from "../../ui/Button/Button";
@@ -106,7 +107,7 @@ type DiffSource = {
 };
 
 /**
- * A file pane: one file of its workspace, with a strip on its left edge whose
+ * A file pane: one file, usually of its workspace, with a strip on its left edge whose
  * Files button opens the workspace's tree in a drawer beside the editor, and
  * whose Source Control button opens the workspace's changes, to stage,
  * discard and open. The
@@ -218,6 +219,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     [workspacePath, hostId],
   );
   const changes = useWorkspaceChanges(workspace);
+  // The file as the tree and Source Control know it: one outside the workspace is neither's.
+  const workspaceFile = filePath && !isOutsideWorkspace(filePath) ? filePath : null;
   const openFileDirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
   const changeCount = changes?.files.size ?? 0;
 
@@ -425,7 +428,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           workspace={workspace}
           mode={drawer}
           changes={changes}
-          openFile={filePath}
+          openFile={workspaceFile}
           canWrite={!readOnly}
           autoFocus={drawerOpened}
           openFileDirty={openFileDirty}
@@ -445,7 +448,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
                 workspace={workspace}
                 view={scmView}
                 changes={changes}
-                openFile={filePath}
+                openFile={workspaceFile}
                 onOpenChange={openChange}
                 onOpenFile={pickFile}
               />
@@ -471,8 +474,9 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           <OpenFile
             key={`${workspace.hostId}\0${workspace.path}\0${filePath}`}
             paneId={paneId}
-            workspace={workspace}
-            path={filePath}
+            workspace={fileRoot(workspace, filePath)}
+            path={pathInFileRoot(filePath)}
+            shownPath={filePath}
             readOnly={readOnly}
             diff={diff && diff.path === filePath ? diffSource : null}
             onOpenPlain={() => setDiff(null)}
@@ -499,13 +503,13 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
 
 /** The open file's path; `children` sit at the row's right end (the diff's tag and controls). */
 function Breadcrumb({ path, children }: { path: string; children?: ReactNode }) {
-  const parts = path.split("/");
+  const parts = pathInFileRoot(path).split("/");
   return (
     <div className={styles.crumbs}>
       <div className={styles.crumbPath} data-testid="file-pane-breadcrumb" title={path}>
         {parts.map((part, i) => (
           <span key={i} className={styles.crumbPart}>
-            {i > 0 && <span className={styles.crumbSep}>/</span>}
+            {(i > 0 || isOutsideWorkspace(path)) && <span className={styles.crumbSep}>/</span>}
             <span className={i === parts.length - 1 ? styles.crumbLast : styles.crumb}>
               {part}
             </span>
@@ -605,7 +609,7 @@ function isSaveKey(e: React.KeyboardEvent): boolean {
  * Who changed the open file on disk, for the conflict banner: the agent whose
  * hooks last wrote it. Null when none did; the banner then says "An agent".
  */
-function useFileAuthor(workspace: FilesWorkspace, path: string): string | null {
+function useFileAuthor(workspace: FilesWorkspace | null, path: string): string | null {
   const changes = useWorkspaceChanges(workspace);
   return useAgentLabel(changes?.authors[path] ?? null);
 }
@@ -637,13 +641,17 @@ function OpenFile({
   paneId,
   workspace,
   path,
+  shownPath,
   readOnly,
   diff,
   onOpenPlain,
 }: {
   paneId: string;
+  /** The root `path` is read from: the pane's workspace, or `/` for a file outside it. */
   workspace: FilesWorkspace;
   path: string;
+  /** The path as the pane holds it, and as the breadcrumb shows it. */
+  shownPath: string;
   readOnly: boolean;
   /** Show the file as its diff, read from this; null for the plain file. */
   diff: DiffSource | null;
@@ -655,14 +663,18 @@ function OpenFile({
   const state =
     stored?.path === path && sameWorkspace(stored.workspace, workspace) ? stored : null;
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
-  const author = useFileAuthor(workspace, path);
+  // `/` is no repo: a file outside the workspace has no changes to follow.
+  const outside = isOutsideWorkspace(shownPath);
+  const author = useFileAuthor(outside ? null : workspace, path);
   const editorRef = useRef<CodeEditorRef>(null);
   // The editor follows the workspace diff for this file's gutter marks.
   const [agentMarks] = useState<AgentMarksSource>(() => ({
     follow: (onChange) =>
-      followWorkspaceChanges(workspace, (changes) =>
-        onChange(agentMarksFor(changes.files.get(path))),
-      ),
+      outside
+        ? () => {}
+        : followWorkspaceChanges(workspace, (changes) =>
+            onChange(agentMarksFor(changes.files.get(path))),
+          ),
   }));
   const actions = useRef<OpenFileActions | null>(null);
   const [comparison, setComparison] = useState<Comparison>(null);
@@ -831,7 +843,7 @@ function OpenFile({
   if (state.status === "failed") {
     return (
       <>
-        <Breadcrumb path={path} />
+        <Breadcrumb path={shownPath} />
         <div className={styles.empty} data-testid="file-pane-error">
           {state.message}
         </div>
@@ -963,7 +975,7 @@ function OpenFile({
           Couldn't save: {state.saveError}
         </div>
       )}
-      <Breadcrumb path={path}>
+      <Breadcrumb path={shownPath}>
         {diff && (
           <>
             <DiffTag source={diff} note={note} />

@@ -1,6 +1,7 @@
 /**
  * The control routes every Manor server answers: projects,
- * workspaces, folders, issues, agents, automations and `/context`. They read only
+ * workspaces, folders, issues, agents, automations, opening a file and
+ * `/context`. They read only
  * `ServerRouteDeps` and import no Electron, so the host server dispatches
  * them for its box's `manor` CLI (`../host-server/cli-relay.ts`) and for
  * the desktop's requests about its projects, through the same code the
@@ -15,6 +16,7 @@
 import { agentRoutes } from "./agents";
 import { automationRoutes } from "./automations";
 import { contextRoutes } from "./context";
+import { fileRoutes } from "./files";
 import { folderRoutes } from "./folders";
 import { integrationRoutes } from "./integrations";
 import { issueRoutes } from "./issues";
@@ -33,6 +35,7 @@ export const serverRoutes: readonly ServerRoute[] = [
   ...issueRoutes,
   ...integrationRoutes,
   ...automationRoutes,
+  ...fileRoutes,
 ];
 
 /** First path segments `serverRoutes` answers for; see `./index.ts`. */

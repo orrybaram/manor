@@ -103,6 +103,7 @@ function renderGlobalHelp(): string {
     "",
     "Usage: manor <command> [flags]",
     "       manor <command> --help",
+    "       manor <file> [--line <n>]    Open a file in Manor's file viewer (open-file).",
     `       ${API_USAGE}`,
     "Flag values: - reads stdin, @file reads a file.",
   ];
@@ -128,7 +129,8 @@ function renderGlobalHelp(): string {
 function renderCommandHelp(command: string, tool: ToolDef): string {
   const props = properties(tool);
   const required = requiredProps(tool);
-  const lines = [`Usage: manor ${command} [flags]`, "", tool.description];
+  const bare = tool.positional ? `[${toFlagName(tool.positional)}] ` : "";
+  const lines = [`Usage: manor ${command} ${bare}[flags]`, "", tool.description];
 
   const entries = Object.entries(props);
   if (entries.length > 0) {
@@ -232,6 +234,10 @@ export function parseArgs(
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith("--")) {
+      if (tool.positional && args[tool.positional] === undefined) {
+        args[tool.positional] = token;
+        continue;
+      }
       throw new UsageError(
         `Unexpected argument "${token}" for ${command}. Valid flags: ${validFlags}`,
       );
@@ -432,6 +438,14 @@ async function runApi(argv: string[], http: Http, io: CliIo): Promise<number> {
 
 const HELP_FLAGS = ["--help", "-h"];
 
+/**
+ * Whether a first argument that is no command means a file: it has a `/`, or
+ * a file by that name is here. A mistyped command stays an unknown command.
+ */
+function namesFile(token: string): boolean {
+  return !token.startsWith("-") && (token.includes("/") || fs.existsSync(token));
+}
+
 export async function runCli(
   argv: string[],
   http: Http,
@@ -463,6 +477,9 @@ export async function runCli(
   }
 
   const tool = commands.get(command);
+  if (!tool && namesFile(command)) {
+    return runCli(["open-file", command, ...rest], http, io);
+  }
   if (!tool) {
     io.stderr.write(`Unknown command: ${command}. Run manor --help.\n`);
     return 2;

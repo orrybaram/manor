@@ -96,6 +96,7 @@ import { onBridgeResync } from "./bridge/resync";
 import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { showFileFromCli } from "./lib/open-in-file-pane";
 import { useEditorFont } from "./hooks/useEditorFont";
 import { useChatFont } from "./hooks/useChatFont";
 import { reportUnsavedFiles } from "./lib/report-unsaved-files";
@@ -144,6 +145,7 @@ function App() {
   useMountEffect(() => startAgentActivitySync());
   // Closing the window or quitting asks about unsaved file edits.
   useMountEffect(() => reportUnsavedFiles());
+  useMountEffect(() => window.electronAPI.layout.onShowFile(showFileFromCli));
 
   // The host profiles "In a new pod" offers; kept current by
   // the store's own change subscription.

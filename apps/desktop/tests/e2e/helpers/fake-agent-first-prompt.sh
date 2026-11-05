@@ -58,6 +58,9 @@ while IFS= read -r -n 1 -d '' char; do
     buf="$buf$char"
     continue
   fi
+  # A prompt arrives as a bracketed paste, not part of the text.
+  buf="${buf//$'\033[200~'/}"
+  buf="${buf//$'\033[201~'/}"
   text=$(printf '%s' "$buf" | LC_ALL=C tr -d '\000-\037\177')
   buf=""
   [ -n "$text" ] || continue

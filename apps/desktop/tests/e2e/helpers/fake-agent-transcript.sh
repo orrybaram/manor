@@ -141,7 +141,9 @@ while IFS= read -r -n 1 -d '' char; do
     continue
   fi
 
-  line="$buf"
+  # A prompt arrives as a bracketed paste: not picker keys, not part of the text.
+  line="${buf//$'\033[200~'/}"
+  line="${line//$'\033[201~'/}"
   buf=""
 
   # Picker keys: count the Downs. Anything else in the line is noise.

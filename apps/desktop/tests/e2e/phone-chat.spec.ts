@@ -64,8 +64,9 @@ function paneText(page: Page, paneId: string): Promise<string> {
  * hand it a sent CR as LF (bash's `read -n` sets its own mode), so LF reads
  * back as the CR that was written.
  */
+/** What the agent was sent, without the bracketed paste a prompt arrives in. */
 function inputLog(file: string): string {
-  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER) : "";
+  return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER).replace(/\x1b\[20[01]~/g, "") : "";
 }
 
 test.describe("phone chat view", () => {

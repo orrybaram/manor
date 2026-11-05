@@ -74,10 +74,10 @@ describe("ChatMirror per agent kind", () => {
 
   it("types with the kind's interrupt keys, and as Claude for a pane with no agent", () => {
     expect(mirror.input(PANE).interruptKeys).toEqual(["\x1b"]);
-    expect(mirror.input(PANE).promptWrites("a\r\nb")).toEqual(["a\nb", "\r"]);
+    expect(mirror.input(PANE).promptWrites("a\r\nb")).toEqual(["\x1b[200~a\nb\x1b[201~", "\r"]);
     agent = { ...agent!, agentKind: "opencode" };
     expect(mirror.input(PANE).interruptKeys).toEqual(["\x1b", "\x1b"]);
     expect(mirror.input("other").interruptKeys).toEqual(["\x1b"]);
-    expect(mirror.input("other").promptWrites("hi")).toEqual(["hi", "\r"]);
+    expect(mirror.input("other").promptWrites("hi")).toEqual(["\x1b[200~hi\x1b[201~", "\r"]);
   });
 });

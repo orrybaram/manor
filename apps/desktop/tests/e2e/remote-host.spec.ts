@@ -321,7 +321,7 @@ test.describe("remote host", () => {
     await blame.click();
     const column = pane(window).locator(".cm-blameGutter");
     await expect(column).toContainText("Seed a on the box", { timeout: STEP });
-    await expect(column).toContainText("Box User");
+    await expect(column.locator(".cm-blameInitials").first()).toHaveText("BU");
   });
 
   // `manor open-file` on the box: its server adds the tab, with the desktop

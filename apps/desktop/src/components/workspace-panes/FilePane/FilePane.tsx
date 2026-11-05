@@ -44,6 +44,8 @@ import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import { pendingLines } from "./pending-line";
+import { createBlameFollower, useBlamePref, usePaneBlame, type BlameFollower } from "./file-blame";
+import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
 import {
   onSourceControlRequest,
   takeSourceControlRequest,
@@ -676,6 +678,17 @@ function OpenFile({
             onChange(agentMarksFor(changes.files.get(path))),
           ),
   }));
+  // Made before the first render: the editor may mount, and follow it, ahead of this mount's effect.
+  const [blame] = useState<BlameFollower>(() =>
+    createBlameFollower(
+      {
+        revision: () => window.electronAPI.files.blameRevision(workspace, path),
+        blame: () => window.electronAPI.files.blame(workspace, path),
+      },
+      (status) => usePaneBlame.getState().set(paneId, status),
+    ),
+  );
+  const blameNote = usePaneBlame((s) => s.byPane[paneId]?.note ?? null);
   const actions = useRef<OpenFileActions | null>(null);
   const [comparison, setComparison] = useState<Comparison>(null);
 
@@ -718,6 +731,13 @@ function OpenFile({
     };
     store().open(paneId, workspace, path);
 
+    // The phone doesn't show blame.
+    if (!readOnly) blame.start(useBlamePref.getState().on);
+    const stopBlamePref = useBlamePref.subscribe(({ on }) => blame.setOn(on));
+    const stopBlameHead = watchDiffFingerprint(workspaceKey(workspace.hostId, workspace.path), () =>
+      blame.workspaceChanged(),
+    );
+
     // A clean reload, Reload theirs or Discard: the editor shows the clean
     // copy at once, so it never holds edits the store has dropped.
     const stopFollowing = useOpenFileStore.subscribe((next, prev) => {
@@ -730,6 +750,16 @@ function OpenFile({
         a.baseVersion !== b.baseVersion
       ) {
         editorRef.current?.replaceContent(a.base);
+      }
+      // A save or a reload: the clean copy moved, and blame reads the file on disk.
+      if (
+        a?.path === path &&
+        sameWorkspace(a.workspace, workspace) &&
+        b?.path === path &&
+        b.status === "ready" &&
+        (a.expectedHash !== b.expectedHash || a.baseVersion !== b.baseVersion)
+      ) {
+        blame.fileChanged();
       }
     });
 
@@ -830,6 +860,10 @@ function OpenFile({
       stopEditor();
       stopListening();
       stopFollowing();
+      stopBlamePref();
+      stopBlameHead();
+      blame.stop();
+      usePaneBlame.getState().set(paneId, null);
       openFileWatches.set(workspace, paneId, null);
     };
   });
@@ -976,6 +1010,11 @@ function OpenFile({
         </div>
       )}
       <Breadcrumb path={shownPath}>
+        {blameNote !== null && (
+          <span className={styles.diffNote} data-testid="file-pane-blame-note" role="status">
+            {blameNote}
+          </span>
+        )}
         {diff && (
           <>
             <DiffTag source={diff} note={note} />
@@ -1004,6 +1043,7 @@ function OpenFile({
               if (dirty) dispatch({ type: "stash-draft", draft: content });
             }}
             agentMarks={agentMarks}
+            blame={blame}
             diffBase={diffBase}
             reviewWorkspace={workspace.path}
           />

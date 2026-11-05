@@ -82,7 +82,22 @@
   cursor: pointer;
 }
 
-.jumpBtn:hover {
+.jumpBtn:hover:not(:disabled) {
   background: var(--hover);
   color: var(--fg);
+}
+
+.jumpBtn:disabled {
+  color: var(--text-dim);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.blameWrap {
+  display: inline-flex;
+}
+
+.blameOn {
+  background: var(--hover);
+  color: var(--accent);
 }

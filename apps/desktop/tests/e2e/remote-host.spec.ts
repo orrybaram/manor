@@ -9,6 +9,7 @@ import {
   FAKE_CHAT_REPLY,
 } from "./helpers/fake-agent";
 import {
+  header,
   openFileFromPalette,
   openFromTree,
   pane,
@@ -310,6 +311,17 @@ test.describe("remote host", () => {
     onRemote(`printf 'export const a = 2;\\n' > "${file}"`);
     await expect(editor).toContainText("export const a = 2;", { timeout: STEP });
     await expect(editor).not.toContainText("// from the desk");
+
+    // Blame runs on the box: the commit is only there.
+    onRemote(
+      `cd "${ws}" && git add src/a.ts && git -c user.name='Box User' -c user.email=box@example.com commit -q -m 'Seed a on the box'`,
+    );
+    const blame = header(window).locator('[data-testid="file-pane-blame-toggle"]');
+    await expect(blame).toBeEnabled({ timeout: STEP });
+    await blame.click();
+    const column = pane(window).locator(".cm-blameGutter");
+    await expect(column).toContainText("Seed a on the box", { timeout: STEP });
+    await expect(column).toContainText("Box User");
   });
 
   // `manor open-file` on the box: its server adds the tab, with the desktop

@@ -21,6 +21,7 @@ import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import History from "lucide-react/dist/esm/icons/history";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
@@ -51,6 +52,7 @@ import {
   selectActiveLayout,
   selectActivePanelId,
   selectActiveWorkspaceKey,
+  selectFocusedPaneOfActiveTab,
   selectSelectedTabId,
   useAppStore,
 } from "../../store/app-store";
@@ -58,6 +60,11 @@ import { useProjectStore } from "../../store/project-store";
 import { requestUi } from "../../utils/ui-request";
 import { isWebApp } from "../../lib/platform";
 import { availableCommands, getCommand } from "../../lib/commands";
+import {
+  toggleBlame,
+  useBlamePref,
+  useFileBlameAvailable,
+} from "../workspace-panes/FilePane/file-blame";
 import type { ActivePort } from "../../electron.d.ts";
 import { isRemoteHost } from "../../lib/hosts";
 import { HOME_PATH, isHomePath } from "../../lib/home-path";
@@ -125,6 +132,9 @@ export function useCommands({
     return !!panel && !!tabId && (panel.pinnedTabIds ?? []).includes(tabId);
   });
   const remoteControlOn = useRemoteControlStore((s) => isOn(s.status));
+  const focusedPaneId = useAppStore(selectFocusedPaneOfActiveTab);
+  const blameAvailable = useFileBlameAvailable(focusedPaneId ?? "");
+  const blameOn = useBlamePref((s) => s.on);
   const panelCount = useAppStore((s) => {
     const layout = selectActiveLayout(s);
     return layout ? Object.keys(layout.panels).length : 0;
@@ -391,6 +401,22 @@ export function useCommands({
         keywords: ["git", "changes", "diff", "staged", "source control", "scm", "commit"],
       },
     ]);
+
+    // Only for a focused file pane whose file git can say something about.
+    const blameItems: CommandItem[] = blameAvailable
+      ? [
+          {
+            id: "toggle-file-blame",
+            label: blameOn ? "Hide Blame" : "Show Blame",
+            icon: <History size={14} />,
+            keywords: ["blame", "git", "annotate", "author", "commit", "file", "editor", "toggle"],
+            action: () => {
+              toggleBlame();
+              onClose();
+            },
+          },
+        ]
+      : [];
 
     const portItems: CommandItem[] = activePorts.map((p): CommandItem => {
       const url = p.hostname
@@ -793,7 +819,7 @@ export function useCommands({
       { id: "tabs", heading: "Tabs", visible: true, items: unlessHomeItems(tabItems) },
       { id: "panes", heading: "Panes", visible: true, items: unlessHomeItems(paneItems) },
       { id: "panels", heading: "Panels", visible: true, items: unlessHomeItems(panelItems) },
-      { id: "git", heading: "Git", visible: true, items: unlessHomeItems(gitItems) },
+      { id: "git", heading: "Git", visible: true, items: unlessHomeItems([...gitItems, ...blameItems]) },
       {
         id: "workspace",
         heading: "Workspace",
@@ -830,6 +856,8 @@ export function useCommands({
     hasSelectedTab,
     activeTabPinned,
     panelCount,
+    blameAvailable,
+    blameOn,
     isHostServer,
     remoteControlOn,
   ]);

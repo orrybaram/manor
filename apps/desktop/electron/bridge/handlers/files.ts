@@ -22,11 +22,13 @@
  */
 
 import { assertString, assertStringArray } from "../../ipc-validate";
+import type { BlameResult } from "../../backend/types";
 import type { ServerDeps } from "../../ipc/types";
 import type { HostPath } from "../../per-host-poller";
 import {
   createWorkspaceFile,
   deleteWorkspaceFile,
+  isSafeRelPath,
   listWorkspaceFiles,
   readWorkspaceFile,
   renameWorkspaceFile,
@@ -125,6 +127,32 @@ export function filesDelete(
   return deleteWorkspaceFile(backendFor(ctx, workspace), workspace.path, relPath);
 }
 
+/** The commit a blame of `relPath` would start from; null when it has nothing to blame. */
+export async function filesBlameRevision(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  relPath: string,
+): Promise<string | null> {
+  assertWorkspace(workspace, "workspace");
+  assertString(relPath, "relPath");
+  if (!isSafeRelPath(relPath)) return null;
+  return backendFor(ctx, workspace).git.blameRevision(workspace.path, relPath);
+}
+
+/** `git blame` of `relPath`, run on the workspace's host. */
+export async function filesBlame(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  relPath: string,
+): Promise<BlameResult> {
+  assertWorkspace(workspace, "workspace");
+  assertString(relPath, "relPath");
+  if (!isSafeRelPath(relPath)) {
+    return { ok: false, reason: "failed", message: `${relPath} is outside the workspace` };
+  }
+  return backendFor(ctx, workspace).git.blame(workspace.path, relPath);
+}
+
 /**
  * The caller has `relPaths` of `workspace` open: they replace what it had
  * open there, and `files.changed` comes to it when one changes on disk. An
@@ -151,6 +179,8 @@ export function filesUnwatch(ctx: HandlerCtx<FileWatchDeps>): void {
 export const files = {
   list: method(filesList),
   read: method(filesRead),
+  blameRevision: method(filesBlameRevision),
+  blame: method(filesBlame),
   write: method(filesWrite, { mutating: true }),
   create: method(filesCreate, { mutating: true }),
   rename: method(filesRename, { mutating: true }),

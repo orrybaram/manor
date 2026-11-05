@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
+import History from "lucide-react/dist/esm/icons/history";
 import { useOpenFileStore } from "../../../store/open-file-store";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { AgentChip } from "./AgentChip";
+import { useFileBlameAvailable, toggleBlame, useBlamePref } from "./file-blame";
 import { jumpToEdit, useFileEditNav } from "./file-edit-nav";
 import type { FilesWorkspace } from "./open-file-watches";
 import { useWorkspaceChanges } from "./workspace-changes";
@@ -75,6 +77,42 @@ export function FileSaveHint({ paneId }: { paneId: string }) {
     <span className={styles.hint} data-testid="file-pane-save-hint">
       {combo} to save
     </span>
+  );
+}
+
+/**
+ * The header's blame toggle. It stays in place, disabled, for a file git has
+ * nothing to say about: untracked, binary or outside a repo.
+ */
+export function FileBlameToggle({ paneId }: { paneId: string }) {
+  const on = useBlamePref((s) => s.on);
+  const available = useFileBlameAvailable(paneId);
+  const label = !available
+    ? "Blame isn't available for this file"
+    : on
+      ? "Hide blame"
+      : "Show blame";
+  return (
+    <Tooltip label={label}>
+      {/* A disabled button hears no pointer, so its tooltip hangs off this. */}
+      <span className={styles.blameWrap}>
+        <button
+          type="button"
+          className={`${styles.jumpBtn} ${on && available ? styles.blameOn : ""}`}
+          aria-label={label}
+          aria-pressed={on && available}
+          disabled={!available}
+          data-testid="file-pane-blame-toggle"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleBlame();
+          }}
+        >
+          <History size={12} />
+        </button>
+      </span>
+    </Tooltip>
   );
 }
 

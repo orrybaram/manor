@@ -90,6 +90,7 @@
     "afplay",
     "kind",
     "kubectl",
+    "mkfifo",
     "pgrep",
     "pkill"
   ]

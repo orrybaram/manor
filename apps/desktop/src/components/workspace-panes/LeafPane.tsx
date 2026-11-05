@@ -41,7 +41,7 @@ import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./Br
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { FilePane } from "./FilePane/FilePane";
-import { FileEditJump, FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
+import { FileBlameToggle, FileEditJump, FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
@@ -603,6 +603,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           {contentType === "file" && (
             <>
               <FileSaveHint paneId={paneId} />
+              {!isWebApp() && <FileBlameToggle paneId={paneId} />}
               <FileEditJump
                 paneId={paneId}
                 workspacePath={workspace?.path ?? null}

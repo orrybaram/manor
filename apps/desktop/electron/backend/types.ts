@@ -101,6 +101,30 @@ export interface PtyBackend {
 
 // ── Git Backend ──
 
+/** A commit `git blame` found in a file. */
+export interface BlameCommit {
+  /** All zeros for lines not committed yet. */
+  sha: string;
+  author: string;
+  /** Author time, in seconds since the epoch. */
+  time: number;
+  summary: string;
+  /** The full message; the summary when it couldn't be read. */
+  message: string;
+}
+
+/** A file's blame: each commit once, and which one each line came from. */
+export interface FileBlame {
+  commits: BlameCommit[];
+  /** Index into `commits` for each line of the file on disk, first line first. */
+  lines: number[];
+}
+
+/** A blame the file pane shows, or why there isn't one. */
+export type BlameResult =
+  | ({ ok: true } & FileBlame)
+  | { ok: false; reason: "timeout" | "too-large" | "failed"; message: string };
+
 export interface GitBackend {
   /** Run an arbitrary git command. Returns stdout. */
   exec(cwd: string, args: string[]): Promise<string>;
@@ -145,6 +169,16 @@ export interface GitBackend {
   getLocalDiff(cwd: string): Promise<string | null>;
 
   getStagedFiles(cwd: string): Promise<string[]>;
+  /**
+   * The commit a blame of `relPath` would start from, or null when it has
+   * nothing to blame: outside a repo, no commits, or not in HEAD (untracked,
+   * or added and not committed yet), or when git couldn't be asked (the host
+   * is away). It doesn't look inside the file: a committed binary file has a
+   * revision, and the file pane leaves those out because it can't open them.
+   */
+  blameRevision(cwd: string, relPath: string): Promise<string | null>;
+  /** `git blame` of `relPath` as it is on disk, with a time limit. */
+  blame(cwd: string, relPath: string): Promise<BlameResult>;
 
   worktreeList(cwd: string): Promise<WorktreeInfo[]>;
 

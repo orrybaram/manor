@@ -37,6 +37,7 @@ import {
 import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
 import { isHostServer } from "../bridge/connection";
+import { fileBlameAvailable, toggleBlame } from "../components/workspace-panes/FilePane/file-blame";
 import { currentLayoutMode } from "../hooks/useLayoutMode";
 import {
   openNewAgentOnChat,
@@ -211,6 +212,10 @@ export function createSharedCommandContext(
     },
     focusedPaneId: () => selectFocusedPaneOfActiveTab(useAppStore.getState()),
     togglePaneChat: (paneId) => togglePaneChat(paneId),
+    toggleFileBlame: () => {
+      const paneId = selectFocusedPaneOfActiveTab(useAppStore.getState());
+      if (paneId && fileBlameAvailable(paneId)) toggleBlame();
+    },
     copyToClipboard,
     startNewAgent: () => void newAgent({ prewarm: prewarmNewAgent }),
     moveTabToNextPanel: () => moveTabToNextPanel(),

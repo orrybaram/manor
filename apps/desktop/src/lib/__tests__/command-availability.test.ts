@@ -20,6 +20,7 @@ describe("commandAvailableOnWeb", () => {
       "detach-tab",
       "open-in-editor",
       "reveal-in-finder",
+      "toggle-file-blame",
       "toggle-remote-control",
     ]);
   });

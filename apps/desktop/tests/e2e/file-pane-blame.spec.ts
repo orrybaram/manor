@@ -367,7 +367,11 @@ test("the choice survives a restart, and comes back on with the file", async ({ 
     await openFromTree(window, ["story.txt"]);
     await toggle(window).click();
     await expect(firsts(window).first()).toContainText("Start the story");
-    await window.waitForTimeout(1_500); // past localStorage's write to disk
+    // Quit as a person does. Chromium holds localStorage writes back, sometimes
+    // for a minute, and flushes them on the way out; a hard kill would lose them.
+    const exited = new Promise((resolve) => first.process().once("exit", resolve));
+    await first.evaluate(({ app }) => app.quit()).catch(() => {});
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 20_000))]);
   } finally {
     await killApp(first);
   }

@@ -21,6 +21,7 @@ import {
   search,
   searchKeymap,
 } from "@codemirror/search";
+import type { FileBlame } from "../../../../electron.d";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
@@ -40,6 +41,7 @@ import {
   type AgentMarks,
   type LaneMark,
 } from "./change-marks";
+import { blameGutter, setBlame } from "./blame-gutter";
 import { unfoldAt, unifiedDiff } from "./diff-view";
 import { createFindPanel } from "./search-panel";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
@@ -58,6 +60,11 @@ const COMMENT_FLASH_MS = 1400;
 /** Where the open file's change marks come from: `follow` hears each new set. */
 export type AgentMarksSource = {
   follow(onChange: (marks: AgentMarks | null) => void): () => void;
+};
+
+/** Where the open file's blame comes from: `follow` hears each new one, or null for none. */
+export type BlameSource = {
+  follow(onChange: (blame: FileBlame | null) => void): () => void;
 };
 
 type Lane = { marks: LaneMark[]; lines: number };
@@ -91,6 +98,8 @@ type CodeEditorProps = {
   onDispose: (content: string, dirty: boolean) => void;
   /** Read once, on mount: the file's changed lines, as the workspace diff has them. */
   agentMarks?: AgentMarksSource;
+  /** Read once, on mount: the file's blame, for the blame column; none shows it off. */
+  blame?: BlameSource;
   /**
    * Show the text as a unified diff against this (the diff's old side, as
    * the file is written on disk); null for the plain editor. Switching keeps
@@ -115,7 +124,8 @@ type CodeEditorProps = {
  * green for a new file) and your unsaved lines (blue), and a lane on its
  * right edge marks where they are in the whole file. ⌥↑/⌥↓, and the pane
  * header's ↑/↓ (`jumpToEdit`), move between the changes while nothing is
- * unsaved.
+ * unsaved. With blame on, a column beside the line numbers says which commit
+ * each line came from.
  *
  * With a `diffBase` it shows the file as a diff against it instead, still
  * editable, and the change marks step aside: the diff marks every change.
@@ -131,6 +141,7 @@ export function CodeEditor({
   onDirtyChange,
   onDispose,
   agentMarks,
+  blame,
   diffBase = null,
   reviewWorkspace,
   ref,
@@ -202,6 +213,8 @@ export function CodeEditor({
     const language = new Compartment();
     const diff = new Compartment();
     const marks = new Compartment();
+    const blameColumn = new Compartment();
+    let blameShown = false;
     let shownBase = diffBase;
     // The last marks the diff sent, to put back when the diff view leaves.
     let lastMarks: AgentMarks | null = null;
@@ -260,6 +273,7 @@ export function CodeEditor({
           EditorState.readOnly.of(readOnly),
           // Not editable on the phone, so a tap never opens the keyboard.
           EditorView.editable.of(!readOnly),
+          blameColumn.of([]),
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
@@ -322,6 +336,18 @@ export function CodeEditor({
     const stopMarks = agentMarks?.follow((next) => {
       lastMarks = next;
       if (!destroyed) view.dispatch({ effects: setAgentMarks.of(next) });
+    });
+    const stopBlame = blame?.follow((next) => {
+      if (destroyed) return;
+      // Already showing, the column stays and takes the new blame, so it doesn't blink.
+      view.dispatch({
+        effects: !next
+          ? blameColumn.reconfigure([])
+          : blameShown
+            ? setBlame.of({ blame: next, doc: file.cleanDoc })
+            : blameColumn.reconfigure(blameGutter(next, file.cleanDoc)),
+      });
+      blameShown = next !== null;
     });
     showDiffRef.current = (base) => {
       if (destroyed || base === shownBase) return;
@@ -397,6 +423,7 @@ export function CodeEditor({
       clearTimeout(commentFlashTimer);
       stopComments();
       stopMarks?.();
+      stopBlame?.();
       showDiffRef.current = null;
       stopJumps();
       markClickedRef.current = null;

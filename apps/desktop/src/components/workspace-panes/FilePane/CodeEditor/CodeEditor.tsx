@@ -124,7 +124,7 @@ type CodeEditorProps = {
  * green for a new file) and your unsaved lines (blue), and a lane on its
  * right edge marks where they are in the whole file. ⌥↑/⌥↓, and the pane
  * header's ↑/↓ (`jumpToEdit`), move between the changes while nothing is
- * unsaved. With blame on, a column beside the line numbers says which commit
+ * unsaved. With blame on, a column right of the code says which commit
  * each line came from.
  *
  * With a `diffBase` it shows the file as a diff against it instead, still
@@ -273,7 +273,6 @@ export function CodeEditor({
           EditorState.readOnly.of(readOnly),
           // Not editable on the phone, so a tap never opens the keyboard.
           EditorView.editable.of(!readOnly),
-          blameColumn.of([]),
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
@@ -281,6 +280,7 @@ export function CodeEditor({
           drawSelection(),
           codeFolding(),
           foldGutter(),
+          blameColumn.of([]),
           bracketMatching(),
           highlightSelectionMatches(),
           search({ top: true, createPanel: createFindPanel }),

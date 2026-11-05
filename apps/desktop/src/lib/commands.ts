@@ -392,16 +392,6 @@ export const COMMANDS: readonly CommandDef[] = [
     },
   },
   {
-    id: "toggle-file-blame",
-    label: "Toggle Blame",
-    category: "workspace",
-    defaultCombo: null,
-    scope: "any",
-    // The phone's file pane doesn't show blame.
-    web: false,
-    run: (ctx) => ctx.toggleFileBlame(),
-  },
-  {
     id: "history-back",
     label: "Navigate Back",
     category: "app",
@@ -937,6 +927,16 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     scope: "any",
     run: unlessHome((ctx) => ctx.app().addFileTab()),
+  },
+  {
+    id: "toggle-file-blame",
+    label: "Toggle Blame",
+    category: "workspace",
+    defaultCombo: null,
+    scope: "any",
+    // The phone's file pane doesn't show blame.
+    web: false,
+    run: (ctx) => ctx.toggleFileBlame(),
   },
   {
     // Quick open: the active workspace's files, fuzzy-matched by name.

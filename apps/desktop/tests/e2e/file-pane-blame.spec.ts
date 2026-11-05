@@ -94,24 +94,48 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(toggle(window)).toHaveAttribute("aria-pressed", "false");
   await expect(column(window)).toHaveCount(0);
 
-  // On: two groups, one per commit, each named once.
+  // On: two groups, one per commit, each named once, on the right. The code
+  // stays where it was.
+  const codeX = () =>
+    editor.locator(".cm-line").first().evaluate((el) => el.getBoundingClientRect().left);
+  const before = await codeX();
   await toggle(window).click();
   await expect(toggle(window)).toHaveAttribute("aria-pressed", "true");
   await expect(firsts(window)).toHaveCount(2);
   await expect(firsts(window).nth(0)).toContainText("Start the story");
-  await expect(firsts(window).nth(0)).toContainText("Ada Lovelace");
-  await expect(firsts(window).nth(0)).toContainText("y ago");
+  await expect(firsts(window).nth(0).locator(".cm-blameInitials")).toHaveText("AL");
+  await expect(firsts(window).nth(0).locator(".cm-blameAge")).toHaveText(/\d+y$/);
   await expect(firsts(window).nth(1)).toContainText("Finish the story");
   await window.waitForTimeout(300);
+  expect(await codeX()).toBe(before);
+  const sides = await editor.evaluate((el) => ({
+    code: el.querySelector(".cm-content")!.getBoundingClientRect().left,
+    column: el.querySelector(".cm-blameGutter")!.getBoundingClientRect().left,
+    columnRight: el.querySelector(".cm-blameGutter")!.getBoundingClientRect().right,
+    editorRight: el.querySelector(".cm-editor")!.getBoundingClientRect().right,
+  }));
+  expect(sides.column).toBeGreaterThan(sides.code);
+  expect(sides.columnRight).toBeLessThanOrEqual(sides.editorRight + 1);
   await window.screenshot({ path: shot(testInfo, "blame-on") });
+
+  // The choice outlives the window's page.
+  await window.reload();
+  await expect(firsts(window).first()).toBeVisible({ timeout: 30_000 });
+  await expect(toggle(window)).toHaveAttribute("aria-pressed", "true");
 
   // Hover: the whole message, the sha and the date. Later lines of a group count.
   const head = execSync("git rev-parse HEAD", { cwd: ws, encoding: "utf8" }).trim();
   const tooltip = window.locator('[data-testid="file-pane-blame-tooltip"]');
   await column(window).locator(".cm-gutterElement").nth(4).hover();
   await expect(tooltip).toContainText("The body says why the ending changed.");
-  await expect(tooltip).toContainText(head);
+  await expect(tooltip).toContainText(head.slice(0, 7));
+  await expect(tooltip).not.toContainText(head);
+  await expect(tooltip).toContainText("Ada Lovelace");
   await expect(tooltip).toContainText("2024");
+  // It opens left of the column, by the pointer.
+  const card = await tooltip.boundingBox();
+  const col = await column(window).boundingBox();
+  expect(card!.x + card!.width).toBeLessThanOrEqual(col!.x + 1);
   await window.screenshot({ path: shot(testInfo, "blame-hover") });
   await editor.locator(".cm-content").hover();
   await expect(tooltip).toHaveCount(0);
@@ -124,6 +148,18 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(firsts(window).nth(0)).toContainText("Not committed yet");
   await expect(firsts(window).nth(1)).toContainText("Start the story");
   await window.screenshot({ path: shot(testInfo, "blame-unsaved") });
+
+  // Undo gives the line's blame back.
+  const dirty = header(window).locator('[data-testid="file-pane-dirty"]');
+  await expect(async () => {
+    await window.keyboard.press("ControlOrMeta+z");
+    await expect(dirty).toHaveCount(0, { timeout: 200 });
+  }).toPass();
+  await expect(firsts(window)).toHaveCount(2);
+  await expect(firsts(window).nth(0)).toContainText("Start the story");
+  await window.keyboard.press("ControlOrMeta+Home");
+  await window.keyboard.type("zero\n");
+  await expect(firsts(window).nth(0)).toContainText("Not committed yet");
 
   // Saved, it is still not committed; committed from outside, it says so.
   await window.keyboard.press("ControlOrMeta+s");
@@ -155,17 +191,27 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await expect(toggle(window)).toBeEnabled({ timeout: 30_000 });
   await expect(firsts(window).first()).toContainText("Commit the draft", { timeout: 30_000 });
 
-  // Blame git refuses: the note says why, and the editor carries on.
+  // Blame that hangs (git blocks opening a pipe nobody writes): the real time
+  // limit ends it, the note says why, and the editor works throughout.
   await openFromTree(window, ["story.txt"]);
   await expect(firsts(window).first()).toBeVisible();
-  execSync("git config blame.ignoreRevsFile no-such-file", { cwd: ws });
+  execSync("mkfifo .git-blame-hang", { cwd: ws });
+  execSync("git config blame.ignoreRevsFile .git-blame-hang", { cwd: ws });
   fs.appendFileSync(path.join(ws, "story.txt"), "six\n");
   const note = pane(window).locator('[data-testid="file-pane-blame-note"]');
-  await expect(note).toBeVisible({ timeout: 30_000 });
+  await expect(editor).toContainText("six", { timeout: 30_000 });
+  await editor.locator(".cm-content").click();
+  await window.keyboard.press("ControlOrMeta+End");
+  await window.keyboard.type("typed while git hangs");
+  await expect(editor).toContainText("typed while git hangs");
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toHaveCount(0);
+  await expect(note).toBeVisible({ timeout: 40_000 });
+  await expect(note).toContainText("too long");
   await expect(column(window)).toHaveCount(0);
-  await expect(editor).toContainText("six");
   await window.screenshot({ path: shot(testInfo, "blame-note") });
   execSync("git config --unset blame.ignoreRevsFile", { cwd: ws });
+  fs.rmSync(path.join(ws, ".git-blame-hang"));
   fs.appendFileSync(path.join(ws, "story.txt"), "seven\n");
   await expect(note).toHaveCount(0, { timeout: 30_000 });
 
@@ -175,10 +221,33 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
   await pane(window).locator('[data-testid="file-pane-drawer"]').getByText("story.txt").first().click();
   await expect(pane(window).locator('[data-testid="file-pane-diff-tag"]')).toBeVisible();
-  await expect(firsts(window).filter({ hasText: "Not committed yet" }).first()).toBeVisible();
+  await expect(editor.locator(".cm-deletedChunk").first()).toContainText("two", { timeout: 30_000 });
+  await expect(firsts(window).filter({ hasText: "Not committed yet" })).toHaveCount(1);
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "blame-diff") });
   await pane(window).locator('[data-testid="file-pane-open-plain"]').click();
+
+  // Long lines scroll under the column, which stays in view.
+  const long = `long ${"x".repeat(600)}\n`;
+  fs.writeFileSync(path.join(ws, "story.txt"), long + "one\ntwo\nthree\nfour\nfive\n");
+  await expect(editor).toContainText("long xxx", { timeout: 30_000 });
+  const scroller = editor.locator(".cm-scroller");
+  await scroller.evaluate((el) => {
+    el.scrollLeft = 200;
+  });
+  await window.waitForTimeout(200);
+  const scrolled = await editor.evaluate((el) => ({
+    left: el.querySelector<HTMLElement>(".cm-scroller")!.scrollLeft,
+    column: el.querySelector(".cm-blameGutter")!.getBoundingClientRect().right,
+    editor: el.querySelector(".cm-editor")!.getBoundingClientRect().right,
+  }));
+  expect(scrolled.left).toBeGreaterThan(0);
+  expect(scrolled.column).toBeLessThanOrEqual(scrolled.editor + 1);
+  expect(scrolled.column).toBeGreaterThan(scrolled.editor - 30);
+  await window.screenshot({ path: shot(testInfo, "blame-long-line") });
+  await scroller.evaluate((el) => {
+    el.scrollLeft = 0;
+  });
 
   // Light theme: the column is drawn from the theme's tokens.
   await window.evaluate((name) => window.electronAPI.theme.setSelected(name), LIGHT_THEME);
@@ -188,11 +257,35 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "blame-light") });
 
+  // A binary file never opens, so the toggle stays disabled.
+  commit(ws, "blob.bin", "\u0000\u0001binary", "Add a blob");
+  await openFromTree(window, ["blob.bin"]);
+  await expect(pane(window).locator('[data-testid="file-pane-error"]')).toBeVisible();
+  await expect(toggle(window)).toBeDisabled();
+  await window.screenshot({ path: shot(testInfo, "blame-binary") });
+  await openFromTree(window, ["story.txt"]);
+  await expect(firsts(window).first()).toBeVisible();
+
+  // Settings lists the command with no key; bound to one, it works in the editor.
+  await palette(window, "Keybindings", "Keybindings");
+  const row = window.getByText("Toggle Blame", { exact: true }).first();
+  await row.scrollIntoViewIfNeeded();
+  await expect(row).toBeVisible();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "blame-keybinding") });
+  await window.keyboard.press("Escape");
+  await window.evaluate(() => window.electronAPI.keybindings.set("toggle-file-blame", "F9"));
+  await editor.locator(".cm-content").click();
+  await window.keyboard.press("F9");
+  await expect(column(window)).toHaveCount(0);
+  await window.keyboard.press("F9");
+  await expect(firsts(window).first()).toBeVisible();
+
   // A narrow window: the column shrinks and the editor stays inside the pane.
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(640, 500));
   await window.waitForTimeout(500);
   // A narrow window's drawer floats over the editor: shut it to see the column.
-  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   await expect(pane(window).locator('[data-testid="file-pane-drawer"]')).toHaveCount(0);
   const fits = await window.evaluate(() => {
     const paneEl = [...document.querySelectorAll<HTMLElement>('[data-testid="file-pane"]')].find(
@@ -210,4 +303,15 @@ test("blame shows, follows edits, updates after a commit and stays off where git
   expect(fits.inside).toBe(true);
   expect(fits.gutter).toBeLessThan(fits.editor * 0.5);
   await window.screenshot({ path: shot(testInfo, "blame-narrow") });
+
+  // Outside a repo: the toggle stays, disabled.
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 800));
+  await window.waitForTimeout(500);
+  fs.renameSync(path.join(ws, ".git"), path.join(ws, ".git-away"));
+  await openFromTree(window, ["draft.txt"]);
+  await expect(editor).toContainText("not in git");
+  await expect(toggle(window)).toBeDisabled();
+  await expect(column(window)).toHaveCount(0);
+  await window.screenshot({ path: shot(testInfo, "blame-no-repo") });
+  fs.renameSync(path.join(ws, ".git-away"), path.join(ws, ".git"));
 });

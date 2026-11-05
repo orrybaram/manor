@@ -6,7 +6,14 @@ import {
   type Extension,
   type Text,
 } from "@codemirror/state";
-import { EditorView, GutterMarker, ViewPlugin, gutter, showTooltip } from "@codemirror/view";
+import {
+  EditorView,
+  GutterMarker,
+  ViewPlugin,
+  gutter,
+  showTooltip,
+  type Rect,
+} from "@codemirror/view";
 import type { BlameCommit, FileBlame } from "../../../../electron.d";
 
 /** A new blame, and the text its line numbers count: the clean copy it was read for. */
@@ -95,19 +102,37 @@ export function lineBlame(state: EditorState, number: number): LineBlame {
   return blameAt(state, state.doc.line(number).from);
 }
 
-/** "3d ago", "5mo ago", "2y ago": the column has no room for a date, and a year matters. */
+/** "3d", "5mo", "2y": the column has no room for a date, and a year matters. */
 export function blameAge(seconds: number, now: number = Date.now()): string {
   const ms = Math.max(0, now - seconds * 1000);
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  if (days < 30) return `${days}d`;
   const months = Math.floor(days / 30.44);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(days / 365.25)}y ago`;
+  if (months < 12) return `${months}mo`;
+  return `${Math.floor(days / 365.25)}y`;
+}
+
+/** "Orry Baram" is OB, "Claude" is CL, "dependabot[bot]" is DE. */
+export function authorInitials(author: string): string {
+  const words = author.replace(/\[bot\]$/, "").split(/[\s._-]+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  const letters = words.length > 1 ? words[0][0] + words[words.length - 1][0] : words[0].slice(0, 2);
+  return letters.toUpperCase();
+}
+
+/** Theme colours for authors. Yellow is for lines not committed yet. */
+const AUTHOR_COLORS = ["--blue", "--magenta", "--cyan", "--green"];
+
+/** One author's colour, the same wherever they appear. */
+export function authorColor(author: string): string {
+  let hash = 0;
+  for (let i = 0; i < author.length; i++) hash = (hash * 31 + author.charCodeAt(i)) | 0;
+  return AUTHOR_COLORS[Math.abs(hash) % AUTHOR_COLORS.length];
 }
 
 function span(className: string, text: string): HTMLElement {
@@ -118,35 +143,44 @@ function span(className: string, text: string): HTMLElement {
 }
 
 /**
- * One line's cell. The first line of a run from one commit says whose it is;
- * the rest of the run stays blank, so a run reads as one block.
+ * One line's cell. A bracket in the author's colour spans a run from one
+ * commit; the run's first line says what it is, and the rest stay blank, so a
+ * run reads as one block.
  */
 class BlameMarker extends GutterMarker {
   constructor(
     readonly commit: BlameCommit | null,
     readonly first: boolean,
+    readonly last: boolean,
   ) {
     super();
     const classes = [];
     if (first) classes.push("cm-blameFirst");
+    if (last) classes.push("cm-blameLast");
     if (!commit) classes.push("cm-blameNotCommitted");
     this.elementClass = classes.join(" ");
   }
 
   eq(other: BlameMarker): boolean {
-    return this.first === other.first && this.commit?.sha === other.commit?.sha;
+    return (
+      this.first === other.first &&
+      this.last === other.last &&
+      this.commit?.sha === other.commit?.sha
+    );
   }
 
   toDOM(): Node {
     const row = document.createElement("span");
     row.className = "cm-blameRow";
+    const color = this.commit ? authorColor(this.commit.author) : "--yellow";
+    row.style.setProperty("--blame-author", `var(${color})`);
     if (!this.first) return row;
     if (!this.commit) {
       row.append(span("cm-blameSummary", NOT_COMMITTED));
       return row;
     }
     row.append(
-      span("cm-blameAuthor", this.commit.author),
+      span("cm-blameInitials", authorInitials(this.commit.author)),
       span("cm-blameAge", blameAge(this.commit.time)),
       span("cm-blameSummary", this.commit.summary),
     );
@@ -166,10 +200,23 @@ function tooltipDom(blame: BlameCommit | null): HTMLElement {
     span("cm-blameMessage", blame.message),
     span(
       "cm-blameMeta",
-      `${blame.sha} · ${blame.author} · ${new Date(blame.time * 1000).toLocaleString()}`,
+      `${blame.sha.slice(0, 7)} · ${blame.author} · ${new Date(blame.time * 1000).toLocaleString()}`,
     ),
   );
   return dom;
+}
+
+/**
+ * Where the hover card goes: under the hovered line and left of the column,
+ * next to the pointer, rather than at the start of the line across the pane.
+ */
+function besideColumn(view: EditorView, pos: number, dom: HTMLElement): Rect {
+  const column = view.dom.querySelector(".cm-blameGutter")?.getBoundingClientRect();
+  const block = view.lineBlockAt(pos);
+  const top = view.documentTop + block.top;
+  const width = dom.offsetWidth;
+  const left = Math.max(0, (column?.left ?? width) - width - 4);
+  return { left, right: left + width, top, bottom: top + block.height };
 }
 
 const hoverField = StateField.define<number | null>({
@@ -184,7 +231,13 @@ const hoverField = StateField.define<number | null>({
       if (pos === null) return null;
       const blame = blameAt(state, pos);
       if (blame === undefined) return null;
-      return { pos, create: () => ({ dom: tooltipDom(blame) }) };
+      return {
+        pos,
+        create: (view) => {
+          const dom = tooltipDom(blame);
+          return { dom, getCoords: (at) => besideColumn(view, at, dom) };
+        },
+      };
     }),
 });
 
@@ -192,23 +245,47 @@ const theme = EditorView.theme({
   // The column takes a share of the editor, however narrow the pane.
   "&": { containerType: "inline-size" },
   ".cm-blameGutter": {
-    width: "clamp(12ch, 34cqw, 44ch)",
-    borderRight: "1px solid var(--border)",
+    width: "clamp(12ch, 38cqw, 48ch)",
+    borderLeft: "1px solid var(--border)",
     userSelect: "none",
   },
-  ".cm-blameGutter .cm-gutterElement": { overflow: "hidden", padding: "0 8px" },
-  ".cm-blameGutter .cm-blameFirst": { boxShadow: "inset 0 1px 0 var(--border)" },
-  ".cm-blameRow": { display: "flex", gap: "1ch", whiteSpace: "nowrap" },
-  ".cm-blameAuthor, .cm-blameSummary": { overflow: "hidden", textOverflow: "ellipsis" },
-  ".cm-blameAuthor": { flex: "0 1 auto", maxWidth: "12ch", color: "var(--text-primary)" },
+  ".cm-blameGutter .cm-gutterElement": { overflow: "hidden", padding: "0" },
+  ".cm-blameRow": {
+    position: "relative",
+    display: "flex",
+    gap: "1ch",
+    height: "100%",
+    padding: "0 8px 0 12px",
+    whiteSpace: "nowrap",
+  },
+  // The bracket, inset at the ends of a run so neighbouring runs stay apart.
+  ".cm-blameRow::before": {
+    content: '""',
+    position: "absolute",
+    left: "4px",
+    top: "0",
+    bottom: "0",
+    width: "2px",
+    backgroundColor: "var(--blame-author)",
+  },
+  ".cm-blameFirst .cm-blameRow::before": { top: "3px", borderTopLeftRadius: "2px", borderTopRightRadius: "2px" },
+  ".cm-blameLast .cm-blameRow::before": { bottom: "3px", borderBottomLeftRadius: "2px", borderBottomRightRadius: "2px" },
+  ".cm-blameInitials": { flex: "none", fontWeight: "600", color: "var(--blame-author)" },
   ".cm-blameAge": { flex: "none", color: "var(--text-dim)" },
-  ".cm-blameSummary": { flex: "1 1 0", minWidth: "0", color: "var(--text-dim)" },
-  ".cm-blameNotCommitted .cm-blameSummary": { fontStyle: "italic" },
+  ".cm-blameSummary": {
+    flex: "1 1 0",
+    minWidth: "0",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    color: "var(--text-primary)",
+  },
+  ".cm-blameNotCommitted .cm-blameSummary": { fontStyle: "italic", color: "var(--text-dim)" },
   ".cm-blameTooltip": {
     display: "flex",
     flexDirection: "column",
     gap: "6px",
-    maxWidth: "min(480px, 70vw)",
+    width: "max-content",
+    maxWidth: "min(420px, 70vw)",
     maxHeight: "40vh",
     overflow: "auto",
     padding: "6px 8px",
@@ -218,10 +295,10 @@ const theme = EditorView.theme({
 });
 
 /**
- * A column left of the line numbers saying which commit each line came from,
- * which your unsaved edits carry along: a line you changed reads "Not
- * committed yet" until you undo it, and the others stay on their commits. It
- * draws its own column and leaves the change marks to the lines themselves.
+ * A column right of the code saying which commit each line came from, which
+ * your unsaved edits carry along: a line you changed reads "Not committed yet"
+ * until you undo it, and the others stay on their commits. On the right, the
+ * code stays put as the column comes and goes, and long lines scroll under it.
  * Hovering a line shows its commit in full.
  */
 export function blameGutter(blame: FileBlame, doc: Text): Extension {
@@ -231,12 +308,18 @@ export function blameGutter(blame: FileBlame, doc: Text): Extension {
     hoverField,
     gutter({
       class: "cm-blameGutter",
+      side: "after",
       lineMarker(view, line) {
-        const here = blameAt(view.state, line.from);
+        const { state } = view;
+        const here = blameAt(state, line.from);
         if (here === undefined) return null;
-        const number = view.state.doc.lineAt(line.from).number;
-        const above = number > 1 ? lineBlame(view.state, number - 1) : undefined;
-        return new BlameMarker(here, above === undefined || above?.sha !== here?.sha);
+        const number = state.doc.lineAt(line.from).number;
+        const differs = (n: number) => {
+          if (n < 1 || n > state.doc.lines) return true;
+          const other = lineBlame(state, n);
+          return other === undefined || other?.sha !== here?.sha;
+        };
+        return new BlameMarker(here, differs(number - 1), differs(number + 1));
       },
       lineMarkerChange: (update) =>
         update.docChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(setBlame))),

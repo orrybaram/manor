@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { EditorState, Text, type TransactionSpec } from "@codemirror/state";
 import type { BlameCommit, FileBlame } from "../../../../electron.d";
-import { blameAge, blameGutter, lineBlame, setBlame } from "./blame-gutter";
+import {
+  authorColor,
+  authorInitials,
+  blameAge,
+  blameGutter,
+  lineBlame,
+  setBlame,
+} from "./blame-gutter";
 
 const commit = (sha: string): BlameCommit => ({
   sha,
@@ -84,14 +91,30 @@ describe("blameAge", () => {
   const now = 1000 * 86_400 * 1000;
   const ago = (seconds: number) => blameAge(now / 1000 - seconds, now);
   it("reads in the unit that fits", () => {
-    expect(ago(10)).toBe("just now");
-    expect(ago(5 * 60)).toBe("5m ago");
-    expect(ago(3 * 3600)).toBe("3h ago");
-    expect(ago(2 * 86_400)).toBe("2d ago");
-    expect(ago(90 * 86_400)).toBe("2mo ago");
-    expect(ago(800 * 86_400)).toBe("2y ago");
+    expect(ago(10)).toBe("now");
+    expect(ago(5 * 60)).toBe("5m");
+    expect(ago(3 * 3600)).toBe("3h");
+    expect(ago(2 * 86_400)).toBe("2d");
+    expect(ago(90 * 86_400)).toBe("2mo");
+    expect(ago(800 * 86_400)).toBe("2y");
   });
   it("treats a commit dated ahead of now as just made", () => {
-    expect(ago(-500)).toBe("just now");
+    expect(ago(-500)).toBe("now");
+  });
+});
+
+describe("authors", () => {
+  it("shortens a name to two letters", () => {
+    expect(authorInitials("Orry Baram")).toBe("OB");
+    expect(authorInitials("Ada King Lovelace")).toBe("AL");
+    expect(authorInitials("Claude")).toBe("CL");
+    expect(authorInitials("dependabot[bot]")).toBe("DE");
+    expect(authorInitials("github-actions")).toBe("GA");
+    expect(authorInitials("")).toBe("?");
+  });
+  it("keeps one colour per author, from the theme", () => {
+    expect(authorColor("Ada")).toBe(authorColor("Ada"));
+    expect(authorColor("Ada")).toMatch(/^--(blue|magenta|cyan|green)$/);
+    expect(new Set(["Ada", "Bob", "Claude", "Orry Baram", "Dee"].map(authorColor)).size).toBeGreaterThan(1);
   });
 });

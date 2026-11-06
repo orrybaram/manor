@@ -230,7 +230,14 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
       data-layout={layout}
       data-testid="chat-status-line"
     >
-      <div className={styles.statusChips} data-testid="chat-status-chips">
+      <div
+        className={styles.statusChips}
+        data-testid="chat-status-chips"
+        // A mouse wheel only scrolls up and down; turn it sideways here.
+        onWheel={(e) => {
+          if (e.deltaX === 0 && e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY;
+        }}
+      >
         {(phone ? PHONE_ORDER : DESK_ORDER).map((name) => chips[name])}
       </div>
       {pr && (

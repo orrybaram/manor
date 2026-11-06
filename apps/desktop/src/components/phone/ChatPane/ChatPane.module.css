@@ -1209,19 +1209,15 @@ button.editToggle {
 }
 
 /* The chips, in the line's left; the right is left to the context size.
-   One line on a phone: they scroll sideways, fading at the right edge,
-   rather than wrap. The block padding keeps the chips' tap areas inside
-   the scroll box; the negative margin keeps the line its height. On the
-   desk they wrap instead, so a narrow pane cuts none of them off. */
+   One line: they scroll sideways, fading at the right edge, rather than
+   wrap. The block padding keeps the chips' tap areas inside the scroll box;
+   the negative margin keeps the line its height. */
 .statusChips {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.statusLine[data-layout="phone"] .statusChips {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -1230,17 +1226,12 @@ button.editToggle {
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
-.statusLine[data-layout="phone"] .statusChips::-webkit-scrollbar {
+.statusChips::-webkit-scrollbar {
   display: none;
 }
 
 .statusChips > * {
   flex-shrink: 0;
-}
-
-.statusLine[data-layout="desk"] .statusChips {
-  flex-wrap: wrap;
-  row-gap: 4px;
 }
 
 /* A long branch name on a narrow desk pane mustn't push the chips after it
@@ -1449,7 +1440,6 @@ button.editToggle {
    chips give way first on a narrow phone. */
 .statusTokens {
   flex-shrink: 0;
-  align-self: flex-start;
   padding: 1px 4px;
   color: var(--text-dim);
   font-family: var(--font-mono);

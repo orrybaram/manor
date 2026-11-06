@@ -14,8 +14,9 @@ import {
 } from "./helpers/terminal";
 
 /**
- * Hidden panes stay mounted and keep parsing their output, but must not paint
- * it (#300). xterm pauses painting while its IntersectionObserver reports the
+ * Hidden panes stay mounted but neither parse nor paint their output: they
+ * hold it and catch up when shown (#672, `src/lib/held-output.ts`), and must
+ * not paint (#300). xterm pauses painting while its IntersectionObserver reports the
  * terminal off screen; `visibility: hidden` alone doesn't, so a terminal under
  * a hidden layer is also moved out of the viewport (`hiddenLayerAttr` in
  * `tab-styles.ts`). A pane hidden as a background tab, and one hidden because
@@ -138,14 +139,17 @@ async function expectPausedWhileWriting(
     await resetPaints(window, paneId);
     await window.waitForTimeout(1_000);
     const stats = await paints(window, paneId);
-    expect(stats.parsed).toBeGreaterThan(0);
+    expect(stats.parsed).toBe(0);
     expect(stats.renders).toBe(0);
+    const held = await window.evaluate((id) => window.__manorTerminals?.get(id)?.heldSize() ?? null, paneId);
+    expect(held?.chars ?? 0).toBeGreaterThan(0);
   }).toPass({ timeout: 15_000 });
 }
 
 /**
  * Stop the loop from behind the hidden layer and let its output drain, so the
- * only paint left to come is the one showing the pane makes.
+ * only paint left to come is the one showing the pane makes. The keystroke
+ * catches the pane up, as typing into it does.
  */
 async function stopWhileHidden(window: Page, paneId: string): Promise<void> {
   await input(window, paneId, "\x03");
@@ -183,7 +187,7 @@ async function showAndExpectRepaint(
   await expect.poll(() => lastTickWritten(tempHome, paneId)).toBe(shown);
 }
 
-test("a hidden pane keeps parsing but stops painting, then repaints when shown", async ({
+test("a hidden pane holds its output and stops painting, then repaints when shown", async ({
   app,
   window,
   tempHome,

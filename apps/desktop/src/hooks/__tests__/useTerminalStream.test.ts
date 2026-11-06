@@ -19,6 +19,8 @@ import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import type { Terminal } from "@xterm/xterm";
 import { useTerminalStream } from "../useTerminalStream";
 import { useAppStore } from "../../store/app-store";
+import type { PtyAttachResult } from "../../electron.d";
+import { HOLD_LIMIT_CHARS, HOLD_SWITCH_KEY } from "../../lib/held-output";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,6 +29,7 @@ const PANE = "pane-1";
 type OutputListener = (data: string, seq?: number) => void;
 
 let output: OutputListener | null;
+let resized: ((cols: number, rows: number) => void) | null;
 let exit: (() => void) | null;
 let container: HTMLDivElement;
 let root: Root;
@@ -34,6 +37,7 @@ let stream: ReturnType<typeof useTerminalStream>;
 
 function installPty(): void {
   output = null;
+  resized = null;
   exit = null;
   const noop = () => () => {};
   (window as unknown as { electronAPI: unknown }).electronAPI = {
@@ -44,7 +48,12 @@ function installPty(): void {
           output = null;
         };
       },
-      onResized: noop,
+      onResized: (_paneId: string, cb: (cols: number, rows: number) => void) => {
+        resized = cb;
+        return () => {
+          resized = null;
+        };
+      },
       onExit: (_paneId: string, cb: () => void) => {
         exit = cb;
         return () => {
@@ -60,11 +69,15 @@ function installPty(): void {
 function Harness({
   term,
   resetting = false,
+  shown,
+  attach,
 }: {
   term: Terminal;
   resetting?: boolean;
+  shown?: boolean;
+  attach?: () => Promise<PtyAttachResult>;
 }) {
-  const s = useTerminalStream(PANE, term, undefined, { current: resetting });
+  const s = useTerminalStream(PANE, term, undefined, { current: resetting }, { shown, attach });
   useLayoutEffect(() => {
     stream = s;
   });
@@ -162,5 +175,250 @@ describe("useTerminalStream — sessionEnded", () => {
 
     expect(lines(term)).toEqual(["held", "fresh"]);
     expect(closePaneById).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTerminalStream — a pane off screen holds its output", () => {
+  const attachOk = (snapshot: string, snapshotSeq: number) =>
+    vi.fn(async (): Promise<PtyAttachResult> => ({ ok: true, hostId: "local", snapshot, snapshotSeq }));
+
+  function mount(term: HeadlessTerminal, shown: boolean, attach = attachOk("", 0)) {
+    act(() =>
+      root.render(createElement(Harness, { term: term as unknown as Terminal, shown, attach })),
+    );
+    act(() => stream.openRestored(term as unknown as Terminal));
+    return attach;
+  }
+  const show = (term: HeadlessTerminal, shown: boolean, attach?: () => Promise<PtyAttachResult>) =>
+    act(() =>
+      root.render(
+        createElement(Harness, { term: term as unknown as Terminal, shown, attach: attach ?? attachOk("", 0) }),
+      ),
+    );
+
+  it("writes nothing while hidden, then everything in order on show", async () => {
+    const term = headless();
+    mount(term, false);
+    output?.("one\r\n", 1);
+    resized?.(30, 10);
+    output?.("two\r\n", 2);
+    await flush(term);
+    expect(lines(term)).toEqual([]);
+    expect(stream.heldSize()).toEqual({ chars: 10, overflowed: false });
+
+    show(term, true);
+    await flush(term);
+    expect(lines(term)).toEqual(["one", "two"]);
+    expect(term.cols).toBe(30);
+    expect(stream.heldSize()).toBeNull();
+    output?.("three\r\n", 3);
+    await flush(term);
+    expect(lines(term)).toEqual(["one", "two", "three"]);
+  });
+
+  it("catches up at once when held output asks a query, and goes on holding", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    mount(term, false);
+    output?.("before\r\n", 1);
+    output?.("\x1b[6n", 2);
+    await flush(term);
+    expect(lines(term)).toEqual(["before"]);
+    expect(replies).toEqual(["\x1b[2;1R"]);
+    output?.("after\r\n", 3);
+    await flush(term);
+    expect(lines(term)).toEqual(["before"]);
+    expect(stream.heldSize()?.chars).toBe(7);
+  });
+
+  it("applies a held title without catching up", async () => {
+    const term = headless();
+    mount(term, false);
+    output?.("\x1b]0;✳ Fixing tests\x07working\r\n", 1);
+    await flush(term);
+    expect(useAppStore.getState().paneTitle[PANE]).toBe("✳ Fixing tests");
+    expect(lines(term)).toEqual([]);
+  });
+
+  it("catches up on catchUp() while still hidden", async () => {
+    const term = headless();
+    mount(term, false);
+    output?.("typed-into\r\n", 1);
+    act(() => stream.catchUp());
+    await flush(term);
+    expect(lines(term)).toEqual(["typed-into"]);
+    expect(stream.heldSize()).toEqual({ chars: 0, overflowed: false });
+  });
+
+  it("past the hold limit, restores from the snapshot instead of replaying", async () => {
+    const term = headless();
+    mount(term, false);
+    output?.("old screen\r\n", 1);
+    act(() => stream.catchUp());
+    const big = "y\r\n".repeat(Math.ceil(HOLD_LIMIT_CHARS / 3) + 1);
+    output?.(big, 2);
+    expect(stream.heldSize()).toEqual({ chars: 0, overflowed: true });
+
+    // The snapshot covers up to 3; 3 arrives during the round trip, 4 after it.
+    let answer!: (r: PtyAttachResult) => void;
+    const attach = vi.fn(() => new Promise<PtyAttachResult>((r) => (answer = r)));
+    show(term, true, attach);
+    expect(attach).toHaveBeenCalledTimes(1);
+    output?.("three\r\n", 3);
+    output?.("four\r\n", 4);
+    await flush(term);
+    // The old screen stays up until the snapshot lands.
+    expect(lines(term)).toEqual(["old screen"]);
+    await act(async () => answer({ ok: true, hostId: "local", snapshot: "snap\r\nthree\r\n", snapshotSeq: 3 }));
+    await flush(term);
+    expect(lines(term)).toEqual(["snap", "three", "four"]);
+  });
+
+  const overflow = () => "y\r\n".repeat(Math.ceil(HOLD_LIMIT_CHARS / 3) + 1);
+
+  it("answers a query in dropped output after the snapshot lands", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    let answer!: (r: PtyAttachResult) => void;
+    const attach = vi.fn(() => new Promise<PtyAttachResult>((r) => (answer = r)));
+    mount(term, false, attach);
+    output?.(overflow(), 1);
+    // Overflowed: this chunk is dropped, but its query must still be answered.
+    output?.("\x1b[c", 2);
+    expect(attach).toHaveBeenCalledTimes(1);
+    await act(async () => answer({ ok: true, hostId: "local", snapshot: "snap\r\n", snapshotSeq: 2 }));
+    await flush(term);
+    expect(replies.some((r) => r.startsWith("\x1b[?"))).toBe(true);
+    expect(lines(term)).toEqual(["snap"]);
+  });
+
+  it("answers a query in the chunk that tips the hold over", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    const attach = attachOk("snap\r\n", 1);
+    mount(term, false, attach);
+    await act(async () => output?.(`${overflow()}\x1b[6n`, 1));
+    await flush(term);
+    expect(attach).toHaveBeenCalledTimes(1);
+    expect(replies).toEqual(["\x1b[2;1R"]);
+  });
+
+  it("applies kitty keyboard changes in dropped output after the snapshot", async () => {
+    // What Shift+Enter in an agent depends on: Manor's kitty handler tracks
+    // these flags in the terminal's parser, outside xterm's own state.
+    const term = headless();
+    const pushes: string[] = [];
+    term.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
+      pushes.push(String(params[0]));
+      return true;
+    });
+    const attach = attachOk("snap\r\n", 2);
+    mount(term, false, attach);
+    output?.(overflow(), 1);
+    output?.("\x1b[>11u", 2);
+    show(term, true, attach);
+    await act(async () => {});
+    await flush(term);
+    expect(attach).toHaveBeenCalled();
+    expect(pushes).toEqual(["11"]);
+  });
+
+  it("tries a failed restore again, and lands it", async () => {
+    vi.useFakeTimers();
+    try {
+      const term = headless();
+      const attach = vi
+        .fn<() => Promise<PtyAttachResult>>()
+        .mockResolvedValueOnce({ ok: false, reason: "host-unavailable" } as PtyAttachResult)
+        .mockResolvedValueOnce({ ok: true, hostId: "local", snapshot: "back\r\n", snapshotSeq: 1 });
+      mount(term, false, attach);
+      output?.(overflow(), 1);
+      await act(async () => stream.catchUp());
+      expect(attach).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(2_000));
+      expect(attach).toHaveBeenCalledTimes(2);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(lines(term)).toEqual(["back"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a restore that lands after the output was closed", async () => {
+    const term = headless();
+    let answer!: (r: PtyAttachResult) => void;
+    const attach = vi.fn(() => new Promise<PtyAttachResult>((r) => (answer = r)));
+    mount(term, false, attach);
+    output?.("kept\r\n", 1);
+    act(() => stream.catchUp());
+    output?.(overflow(), 2);
+    act(() => stream.catchUp());
+    act(() => stream.closeOutput());
+    await act(async () => answer({ ok: true, hostId: "local", snapshot: "stale\r\n", snapshotSeq: 2 }));
+    await flush(term);
+    expect(lines(term)).toEqual(["kept"]);
+  });
+
+  it("sends the focus-in a focused pane missed when caught-up output turned reporting on", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    Object.defineProperty(term, "textarea", { value: textarea });
+    try {
+      mount(term, false);
+      output?.("\x1b[?1004h", 1);
+      show(term, true);
+      await flush(term);
+      expect(replies).toEqual(["\x1b[I"]);
+    } finally {
+      textarea.remove();
+    }
+  });
+
+  it("lets held output through when the session ends while hidden", async () => {
+    const term = headless();
+    mount(term, false);
+    output?.("last words\r\n", 1);
+    act(() => exit?.());
+    await flush(term);
+    expect(lines(term)).toEqual(["last words"]);
+  });
+
+  it("holds nothing with the kill switch off", async () => {
+    localStorage.setItem(HOLD_SWITCH_KEY, "off");
+    try {
+      const term = headless();
+      mount(term, false);
+      output?.("live\r\n", 1);
+      await flush(term);
+      expect(lines(term)).toEqual(["live"]);
+      expect(stream.heldSize()).toBeNull();
+    } finally {
+      localStorage.removeItem(HOLD_SWITCH_KEY);
+    }
+  });
+
+  it("holds while the window is hidden, though the pane is shown", async () => {
+    const term = headless();
+    let state: DocumentVisibilityState = "hidden";
+    const spy = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+    try {
+      mount(term, true);
+      output?.("behind\r\n", 1);
+      await flush(term);
+      expect(lines(term)).toEqual([]);
+      state = "visible";
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      await flush(term);
+      expect(lines(term)).toEqual(["behind"]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

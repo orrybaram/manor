@@ -26,7 +26,15 @@ import type { Terminal } from "@xterm/xterm";
 import type { ISerializeOptions, SerializeAddon } from "@xterm/addon-serialize";
 import { loadSerializeAddon } from "../terminal/addons";
 
-export interface TerminalHandle {
+/** A pane's held output, for tests that read a pane off screen (`lib/held-output.ts`). */
+export interface HeldOutputHandle {
+  /** Write what the pane holds, as showing it would. */
+  catchUp: () => void;
+  /** How much it holds; null while it isn't holding. */
+  heldSize: () => { chars: number; overflowed: boolean } | null;
+}
+
+export interface TerminalHandle extends HeldOutputHandle {
   term: Terminal;
   /** The grid, scrollback included, as the ANSI that would redraw it. */
   serialize: (options?: ISerializeOptions) => Promise<string>;
@@ -43,10 +51,17 @@ function registry(): Map<string, TerminalHandle> {
   return window.__manorTerminals;
 }
 
-export function registerTerminal(paneId: string, term: Terminal): void {
+const NOT_HOLDING: HeldOutputHandle = { catchUp: () => {}, heldSize: () => null };
+
+export function registerTerminal(
+  paneId: string,
+  term: Terminal,
+  held: HeldOutputHandle = NOT_HOLDING,
+): void {
   let addon: SerializeAddon | null = null;
   registry().set(paneId, {
     term,
+    ...held,
     serialize: async (options) => {
       if (!addon) {
         const SerializeAddon = await loadSerializeAddon();

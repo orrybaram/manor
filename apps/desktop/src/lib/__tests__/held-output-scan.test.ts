@@ -40,6 +40,14 @@ describe("HeldOutputScanner queries", () => {
     ["window size report", "\x1b[18t"],
     ["cell size report", "\x1b[16t"],
     ["DECID", "\x1bZ"],
+    ["XTSMGRAPHICS (image addon)", "\x1b[?2;1;0S"],
+    ["colour query ended by another sequence", "\x1b]11;?\x1b[0m"],
+    ["8-bit CSI", "\u009b6n"],
+    ["8-bit OSC", "\u009d11;?\u0007"],
+    ["8-bit DCS", "\u0090$qm\u009c"],
+    ["a CR inside a CSI", "\x1b[6\rn"],
+    ["zero-padded window report", "\x1b[018t"],
+    ["window report with a sub-parameter", "\x1b[18:0t"],
   ])("%s", (_name, seq) => {
     expect(q(`before ${seq} after`)).toBe(true);
   });
@@ -60,6 +68,8 @@ describe("HeldOutputScanner queries", () => {
     ["sixel", "\x1bP0;1;0q#0;2;0;0;0~~\x1b\\"],
     ["charset", "\x1b(B"],
     ["plain text", "y\ny\ny\n✓ tool_result src/x.ts:1 warning"],
+    ["scroll up", "\x1b[3S"],
+    ["colour query CAN aborts", "\x1b]11;?\x18"],
   ])("not %s", (_name, seq) => {
     expect(q(seq)).toBe(false);
   });
@@ -110,8 +120,23 @@ describe("HeldOutputScanner titles", () => {
     expect(scanAll(["\x1b]0;✳ Fix", "ing tests", "\x07"]).title).toBe("✳ Fixing tests");
   });
 
-  it("drops a title another sequence aborts", () => {
-    expect(scanAll(["\x1b]0;half\x1b[0m"]).title).toBeNull();
+  // xterm's parser: any ESC ends the string, CAN and SUB abort it, other C0
+  // controls inside it are dropped.
+  it("ends a title at any ESC, as xterm does", () => {
+    expect(scanAll(["\x1b]0;half\x1b[0m"]).title).toBe("half");
+  });
+
+  it("drops a title CAN or SUB aborts", () => {
+    expect(scanAll(["\x1b]0;foo\x18bar\x07"]).title).toBeNull();
+    expect(scanAll(["\x1b]0;foo\x1abar\x07"]).title).toBeNull();
+  });
+
+  it("strips C0 controls from a title", () => {
+    expect(scanAll(["\x1b]0;a\tb\x07"]).title).toBe("ab");
+  });
+
+  it("reads the OSC number as a number", () => {
+    expect(scanAll(["\x1b]00;t\x07"]).title).toBe("t");
   });
 
   it("reads an empty title", () => {

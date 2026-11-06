@@ -19,10 +19,15 @@
  * unfinished tail of each chunk and reads it with the next.
  */
 
-const ESC = "\x1b";
-const BEL = "\x07";
+const ESC = 0x1b;
+const BEL = 0x07;
+const CAN = 0x18;
+const SUB = 0x1a;
 /** 8-bit String Terminator, which xterm also accepts. */
-const ST8 = "\x9c";
+const ST8 = 0x9c;
+
+/** Where a sequence can start: ESC, or an 8-bit DCS, CSI or OSC introducer. */
+const INTRODUCER = /[\x1b\x90\x9b\x9d]/g;
 
 /**
  * Longest unfinished sequence carried to the next chunk. Past this it is
@@ -32,10 +37,7 @@ const ST8 = "\x9c";
 export const MAX_CARRY = 8 * 1024;
 
 /** CSI `t` (window ops) parameters xterm answers with a report. */
-const WINDOW_REPORTS = new Set(["11", "13", "14", "15", "16", "18", "19", "20", "21"]);
-
-/** OSC numbers that set the window title, as xterm's `onTitleChange` hears them. */
-const TITLE_OSC = new Set(["0", "2"]);
+const WINDOW_REPORTS = new Set([11, 13, 14, 15, 16, 18, 19, 20, 21]);
 
 export interface HeldOutputScan {
   /** A terminal query appeared: the pane must catch up now to answer it. */
@@ -44,7 +46,13 @@ export interface HeldOutputScan {
   title: string | null;
 }
 
-/** Whether a complete CSI sequence (`ESC [` … final) asks for a reply. */
+/** A parameter as xterm reads it: a number, sub-parameters after `:` dropped. */
+function numberParam(field: string | undefined): number {
+  const n = Number((field ?? "").split(":")[0] || "0");
+  return Number.isFinite(n) ? n : -1;
+}
+
+/** Whether a complete CSI sequence asks for a reply. */
 function csiIsQuery(params: string, intermediates: string, final: string): boolean {
   const prefix = /^[<=>?]/.test(params) ? params[0] : "";
   switch (final) {
@@ -57,49 +65,79 @@ function csiIsQuery(params: string, intermediates: string, final: string): boole
       return prefix === ">" && intermediates === "";
     case "u": // kitty keyboard: query, push, pop, set; bare `CSI u` restores the cursor
       return prefix !== "" && intermediates === "";
-    case "t": {
+    case "S": // XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`), answered by the image addon
+      return prefix === "?" && intermediates === "";
+    case "t":
       if (intermediates !== "" || prefix !== "") return false;
-      return WINDOW_REPORTS.has(params.split(";")[0] ?? "");
-    }
+      return WINDOW_REPORTS.has(numberParam(params.split(";")[0]));
     default:
       return false;
   }
 }
 
-/** Whether a complete OSC payload asks for a reply (a `?` field, as in `11;?`). */
-function oscIsQuery(ps: string, rest: string): boolean {
-  if (TITLE_OSC.has(ps) || ps === "1") return false;
-  return rest.split(";").some((field) => field === "?");
-}
+type Parsed =
+  /** The sequence is complete; scanning resumes at `next`. */
+  | { done: true; next: number; query: boolean; title: string | null }
+  /** It runs past the end of the text: carry it to the next chunk. */
+  | { done: false };
 
-/** Whether a complete DCS body asks for a reply (DECRQSS `$q`, XTGETTCAP `+q`). */
-function dcsIsQuery(body: string): boolean {
-  return body.startsWith("$q") || body.startsWith("+q");
+const UNFINISHED: Parsed = { done: false };
+
+/** Read a CSI whose parameters start at `from`. C0 controls inside it run without ending it, as in xterm. */
+function parseCsi(text: string, from: number): Parsed {
+  let params = "";
+  let intermediates = "";
+  for (let j = from; j < text.length; j++) {
+    const c = text.charCodeAt(j);
+    if (c === ESC) return { done: true, next: j, query: false, title: null };
+    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: false, title: null };
+    if (c < 0x20 || c === 0x7f) continue;
+    if (c >= 0x30 && c <= 0x3f && intermediates === "") params += text[j];
+    else if (c >= 0x20 && c <= 0x2f) intermediates += text[j];
+    else if (c >= 0x40 && c <= 0x7e) {
+      return { done: true, next: j + 1, query: csiIsQuery(params, intermediates, text[j]), title: null };
+    } else return { done: true, next: j, query: false, title: null }; // malformed
+  }
+  return UNFINISHED;
 }
 
 /**
- * Where the string starting before `from` ends: its body's end, where
- * scanning resumes, and whether a terminator (BEL, `ESC \\` or 8-bit ST)
- * ended it rather than another sequence aborting it. Null if neither has
- * happened yet.
+ * Read an OSC or DCS string whose body starts at `from`. As in xterm, BEL
+ * (OSC only), 8-bit ST and any ESC end it; CAN and SUB abort it; other C0
+ * controls inside it are ignored.
  */
-function findStringEnd(
-  text: string,
-  from: number,
-  allowBel: boolean,
-): { bodyEnd: number; next: number; ended: boolean } | null {
+function parseString(text: string, from: number, osc: boolean): Parsed {
+  let body = "";
   for (let j = from; j < text.length; j++) {
-    const ch = text[j];
-    if (allowBel && ch === BEL) return { bodyEnd: j, next: j + 1, ended: true };
-    if (ch === ST8) return { bodyEnd: j, next: j + 1, ended: true };
-    if (ch === ESC) {
-      if (j + 1 >= text.length) return null;
-      // `ESC \` ends it; any other ESC aborts the string, as in xterm.
-      const ended = text[j + 1] === "\\";
-      return { bodyEnd: j, next: ended ? j + 2 : j, ended };
+    const c = text.charCodeAt(j);
+    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: false, title: null };
+    let next = -1;
+    if (c === ESC) {
+      if (j + 1 >= text.length) return UNFINISHED; // `ESC \` may be split
+      next = text[j + 1] === "\\" ? j + 2 : j;
+    } else if (c === ST8 || (osc && c === BEL)) {
+      next = j + 1;
     }
+    if (next !== -1) return { done: true, next, ...(osc ? readOsc(body) : readDcs(body)) };
+    if (c >= 0x20) body += text[j];
   }
-  return null;
+  return UNFINISHED;
+}
+
+/** An OSC body: a title (OSC 0, 2), or a query (a `?` field, as in `11;?`). */
+function readOsc(body: string): { query: boolean; title: string | null } {
+  const semi = body.indexOf(";");
+  const idText = semi === -1 ? body : body.slice(0, semi);
+  const rest = semi === -1 ? "" : body.slice(semi + 1);
+  const id = /^\d+$/.test(idText) ? Number(idText) : -1;
+  if (id === 0 || id === 2) return { query: false, title: rest };
+  if (id === 1) return { query: false, title: null }; // icon name
+  return { query: rest.split(";").some((field) => field === "?"), title: null };
+}
+
+/** A DCS body: DECRQSS (`$q`) and XTGETTCAP (`+q`) ask for a reply. */
+function readDcs(body: string): { query: boolean; title: string | null } {
+  return { query: body.startsWith("$q") || body.startsWith("+q"), title: null };
 }
 
 /** Scans one pane's held output, chunk by chunk. */
@@ -113,59 +151,31 @@ export class HeldOutputScanner {
     let query = false;
     let title: string | null = null;
 
-    let i = text.indexOf(ESC);
-    while (i !== -1) {
-      if (i + 1 >= text.length) {
+    INTRODUCER.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = INTRODUCER.exec(text)) !== null) {
+      const i = match.index;
+      let parsed: Parsed;
+      const c = text.charCodeAt(i);
+      if (c === 0x9b) parsed = parseCsi(text, i + 1);
+      else if (c === 0x9d) parsed = parseString(text, i + 1, true);
+      else if (c === 0x90) parsed = parseString(text, i + 1, false);
+      else if (i + 1 >= text.length) parsed = UNFINISHED;
+      else {
+        const kind = text[i + 1];
+        if (kind === "[") parsed = parseCsi(text, i + 2);
+        else if (kind === "]") parsed = parseString(text, i + 2, true);
+        else if (kind === "P") parsed = parseString(text, i + 2, false);
+        // DECID (`ESC Z`) is the old form of DA1; any other escape is one byte.
+        else parsed = { done: true, next: i + 2, query: kind === "Z", title: null };
+      }
+      if (!parsed.done) {
         this.keep(text, i);
         break;
       }
-      const kind = text[i + 1];
-      let next = i + 2;
-
-      if (kind === "[") {
-        // CSI: parameters 0x30–0x3F, intermediates 0x20–0x2F, final 0x40–0x7E.
-        let j = i + 2;
-        while (j < text.length && text.charCodeAt(j) >= 0x30 && text.charCodeAt(j) <= 0x3f) j++;
-        const paramsEnd = j;
-        while (j < text.length && text.charCodeAt(j) >= 0x20 && text.charCodeAt(j) <= 0x2f) j++;
-        if (j >= text.length) {
-          this.keep(text, i);
-          break;
-        }
-        const code = text.charCodeAt(j);
-        if (code >= 0x40 && code <= 0x7e) {
-          if (csiIsQuery(text.slice(i + 2, paramsEnd), text.slice(paramsEnd, j), text[j])) {
-            query = true;
-          }
-          next = j + 1;
-        } else {
-          next = j; // malformed: resume at the offending byte
-        }
-      } else if (kind === "]" || kind === "P") {
-        const end = findStringEnd(text, i + 2, kind === "]");
-        if (!end) {
-          this.keep(text, i);
-          break;
-        }
-        // A string another sequence aborted is dropped, as xterm drops it.
-        const body = end.ended ? text.slice(i + 2, end.bodyEnd) : null;
-        if (body === null) {
-          // nothing to read
-        } else if (kind === "]") {
-          const semi = body.indexOf(";");
-          const ps = semi === -1 ? body : body.slice(0, semi);
-          const rest = semi === -1 ? "" : body.slice(semi + 1);
-          if (TITLE_OSC.has(ps)) title = rest;
-          else if (oscIsQuery(ps, rest)) query = true;
-        } else if (dcsIsQuery(body)) {
-          query = true;
-        }
-        next = Math.max(end.next, i + 2);
-      } else if (kind === "Z") {
-        query = true; // DECID: the old form of DA1
-      }
-
-      i = text.indexOf(ESC, next);
+      query ||= parsed.query;
+      if (parsed.title !== null) title = parsed.title;
+      INTRODUCER.lastIndex = Math.max(parsed.next, i + 1);
     }
     return { query, title };
   }

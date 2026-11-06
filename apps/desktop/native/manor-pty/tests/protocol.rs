@@ -349,3 +349,27 @@ fn streaming_output_gathers_into_few_frames() {
     assert_eq!(bytes, 4194304);
     assert!(frames < 400, "{frames} frames for 4 MB");
 }
+
+#[test]
+fn many_panes_starting_at_once_all_get_a_pty() {
+    // A daemon restoring its sessions starts every pane's helper at once; on
+    // macOS simultaneous pty opens once failed with "os error -6".
+    let mut helpers: Vec<Helper> = (0..32).map(|_| Helper::start()).collect();
+    let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();
+    let payload = serde_json::json!({
+        "shell": "/bin/sh", "args": ["-c", "echo up; sleep 2"], "cwd": "/tmp", "cols": 80, "rows": 24, "env": env,
+    });
+    for h in &mut helpers {
+        h.send(SPAWN, payload.to_string().as_bytes());
+    }
+    for (i, h) in helpers.iter().enumerate() {
+        let (kind, p) = h.next();
+        assert_eq!(kind, SPAWNED, "helper {i}: {}", String::from_utf8_lossy(&p));
+    }
+    for h in &helpers {
+        h.output_until("up");
+    }
+    for h in &mut helpers {
+        h.send(DISPOSE, b"");
+    }
+}

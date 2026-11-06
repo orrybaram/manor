@@ -105,6 +105,11 @@ fn resolve(file: &str, env: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
+/// XNU's "redrive the open" code, internal to the kernel's device layer.
+const EREDRIVEOPEN: i32 = -6;
+/// About a second of retries in all (5 ms, 10 ms, ... 95 ms).
+const OPENPTY_ATTEMPTS: u32 = 20;
+
 const STEP_CHDIR: u8 = 1;
 const STEP_EXEC: u8 = 2;
 
@@ -156,12 +161,26 @@ pub fn spawn(
     let mut slave: RawFd = -1;
     let mut ws = winsize(cols, rows);
     let mut term = node_pty_termios();
-    // SAFETY: openpty writes two fds; the name is optional.
-    // macOS takes these as *mut, Linux as *const.
-    #[allow(clippy::unnecessary_mut_passed)]
-    let opened = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), &mut term, &mut ws) };
-    if opened != 0 {
-        return Err(std::io::Error::last_os_error());
+    // Panes start together (a daemon restoring its sessions starts one helper
+    // per pane at once), and macOS's pty clone device can then fail an open
+    // with XNU's internal EREDRIVEOPEN (-6), which should never reach user
+    // space but does. Like EAGAIN and EINTR it's gone a moment later.
+    let mut attempt = 0;
+    loop {
+        // SAFETY: openpty writes two fds; the name is optional.
+        // macOS takes these as *mut, Linux as *const.
+        #[allow(clippy::unnecessary_mut_passed)]
+        let opened = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), &mut term, &mut ws) };
+        if opened == 0 {
+            break;
+        }
+        let err = std::io::Error::last_os_error();
+        let transient = matches!(err.raw_os_error(), Some(EREDRIVEOPEN | libc::EAGAIN | libc::EINTR));
+        attempt += 1;
+        if !transient || attempt >= OPENPTY_ATTEMPTS {
+            return Err(std::io::Error::new(err.kind(), format!("openpty: {err}")));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5 * attempt as u64));
     }
     // SAFETY: both fds are ours from openpty.
     let master_fd = unsafe { OwnedFd::from_raw_fd(master) };

@@ -21,29 +21,61 @@
  *
  * Kitty keyboard negotiation is not handled here but in the terminal's own
  * parser (`installKittyKeyboard`), which sees sequences split across chunks.
+ *
+ * **A pane off screen holds its output** (`lib/held-output.ts`): while it is
+ * not `shown`, or the whole window is hidden, chunks are held instead of
+ * written, and the pane catches up on show, on `catchUp()` (focus, input),
+ * or at once when a held chunk asks a terminal query, so the reply goes out
+ * when it always did. A title in held output is applied without catching
+ * up. Past the hold limit the pane catches up from the host's snapshot
+ * (`pty.attach`) instead of replaying.
  */
 
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { Terminal } from "@xterm/xterm";
+import type { PtyAttachResult } from "../electron.d";
 import { useAppStore } from "../store/app-store";
 import { useMountEffect } from "./useMountEffect";
 import { resizeInStream } from "../lib/terminal-resize-stream";
 import {
   outputAfterSnapshot,
-  type QueuedOutput,
   type TerminalRestore,
 } from "../lib/snapshot-dedupe";
+import { HeldOutput, holdingEnabled, type HeldItem } from "../lib/held-output";
 
 /** A queued resize, or a queued chunk of output, in arrival order. */
-type QueuedItem =
-  | { kind: "data"; chunk: QueuedOutput }
-  | { kind: "resize"; cols: number; rows: number };
+type QueuedItem = HeldItem;
+
+function subscribeVisibility(cb: () => void): () => void {
+  document.addEventListener("visibilitychange", cb);
+  return () => document.removeEventListener("visibilitychange", cb);
+}
+
+/** Whether the window's page is visible (not minimized or hidden). */
+function useDocumentVisible(): boolean {
+  return useSyncExternalStore(
+    subscribeVisibility,
+    () => document.visibilityState !== "hidden",
+    () => true,
+  );
+}
+
+export interface TerminalStreamOptions {
+  /** Whether the pane is on screen; off screen it holds its output. */
+  shown?: boolean;
+  /**
+   * Re-attach to the session for its snapshot: how an overflowed hold
+   * catches up. Without it the pane never holds.
+   */
+  attach?: () => Promise<PtyAttachResult>;
+}
 
 export function useTerminalStream(
   paneId: string,
   term: Terminal | null,
   onError?: (message: string) => void,
   resettingRef?: React.RefObject<boolean>,
+  { shown = true, attach }: TerminalStreamOptions = {},
 ) {
   const termRef = useRef(term);
   termRef.current = term;
@@ -55,6 +87,10 @@ export function useTerminalStream(
    * among the chunks is what it means.
    */
   const queuedRef = useRef<QueuedItem[] | null>([]);
+  /** What the pane holds while off screen, or null while it writes as output arrives. */
+  const heldRef = useRef<HeldOutput | null>(null);
+  const attachRef = useRef(attach);
+  attachRef.current = attach;
   /**
    * Bring `target` up to the session's current state and let output flow: write
    * the warm-restore snapshot, then the queued chunks it does not already
@@ -89,7 +125,69 @@ export function useTerminalStream(
   /** Queue output again, so the next mount's attach gets the same ordering guarantee. */
   const closeOutput = useCallback(() => {
     queuedRef.current = [];
+    // That attach's snapshot covers whatever was held.
+    heldRef.current?.take();
   }, []);
+
+  /** Write held items in order: into the attach queue while one is open (a restore under way), else the terminal. */
+  const writeHeld = useCallback((target: Terminal, items: readonly HeldItem[]) => {
+    for (const item of items) {
+      if (queuedRef.current) queuedRef.current.push(item);
+      else if (item.kind === "resize") resizeInStream(target, item.cols, item.rows);
+      else target.write(item.chunk.data);
+    }
+  }, []);
+
+  /**
+   * Restore the screen from the host's snapshot: what a hold that outgrew
+   * its limit catches up with. Output queues meanwhile, and `openRestored`
+   * writes the part of it the snapshot doesn't cover, as on every attach.
+   * The old screen stays up until the snapshot lands.
+   */
+  const restoreFromHost = useCallback(
+    (target: Terminal) => {
+      // Already queuing: an attach is under way, and its snapshot is newer.
+      const reattach = attachRef.current;
+      if (queuedRef.current || !reattach) return;
+      queuedRef.current = [];
+      reattach().then(
+        (result) => {
+          if (termRef.current !== target) return;
+          if (!result.ok) {
+            // The session is gone or away: let what queued through, and the
+            // pane's own exit and recovery paths take it from there.
+            openRestored(target);
+            return;
+          }
+          if (result.winsizeOwner === false && result.cols && result.rows) {
+            target.resize(result.cols, result.rows);
+          }
+          target.reset();
+          openRestored(target, result.snapshot ? { ansi: result.snapshot, seq: result.snapshotSeq } : null);
+        },
+        () => {
+          if (termRef.current === target) openRestored(target);
+        },
+      );
+    },
+    [openRestored],
+  );
+
+  /**
+   * Write everything held, in order, and go on holding if still off screen.
+   * Called on show, focus, input, and when held output asks a query.
+   */
+  const catchUp = useCallback(() => {
+    const held = heldRef.current;
+    const target = termRef.current;
+    if (!held || !target) return;
+    const next = held.take();
+    if (next.kind === "restore") {
+      restoreFromHost(target);
+      return;
+    }
+    writeHeld(target, next.items);
+  }, [restoreFromHost, writeHeld]);
 
   /**
    * The pane's session ended: let whatever output it queued through, and
@@ -100,20 +198,33 @@ export function useTerminalStream(
    */
   const sessionEnded = useCallback(
     (target: Terminal | null = termRef.current) => {
+      // What it held goes out first, as it would have; an overflowed hold has
+      // nothing left to write and its pane is closing.
+      const held = heldRef.current?.take();
+      if (target && held?.kind === "write") writeHeld(target, held.items);
       if (target) openRestored(target);
       if (resettingRef?.current) return;
       useAppStore.getState().closePaneById(paneId);
     },
-    [paneId, resettingRef, openRestored],
+    [paneId, resettingRef, openRestored, writeHeld],
   );
 
   useMountEffect(() => {
     const unsubOutput = window.electronAPI.pty.onOutput(
       paneId,
       (data: string, seq?: number) => {
-        if (queuedRef.current)
+        if (queuedRef.current) {
           queuedRef.current.push({ kind: "data", chunk: { data, seq } });
-        else termRef.current?.write(data);
+          return;
+        }
+        const held = heldRef.current;
+        if (!held) {
+          termRef.current?.write(data);
+          return;
+        }
+        const { query, title } = held.push({ data, seq });
+        if (title !== null) useAppStore.getState().setPaneTitleFromStream(paneId, title);
+        if (query) catchUp();
       },
     );
 
@@ -128,6 +239,7 @@ export function useTerminalStream(
       (cols: number, rows: number) => {
         const t = termRef.current;
         if (queuedRef.current) queuedRef.current.push({ kind: "resize", cols, rows });
+        else if (heldRef.current) heldRef.current.pushResize(cols, rows);
         else if (t) resizeInStream(t, cols, rows);
       },
     );
@@ -154,5 +266,20 @@ export function useTerminalStream(
     };
   });
 
-  return { openRestored, closeOutput, sessionEnded };
+  // Hold while off screen; catch up before the frame that shows the pane.
+  const visible = useDocumentVisible();
+  const holding = (!shown || !visible) && attach !== undefined && holdingEnabled();
+  useLayoutEffect(() => {
+    if (holding) {
+      heldRef.current ??= new HeldOutput();
+      return;
+    }
+    catchUp();
+    heldRef.current = null;
+  }, [holding, catchUp]);
+
+  /** How much the pane holds right now; null while it isn't holding. */
+  const heldSize = useCallback(() => heldRef.current?.size ?? null, []);
+
+  return { openRestored, closeOutput, sessionEnded, catchUp, heldSize };
 }

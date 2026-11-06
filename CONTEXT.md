@@ -182,6 +182,11 @@ _Avoid_: primary, master, resize authority
 A viewer that renders the winsize owner's grid as-is and never resizes; it may still type.
 _Avoid_: mirror, read-only viewer
 
+**Held output**:
+PTY output a viewer has received for a pane it isn't showing and hasn't written to its
+terminal yet; written when the pane is shown, typed into, or asked a terminal query.
+_Avoid_: buffer, backlog, paused output
+
 **Layout command**:
 A named request to change layout structure (split, close, move, new tab, pin); only the
 Manor server runs the reducer.

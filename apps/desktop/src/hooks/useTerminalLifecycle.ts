@@ -142,11 +142,13 @@ export function useTerminalLifecycle(
 
   // Subscribe to stream events.
   // Output stays queued until openRestored() — see the create() call below.
-  const { openRestored, closeOutput, sessionEnded } = useTerminalStream(
+  // Off screen, output is held and caught up on show (`lib/held-output.ts`).
+  const { openRestored, closeOutput, sessionEnded, catchUp, heldSize } = useTerminalStream(
     paneId,
     term,
     setPtyError,
     resettingRef,
+    { shown, attach },
   );
 
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
@@ -296,7 +298,7 @@ export function useTerminalLifecycle(
 
       const fit = new FitAddon();
       t.loadAddon(fit);
-      registerTerminal(paneId, t);
+      registerTerminal(paneId, t, { catchUp, heldSize });
 
       if (addons.Unicode11Addon) {
         t.loadAddon(new addons.Unicode11Addon());
@@ -669,7 +671,14 @@ export function useTerminalLifecycle(
       });
 
       // User input → PTY
-      const dataDisposable = t.onData(write);
+      // A pane that is typed into, or answers a query, is up to date first:
+      // what the user sees, and what xterm answers from, is the whole stream.
+      const dataDisposable = t.onData((data) => {
+        catchUp();
+        write(data);
+      });
+      const textarea = t.textarea;
+      textarea?.addEventListener("focus", catchUp);
 
       // A reattached pane only takes focus back if it had it: its old xterm,
       // focused, was just unmounted from under the user's cursor.
@@ -687,6 +696,7 @@ export function useTerminalLifecycle(
         promptLatchUnsub();
         clearTimeout(shellReadyFallback);
         if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+        textarea?.removeEventListener("focus", catchUp);
         titleDisposable.dispose();
         dataDisposable.dispose();
         setTerm(null);

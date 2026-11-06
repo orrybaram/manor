@@ -104,6 +104,22 @@ describe("choosePtyHelper", () => {
     expect(got).toEqual({ kind: "node", path: `${dir}/pty-subprocess.js` });
   });
 
+  it("says once in the log when no binary is shipped for this platform", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const opts = {
+      env: {},
+      dir,
+      platform: "freebsd" as const,
+      arch: "x64",
+      isExecutable: () => false,
+    };
+    choosePtyHelper(opts);
+    choosePtyHelper(opts);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("no manor-pty for freebsd-x64");
+    warn.mockRestore();
+  });
+
   it("MANOR_PTY_HELPER=node forces Node", () => {
     const got = choosePtyHelper({
       env: { MANOR_PTY_HELPER: "node" },

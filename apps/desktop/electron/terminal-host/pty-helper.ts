@@ -29,6 +29,8 @@ interface ChooseOptions {
 }
 
 let nativeBroken = false;
+/** The "no binary here" line goes to the log once per daemon, not per pane. */
+let missingLogged = false;
 
 function isExecutable(file: string): boolean {
   try {
@@ -83,7 +85,14 @@ export function choosePtyHelper(opts: ChooseOptions = {}): PtyHelper {
         opts.arch ?? process.arch,
       );
   const found = candidates.find(canRun);
-  return found ? { kind: "native", path: found } : node;
+  if (found) return { kind: "native", path: found };
+  if (!missingLogged) {
+    missingLogged = true;
+    console.warn(
+      `[terminal-host] no manor-pty for ${opts.platform ?? process.platform}-${opts.arch ?? process.arch} (looked in ${candidates.join(", ")}); using pty-subprocess.js`,
+    );
+  }
+  return node;
 }
 
 /** The native helper didn't start: use Node for the rest of this daemon's life. */
@@ -99,4 +108,5 @@ export function markNativeHelperBroken(file: string, reason: string): void {
 /** For tests. */
 export function resetPtyHelperState(): void {
   nativeBroken = false;
+  missingLogged = false;
 }

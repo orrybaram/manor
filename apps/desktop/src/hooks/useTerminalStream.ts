@@ -35,6 +35,7 @@ import { useCallback, useLayoutEffect, useRef, useSyncExternalStore } from "reac
 import type { Terminal } from "@xterm/xterm";
 import type { PtyAttachResult } from "../electron.d";
 import { useAppStore } from "../store/app-store";
+import { useRemotePaneStore } from "../store/remote-pane-store";
 import { useMountEffect } from "./useMountEffect";
 import { resizeInStream } from "../lib/terminal-resize-stream";
 import {
@@ -42,6 +43,10 @@ import {
   type TerminalRestore,
 } from "../lib/snapshot-dedupe";
 import { HeldOutput, holdingEnabled, type HeldItem } from "../lib/held-output";
+
+/** A failed restore from the host is tried again this many times, this far apart. */
+const RESTORE_RETRIES = 3;
+const RESTORE_RETRY_MS = 2_000;
 
 /** A queued resize, or a queued chunk of output, in arrival order. */
 type QueuedItem = HeldItem;
@@ -91,6 +96,8 @@ export function useTerminalStream(
   const heldRef = useRef<HeldOutput | null>(null);
   const attachRef = useRef(attach);
   attachRef.current = attach;
+  /** Bumped when output is closed (unmount, remount): a restore from before it lands nowhere. */
+  const generationRef = useRef(0);
   /**
    * Bring `target` up to the session's current state and let output flow: write
    * the warm-restore snapshot, then the queued chunks it does not already
@@ -125,8 +132,9 @@ export function useTerminalStream(
   /** Queue output again, so the next mount's attach gets the same ordering guarantee. */
   const closeOutput = useCallback(() => {
     queuedRef.current = [];
+    generationRef.current++;
     // That attach's snapshot covers whatever was held.
-    heldRef.current?.take();
+    heldRef.current?.clear();
   }, []);
 
   /** Write held items in order: into the attach queue while one is open (a restore under way), else the terminal. */
@@ -139,38 +147,76 @@ export function useTerminalStream(
   }, []);
 
   /**
+   * After a catch-up has been parsed: if it turned focus reporting on while
+   * the pane already had focus, send the focus-in xterm would have sent had
+   * the mode been on when the focus came. A TUI started off screen waits for it.
+   */
+  const reportFocusAfter = useCallback((target: Terminal) => {
+    const before = target.modes.sendFocusMode;
+    if (before) return;
+    target.write("", () => {
+      if (target.modes.sendFocusMode && target.textarea && document.activeElement === target.textarea) {
+        target.input("\x1b[I", false);
+      }
+    });
+  }, []);
+
+  /**
    * Restore the screen from the host's snapshot: what a hold that outgrew
    * its limit catches up with. Output queues meanwhile, and `openRestored`
-   * writes the part of it the snapshot doesn't cover, as on every attach.
-   * The old screen stays up until the snapshot lands.
+   * writes the part of it the snapshot doesn't cover, as on every attach;
+   * then `queries`, the ones in the dropped output, go in for xterm to
+   * answer. The old screen stays up until the snapshot lands.
+   *
+   * A restore that fails is tried again shortly, a few times: the output it
+   * stood in for is gone, and the snapshot is the only way back to it. A
+   * session that is gone takes its pane's usual way out (its exit, or a
+   * remote host's recovery).
    */
   const restoreFromHost = useCallback(
-    (target: Terminal) => {
-      // Already queuing: an attach is under way, and its snapshot is newer.
+    (target: Terminal, queries: readonly string[], attempt = 0): void => {
       const reattach = attachRef.current;
+      // Already queuing: an attach is under way, and its snapshot is newer.
       if (queuedRef.current || !reattach) return;
       queuedRef.current = [];
+      const generation = generationRef.current;
+      const current = () => generationRef.current === generation && termRef.current === target;
+      const retry = () => {
+        openRestored(target);
+        if (attempt >= RESTORE_RETRIES) return;
+        setTimeout(() => {
+          if (current()) restoreFromHost(target, queries, attempt + 1);
+        }, RESTORE_RETRY_MS);
+      };
       reattach().then(
         (result) => {
-          if (termRef.current !== target) return;
+          if (!current()) return;
           if (!result.ok) {
-            // The session is gone or away: let what queued through, and the
-            // pane's own exit and recovery paths take it from there.
-            openRestored(target);
+            if (result.reason === "lost") {
+              openRestored(target);
+              useRemotePaneStore.getState().reattach([paneId], "host-recovered");
+            } else if (result.reason === "exited") {
+              openRestored(target); // its exit closes the pane
+            } else {
+              retry();
+            }
             return;
           }
           if (result.winsizeOwner === false && result.cols && result.rows) {
             target.resize(result.cols, result.rows);
           }
+          const focusBefore = target.modes.sendFocusMode;
           target.reset();
           openRestored(target, result.snapshot ? { ansi: result.snapshot, seq: result.snapshotSeq } : null);
+          for (const query of queries) target.write(query);
+          if (!focusBefore) reportFocusAfter(target);
         },
         () => {
-          if (termRef.current === target) openRestored(target);
+          if (current()) retry();
         },
       );
     },
-    [openRestored],
+    [openRestored, paneId, reportFocusAfter],
   );
 
   /**
@@ -183,11 +229,14 @@ export function useTerminalStream(
     if (!held || !target) return;
     const next = held.take();
     if (next.kind === "restore") {
-      restoreFromHost(target);
+      restoreFromHost(target, next.queries);
       return;
     }
+    if (next.items.length === 0) return;
     writeHeld(target, next.items);
-  }, [restoreFromHost, writeHeld]);
+    // Behind those writes: xterm parses in order, and hasn't started yet.
+    if (!queuedRef.current) reportFocusAfter(target);
+  }, [restoreFromHost, writeHeld, reportFocusAfter]);
 
   /**
    * The pane's session ended: let whatever output it queued through, and

@@ -42,6 +42,12 @@ const WINDOW_REPORTS = new Set([11, 13, 14, 15, 16, 18, 19, 20, 21]);
 export interface HeldOutputScan {
   /** A terminal query appeared: the pane must catch up now to answer it. */
   query: boolean;
+  /**
+   * Each query in the chunk, rewritten whole (7-bit introducers, ESC \\
+   * terminators, no stray controls), so it can be written on its own after
+   * the output around it was dropped.
+   */
+  queries: string[];
   /** The last window title set in this chunk, if any. */
   title: string | null;
 }
@@ -76,8 +82,8 @@ function csiIsQuery(params: string, intermediates: string, final: string): boole
 }
 
 type Parsed =
-  /** The sequence is complete; scanning resumes at `next`. */
-  | { done: true; next: number; query: boolean; title: string | null }
+  /** The sequence is complete; scanning resumes at `next`. `query` is the query, rewritten whole. */
+  | { done: true; next: number; query: string | null; title: string | null }
   /** It runs past the end of the text: carry it to the next chunk. */
   | { done: false };
 
@@ -89,14 +95,17 @@ function parseCsi(text: string, from: number): Parsed {
   let intermediates = "";
   for (let j = from; j < text.length; j++) {
     const c = text.charCodeAt(j);
-    if (c === ESC) return { done: true, next: j, query: false, title: null };
-    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: false, title: null };
+    if (c === ESC) return { done: true, next: j, query: null, title: null };
+    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: null, title: null };
     if (c < 0x20 || c === 0x7f) continue;
     if (c >= 0x30 && c <= 0x3f && intermediates === "") params += text[j];
     else if (c >= 0x20 && c <= 0x2f) intermediates += text[j];
     else if (c >= 0x40 && c <= 0x7e) {
-      return { done: true, next: j + 1, query: csiIsQuery(params, intermediates, text[j]), title: null };
-    } else return { done: true, next: j, query: false, title: null }; // malformed
+      const query = csiIsQuery(params, intermediates, text[j])
+        ? `\x1b[${params}${intermediates}${text[j]}`
+        : null;
+      return { done: true, next: j + 1, query, title: null };
+    } else return { done: true, next: j, query: null, title: null }; // malformed
   }
   return UNFINISHED;
 }
@@ -110,7 +119,7 @@ function parseString(text: string, from: number, osc: boolean): Parsed {
   let body = "";
   for (let j = from; j < text.length; j++) {
     const c = text.charCodeAt(j);
-    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: false, title: null };
+    if (c === CAN || c === SUB) return { done: true, next: j + 1, query: null, title: null };
     let next = -1;
     if (c === ESC) {
       if (j + 1 >= text.length) return UNFINISHED; // `ESC \` may be split
@@ -118,7 +127,11 @@ function parseString(text: string, from: number, osc: boolean): Parsed {
     } else if (c === ST8 || (osc && c === BEL)) {
       next = j + 1;
     }
-    if (next !== -1) return { done: true, next, ...(osc ? readOsc(body) : readDcs(body)) };
+    if (next !== -1) {
+      const read = osc ? readOsc(body) : readDcs(body);
+      const query = read.query ? `\x1b${osc ? "]" : "P"}${body}\x1b\\` : null;
+      return { done: true, next, query, title: read.title };
+    }
     if (c >= 0x20) body += text[j];
   }
   return UNFINISHED;
@@ -148,7 +161,7 @@ export class HeldOutputScanner {
   scan(chunk: string): HeldOutputScan {
     const text = this.carry + chunk;
     this.carry = "";
-    let query = false;
+    const queries: string[] = [];
     let title: string | null = null;
 
     INTRODUCER.lastIndex = 0;
@@ -167,17 +180,17 @@ export class HeldOutputScanner {
         else if (kind === "]") parsed = parseString(text, i + 2, true);
         else if (kind === "P") parsed = parseString(text, i + 2, false);
         // DECID (`ESC Z`) is the old form of DA1; any other escape is one byte.
-        else parsed = { done: true, next: i + 2, query: kind === "Z", title: null };
+        else parsed = { done: true, next: i + 2, query: kind === "Z" ? "\x1bZ" : null, title: null };
       }
       if (!parsed.done) {
         this.keep(text, i);
         break;
       }
-      query ||= parsed.query;
+      if (parsed.query !== null) queries.push(parsed.query);
       if (parsed.title !== null) title = parsed.title;
       INTRODUCER.lastIndex = Math.max(parsed.next, i + 1);
     }
-    return { query, title };
+    return { query: queries.length > 0, queries, title };
   }
 
   /** Forget any unfinished sequence: the output it came from was written or dropped. */

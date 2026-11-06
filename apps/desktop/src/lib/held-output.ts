@@ -29,17 +29,27 @@ export type HeldItem =
 export type CatchUp =
   /** Write these, in order. Empty when nothing was held. */
   | { kind: "write"; items: HeldItem[] }
-  /** Too much was held: restore the screen from the host's snapshot. */
-  | { kind: "restore" };
+  /**
+   * Too much was held: restore the screen from the host's snapshot, then
+   * write `queries`, the terminal queries (and kitty keyboard changes) in
+   * the output that was dropped, so xterm still answers them.
+   */
+  | { kind: "restore"; queries: string[] };
+
+/** Queries kept from dropped output, at most; a flood of them keeps the latest. */
+export const MAX_KEPT_QUERIES = 64;
 
 export class HeldOutput {
   private items: HeldItem[] = [];
   private chars = 0;
   private overflowed = false;
-  private readonly scanner = new HeldOutputScanner();
+  /** Queries in output dropped since the hold overflowed. */
+  private queries: string[] = [];
+  private scanner = new HeldOutputScanner();
 
   /** Hold `chunk`; says whether it asked a query (catch up now) or set a title. */
   push(chunk: QueuedOutput): HeldOutputScan {
+    const scan = this.scanner.scan(chunk.data);
     if (!this.overflowed) {
       this.items.push({ kind: "data", chunk });
       this.chars += chunk.data.length;
@@ -49,7 +59,16 @@ export class HeldOutput {
         this.chars = 0;
       }
     }
-    return this.scanner.scan(chunk.data);
+    // Dropped output's drawing is in the snapshot, but its queries are not.
+    // (Held chunks before this one asked none: a query catches up at once.)
+    if (this.overflowed) this.keepQueries(scan.queries);
+    return scan;
+  }
+
+  private keepQueries(queries: readonly string[]): void {
+    if (queries.length === 0) return;
+    this.queries.push(...queries);
+    if (this.queries.length > MAX_KEPT_QUERIES) this.queries.splice(0, this.queries.length - MAX_KEPT_QUERIES);
   }
 
   /** Hold a resize at its place in the stream. A snapshot is taken at the latest size. */
@@ -64,12 +83,25 @@ export class HeldOutput {
   take(): CatchUp {
     if (this.overflowed) {
       this.overflowed = false;
-      return { kind: "restore" };
+      const queries = this.queries;
+      this.queries = [];
+      // The snapshot starts the stream afresh; so does reading it.
+      this.scanner = new HeldOutputScanner();
+      return { kind: "restore", queries };
     }
     const items = this.items;
     this.items = [];
     this.chars = 0;
     return { kind: "write", items };
+  }
+
+  /** Drop everything held: an attach's snapshot is about to cover it. */
+  clear(): void {
+    this.items = [];
+    this.chars = 0;
+    this.overflowed = false;
+    this.queries = [];
+    this.scanner = new HeldOutputScanner();
   }
 
   /** How much is held: chars of output, and whether it overflowed into a restore. */

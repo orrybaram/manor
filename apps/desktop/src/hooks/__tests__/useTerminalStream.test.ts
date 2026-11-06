@@ -275,6 +275,92 @@ describe("useTerminalStream — a pane off screen holds its output", () => {
     expect(lines(term)).toEqual(["snap", "three", "four"]);
   });
 
+  const overflow = () => "y\r\n".repeat(Math.ceil(HOLD_LIMIT_CHARS / 3) + 1);
+
+  it("answers a query in dropped output after the snapshot lands", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    let answer!: (r: PtyAttachResult) => void;
+    const attach = vi.fn(() => new Promise<PtyAttachResult>((r) => (answer = r)));
+    mount(term, false, attach);
+    output?.(overflow(), 1);
+    // Overflowed: this chunk is dropped, but its query must still be answered.
+    output?.("\x1b[c", 2);
+    expect(attach).toHaveBeenCalledTimes(1);
+    await act(async () => answer({ ok: true, hostId: "local", snapshot: "snap\r\n", snapshotSeq: 2 }));
+    await flush(term);
+    expect(replies.some((r) => r.startsWith("\x1b[?"))).toBe(true);
+    expect(lines(term)).toEqual(["snap"]);
+  });
+
+  it("answers a query in the chunk that tips the hold over", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    const attach = attachOk("snap\r\n", 1);
+    mount(term, false, attach);
+    await act(async () => output?.(`${overflow()}\x1b[6n`, 1));
+    await flush(term);
+    expect(attach).toHaveBeenCalledTimes(1);
+    expect(replies).toEqual(["\x1b[2;1R"]);
+  });
+
+  it("tries a failed restore again, and lands it", async () => {
+    vi.useFakeTimers();
+    try {
+      const term = headless();
+      const attach = vi
+        .fn<() => Promise<PtyAttachResult>>()
+        .mockResolvedValueOnce({ ok: false, reason: "host-unavailable" } as PtyAttachResult)
+        .mockResolvedValueOnce({ ok: true, hostId: "local", snapshot: "back\r\n", snapshotSeq: 1 });
+      mount(term, false, attach);
+      output?.(overflow(), 1);
+      await act(async () => stream.catchUp());
+      expect(attach).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(2_000));
+      expect(attach).toHaveBeenCalledTimes(2);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(lines(term)).toEqual(["back"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a restore that lands after the output was closed", async () => {
+    const term = headless();
+    let answer!: (r: PtyAttachResult) => void;
+    const attach = vi.fn(() => new Promise<PtyAttachResult>((r) => (answer = r)));
+    mount(term, false, attach);
+    output?.("kept\r\n", 1);
+    act(() => stream.catchUp());
+    output?.(overflow(), 2);
+    act(() => stream.catchUp());
+    act(() => stream.closeOutput());
+    await act(async () => answer({ ok: true, hostId: "local", snapshot: "stale\r\n", snapshotSeq: 2 }));
+    await flush(term);
+    expect(lines(term)).toEqual(["kept"]);
+  });
+
+  it("sends the focus-in a focused pane missed when caught-up output turned reporting on", async () => {
+    const term = headless();
+    const replies: string[] = [];
+    term.onData((d) => replies.push(d));
+    const textarea = document.createElement("textarea");
+    document.body.appendChild(textarea);
+    textarea.focus();
+    Object.defineProperty(term, "textarea", { value: textarea });
+    try {
+      mount(term, false);
+      output?.("\x1b[?1004h", 1);
+      show(term, true);
+      await flush(term);
+      expect(replies).toEqual(["\x1b[I"]);
+    } finally {
+      textarea.remove();
+    }
+  });
+
   it("lets held output through when the session ends while hidden", async () => {
     const term = headless();
     mount(term, false);

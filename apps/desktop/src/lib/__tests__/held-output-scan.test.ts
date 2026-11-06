@@ -147,3 +147,10 @@ describe("HeldOutputScanner titles", () => {
     expect(scanAll(["\x1b]0;Ready?\x07"]).query).toBe(false);
   });
 });
+
+describe("HeldOutputScanner query sequences", () => {
+  it("hands back each query rewritten whole, in order", () => {
+    const r = new HeldOutputScanner().scan("a\x1b[6\rn b \u009d11;?\u0007 \x1b]10;?\x1b[0m \x1bP$qm\x1b\\ \x1b[>1u");
+    expect(r.queries).toEqual(["\x1b[6n", "\x1b]11;?\x1b\\", "\x1b]10;?\x1b\\", "\x1bP$qm\x1b\\", "\x1b[>1u"]);
+  });
+});

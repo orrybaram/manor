@@ -583,6 +583,9 @@ async function b5() {
     cpuSecondsSelf: Math.round(self * 100) / 100,
     cpuSecondsChildren:
       children === null ? null : Math.round(children * 100) / 100,
+    // macOS can't see the CPU of processes a helper started and reaped, so
+    // there the figure is the helpers' own: compare spawnsPerSecond too.
+    cpuScope: isLinux ? "helpers and the processes they start" : "helpers only",
     cpuPercentOfOneCore:
       Math.round(((self + (children ?? 0)) / SECONDS) * 1000) / 10,
     spawnsPerSecond: Math.round((calls / COUNT_SECONDS) * 10) / 10,

@@ -17,7 +17,6 @@ const READY: u8 = 0x11;
 const SPAWNED: u8 = 0x12;
 const DATA: u8 = 0x13;
 const EXIT: u8 = 0x14;
-const ERROR: u8 = 0x15;
 const RESIZED: u8 = 0x17;
 
 struct Helper {
@@ -147,15 +146,80 @@ fn a_signalled_shell_exits_with_code_zero_like_node_pty() {
     assert_eq!(h.exit_code(), 0);
 }
 
-#[test]
-fn a_missing_shell_is_an_error_frame() {
-    let mut h = Helper::start();
-    let payload =
-        serde_json::json!({ "shell": "/no/such/shell", "args": [], "cwd": "/tmp", "cols": 80, "rows": 24, "env": {} });
+/// Spawn with an explicit cwd and shell; returns the frames up to EXIT.
+fn run_to_exit(h: &mut Helper, shell: &str, args: &[&str], cwd: &str) -> Vec<(u8, Vec<u8>)> {
+    let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();
+    let payload = serde_json::json!({ "shell": shell, "args": args, "cwd": cwd, "cols": 80, "rows": 24, "env": env });
     h.send(SPAWN, payload.to_string().as_bytes());
-    let (kind, p) = h.next();
-    assert_eq!(kind, ERROR);
-    assert!(String::from_utf8_lossy(&p).contains("/no/such/shell"));
+    let mut frames = Vec::new();
+    loop {
+        let f = h.next();
+        let done = f.0 == EXIT;
+        frames.push(f);
+        if done {
+            return frames;
+        }
+    }
+}
+
+fn text_of(frames: &[(u8, Vec<u8>)]) -> String {
+    frames
+        .iter()
+        .filter(|f| f.0 == DATA)
+        .map(|f| String::from_utf8_lossy(&f.1).into_owned())
+        .collect()
+}
+
+#[test]
+fn a_missing_shell_prints_the_error_and_exits_1_like_node_pty() {
+    let mut h = Helper::start();
+    let frames = run_to_exit(&mut h, "/no/such/shell", &[], "/tmp");
+    assert_eq!(frames[0].0, SPAWNED);
+    assert!(
+        text_of(&frames).contains("execvp(3) failed.: No such file or directory"),
+        "{frames:?}"
+    );
+    assert_eq!(frames.last().unwrap().1, br#"{"exitCode":1}"#);
+}
+
+#[test]
+fn a_missing_cwd_prints_the_error_and_exits_1_like_node_pty() {
+    let mut h = Helper::start();
+    let frames = run_to_exit(&mut h, "/bin/sh", &["-c", "echo never"], "/no/such/dir");
+    assert_eq!(frames[0].0, SPAWNED);
+    let text = text_of(&frames);
+    assert!(text.contains("chdir(2) failed.: No such file or directory"), "{text:?}");
+    assert!(!text.contains("never"));
+    assert_eq!(frames.last().unwrap().1, br#"{"exitCode":1}"#);
+}
+
+#[test]
+fn pwd_names_the_cwd_as_given_even_through_a_symlink() {
+    let dir = std::env::temp_dir().join(format!("manor-pty-pwd-{}", std::process::id()));
+    let real = dir.join("real");
+    let link = dir.join("link");
+    std::fs::create_dir_all(&real).unwrap();
+    let _ = std::os::unix::fs::symlink(&real, &link);
+    let mut h = Helper::start();
+    let frames = run_to_exit(&mut h, "/bin/sh", &["-c", "echo pwd=$PWD"], link.to_str().unwrap());
+    assert!(
+        text_of(&frames).contains(&format!("pwd={}", link.display())),
+        "{frames:?}"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn nothing_follows_exit_even_with_a_background_job_holding_the_pty() {
+    let mut h = Helper::start();
+    h.spawn_sh("(trap '' HUP; for i in 1 2 3 4 5; do echo bg$i; sleep .3; done) & echo parent-done");
+    h.output_until("parent-done");
+    h.exit_code();
+    match h.frames.recv_timeout(Duration::from_millis(1500)) {
+        Err(RecvTimeoutError::Timeout) => {}
+        other => panic!("frame after EXIT: {other:?}"),
+    }
+    h.send(DISPOSE, b"");
 }
 
 #[test]

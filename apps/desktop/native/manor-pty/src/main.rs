@@ -16,11 +16,11 @@ mod frame;
 mod procs;
 mod pty;
 mod utf8;
+mod wait;
 
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::ErrorKind;
-use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,9 @@ use std::time::{Duration, Instant};
 const OUT_HIGH_WATER: usize = 256 * 1024;
 const READ_CHUNK: usize = 64 * 1024;
 const KILL_ESCALATE_AFTER: Duration = Duration::from_secs(5);
+/// node-pty's DESTROY_SOCKET_TIMEOUT_MS: how long EXIT waits for the PTY to
+/// drain after the shell has gone.
+const EXIT_DRAIN: Duration = Duration::from_millis(200);
 
 #[derive(Deserialize)]
 struct SpawnPayload {
@@ -136,6 +139,9 @@ struct Helper {
     paused: bool,
     pty_eof: bool,
     exited: bool,
+    /// The shell's exit code, waiting for the PTY to drain before EXIT goes.
+    exit_code: Option<i32>,
+    exit_by: Option<Instant>,
     stdin_open: bool,
     kill_deadline: Option<Instant>,
     read_buf: Vec<u8>,
@@ -154,6 +160,8 @@ impl Helper {
             paused: false,
             pty_eof: false,
             exited: false,
+            exit_code: None,
+            exit_by: None,
             stdin_open: true,
             kill_deadline: None,
             read_buf: vec![0; READ_CHUNK + 4],
@@ -168,7 +176,10 @@ impl Helper {
     }
 
     fn may_read_pty(&self) -> bool {
-        self.child.is_some() && !self.pty_eof && !self.paused && self.out_pending() < OUT_HIGH_WATER
+        self.child.as_ref().and_then(pty::Child::fd).is_some()
+            && !self.pty_eof
+            && !self.paused
+            && self.out_pending() < OUT_HIGH_WATER
     }
 
     fn handle_frame(&mut self, kind: u8, payload: &[u8]) {
@@ -180,8 +191,11 @@ impl Helper {
                 }
             }
             frame::RESIZE => {
-                if let (Some(child), Ok(r)) = (&self.child, serde_json::from_slice::<ResizePayload>(payload)) {
-                    let _ = pty::resize(child.master.as_raw_fd(), r.cols, r.rows);
+                if let (Some(fd), Ok(r)) = (
+                    self.child.as_ref().and_then(pty::Child::fd),
+                    serde_json::from_slice::<ResizePayload>(payload),
+                ) {
+                    let _ = pty::resize(fd, r.cols, r.rows);
                 }
                 // Output read at the old size is already queued ahead of this.
                 frame::encode_into(&mut self.out, frame::RESIZED, b"");
@@ -223,10 +237,18 @@ impl Helper {
                 return;
             }
         };
-        let env: Vec<(String, String)> = p.env.into_iter().collect();
+        // As node-pty: the shell starts with PWD and TERM naming its own
+        // cwd and terminal, whatever the daemon's environment said.
+        let mut env_map = p.env;
+        env_map.insert("PWD".into(), p.cwd.clone());
+        env_map.insert("TERM".into(), "xterm-256color".into());
+        let env: Vec<(String, String)> = env_map.into_iter().collect();
         match pty::spawn(&p.shell, &p.args, &p.cwd, &env, p.cols, p.rows) {
             Ok(child) => {
                 json_frame(&mut self.out, frame::SPAWNED, serde_json::json!({ "pid": child.pid }));
+                if let Some(msg) = &child.failed {
+                    frame::encode_into(&mut self.out, frame::DATA, format!("{msg}\r\n").as_bytes());
+                }
                 self.sampler = Some(foreground::Sampler::new(child.pid, &p.shell, p.agent_names));
                 self.child = Some(child);
             }
@@ -245,8 +267,9 @@ impl Helper {
     /// into one frame of up to `READ_CHUNK`, so the daemon handles fewer,
     /// larger frames without a batching delay.
     fn read_pty(&mut self, ignore_flow: bool) {
-        let Some(child) = &self.child else { return };
-        let fd = child.master.as_raw_fd();
+        let Some(fd) = self.child.as_ref().and_then(pty::Child::fd) else {
+            return;
+        };
         loop {
             if self.pty_eof || (!ignore_flow && (self.paused || self.out_pending() >= OUT_HIGH_WATER)) {
                 return;
@@ -305,10 +328,13 @@ impl Helper {
     }
 
     fn write_pty(&mut self) {
-        let Some(child) = &self.child else { return };
+        let Some(fd) = self.child.as_ref().and_then(pty::Child::fd) else {
+            self.pty_in.clear();
+            return;
+        };
         while !self.pty_in.is_empty() {
             // SAFETY: writing our buffer to our fd.
-            let n = unsafe { libc::write(child.master.as_raw_fd(), self.pty_in.as_ptr().cast(), self.pty_in.len()) };
+            let n = unsafe { libc::write(fd, self.pty_in.as_ptr().cast(), self.pty_in.len()) };
             if n > 0 {
                 self.pty_in.drain(..n as usize);
                 continue;
@@ -397,12 +423,30 @@ impl Helper {
         } else {
             0
         };
-        // Whatever the shell wrote last goes out before EXIT.
-        self.read_pty(true);
-        self.flush_carry();
-        json_frame(&mut self.out, frame::EXIT, serde_json::json!({ "exitCode": code }));
+        // Like node-pty, EXIT waits until the PTY is drained, or 200 ms if
+        // a leftover background job still holds it; then the PTY closes, so
+        // nothing follows EXIT and those jobs are hung up.
+        self.exit_code = Some(code);
+        self.exit_by = Some(Instant::now() + EXIT_DRAIN);
         self.kill_deadline = None;
         self.sampler = None;
+    }
+
+    fn finish_exit(&mut self) {
+        let (Some(code), Some(by)) = (self.exit_code, self.exit_by) else {
+            return;
+        };
+        if !self.pty_eof && Instant::now() < by {
+            return;
+        }
+        self.exit_by = None;
+        self.pty_eof = true;
+        self.flush_carry();
+        json_frame(&mut self.out, frame::EXIT, serde_json::json!({ "exitCode": code }));
+        if let Some(child) = &mut self.child {
+            child.master = None; // closes the PTY
+        }
+        self.pty_in.clear();
     }
 
     fn check_kill_deadline(&mut self) {
@@ -428,20 +472,20 @@ impl Helper {
     }
 
     fn sample_foreground(&mut self) {
-        let (Some(sampler), Some(child)) = (&mut self.sampler, &self.child) else {
+        let (Some(sampler), Some(fd)) = (&mut self.sampler, self.child.as_ref().and_then(pty::Child::fd)) else {
             return;
         };
         if Instant::now() < sampler.next_at {
             return;
         }
-        if let Some(name) = sampler.sample(child.master.as_raw_fd()) {
+        if let Some(name) = sampler.sample(fd) {
             json_frame(&mut self.out, frame::FGPROC, serde_json::json!({ "name": name }));
         }
     }
 
     fn timeout_ms(&self) -> i32 {
         let sample = self.sampler.as_ref().map(|s| s.next_at);
-        match [self.kill_deadline, sample].into_iter().flatten().min() {
+        match [self.kill_deadline, sample, self.exit_by].into_iter().flatten().min() {
             None => -1,
             // Round up so a sub-millisecond wait doesn't poll with 0 and spin.
             Some(d) => d
@@ -479,7 +523,7 @@ fn main() {
                 revents: 0,
             });
         }
-        if let Some(child) = &h.child {
+        if let Some(master) = h.child.as_ref().and_then(pty::Child::fd) {
             let mut events = 0;
             if h.may_read_pty() {
                 events |= libc::POLLIN;
@@ -490,7 +534,7 @@ fn main() {
             if events != 0 {
                 slot_master = Some(fds.len());
                 fds.push(libc::pollfd {
-                    fd: child.master.as_raw_fd(),
+                    fd: master,
                     events,
                     revents: 0,
                 });
@@ -505,8 +549,7 @@ fn main() {
             });
         }
 
-        // SAFETY: polling our own array.
-        let r = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, h.timeout_ms()) };
+        let r = wait::wait(&mut fds, h.timeout_ms());
         if r < 0 {
             if std::io::Error::last_os_error().kind() == ErrorKind::Interrupted {
                 continue;
@@ -559,6 +602,7 @@ fn main() {
             h.write_pty();
         }
         h.check_kill_deadline();
+        h.finish_exit();
         h.sample_foreground();
     }
 }

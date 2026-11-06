@@ -3,11 +3,21 @@
 //! as given, the spawn payload's env and cwd.
 
 use std::ffi::CString;
-use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 
 pub struct Child {
     pub pid: i32,
-    pub master: OwnedFd,
+    /// None once the pane has exited and the PTY is closed.
+    pub master: Option<OwnedFd>,
+    /// Set when the child couldn't chdir or exec: node-pty's child prints
+    /// this to the pty and exits 1, so the pane shows it and then ends.
+    pub failed: Option<String>,
+}
+
+impl Child {
+    pub fn fd(&self) -> Option<RawFd> {
+        self.master.as_ref().map(|m| m.as_raw_fd())
+    }
 }
 
 fn winsize(cols: u16, rows: u16) -> libc::winsize {
@@ -93,6 +103,16 @@ fn resolve(file: &str, env: &[(String, String)]) -> Vec<String> {
         .filter(|d| !d.is_empty())
         .map(|d| format!("{d}/{file}"))
         .collect()
+}
+
+const STEP_CHDIR: u8 = 1;
+const STEP_EXEC: u8 = 2;
+
+fn strerror(code: i32) -> String {
+    // SAFETY: strerror returns a static, NUL-terminated message.
+    unsafe { std::ffi::CStr::from_ptr(libc::strerror(code)) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn spawn(
@@ -200,9 +220,8 @@ pub fn spawn(
                 }
             }
             if libc::chdir(cwd_c.as_ptr()) != 0 {
-                // node-pty fails the spawn on a bad cwd; report it the same way.
-                let err = *errno();
-                libc::write(errpipe[1], (&err as *const i32).cast(), 4);
+                let report = [STEP_CHDIR as i32, *errno()];
+                libc::write(errpipe[1], report.as_ptr().cast(), 8);
                 libc::_exit(1);
             }
             let mut err = libc::ENOENT;
@@ -213,7 +232,8 @@ pub fn spawn(
                     err = e;
                 }
             }
-            libc::write(errpipe[1], (&err as *const i32).cast(), 4);
+            let report = [STEP_EXEC as i32, err];
+            libc::write(errpipe[1], report.as_ptr().cast(), 8);
             libc::_exit(1);
         }
     }
@@ -224,10 +244,10 @@ pub fn spawn(
         libc::close(slave);
         libc::close(errpipe[1]);
     }
-    let mut buf = [0u8; 4];
+    let mut buf = [0i32; 2];
     let n = loop {
-        // SAFETY: reading into a 4-byte buffer.
-        let n = unsafe { libc::read(errpipe[0], buf.as_mut_ptr().cast(), 4) };
+        // SAFETY: reading into an 8-byte buffer.
+        let n = unsafe { libc::read(errpipe[0], buf.as_mut_ptr().cast(), 8) };
         if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
@@ -235,15 +255,21 @@ pub fn spawn(
     };
     // SAFETY: closing our fd.
     unsafe { libc::close(errpipe[0]) };
-    if n == 4 {
-        let code = i32::from_ne_bytes(buf);
-        let mut status = 0;
-        // SAFETY: reap the child that failed to exec.
-        unsafe { libc::waitpid(pid, &mut status, 0) };
-        return Err(std::io::Error::from_raw_os_error(code));
-    }
     set_nonblocking(master);
-    Ok(Child { pid, master: master_fd })
+    // The child exits 1 on its own; it's reaped like any other exit.
+    let failed = (n == 8).then(|| {
+        let step = if buf[0] == STEP_CHDIR as i32 {
+            "chdir(2)"
+        } else {
+            "execvp(3)"
+        };
+        format!("{step} failed.: {}", strerror(buf[1]))
+    });
+    Ok(Child {
+        pid,
+        master: Some(master_fd),
+        failed,
+    })
 }
 
 #[cfg(target_os = "linux")]

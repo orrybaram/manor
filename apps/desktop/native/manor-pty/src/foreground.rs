@@ -110,7 +110,7 @@ pub fn mentions_word(line: &str, name: &str) -> bool {
 
 /// The first agent named in any of the command lines, in line order, then
 /// name order (as `detectAgentFromChildArgs` reads `ps` output).
-pub fn agent_in_lines<'a>(lines: impl IntoIterator<Item = String>, agent_names: &'a [String]) -> Option<&'a str> {
+pub fn agent_in_lines(lines: impl IntoIterator<Item = String>, agent_names: &[String]) -> Option<&str> {
     for line in lines {
         for name in agent_names {
             if mentions_word(&line, name) {

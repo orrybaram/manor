@@ -48,6 +48,7 @@ vi.mock("../../shell", () => ({
     zdotdirPath: () => "/tmp/manor-test-zdotdir",
     setupZdotdir: () => "/tmp/manor-test-zdotdir",
     realZdotdir: () => "/tmp",
+    bashrcPath: () => "/tmp/manor-test-bashrc",
   },
 }));
 

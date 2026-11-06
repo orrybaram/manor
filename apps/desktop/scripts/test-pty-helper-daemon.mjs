@@ -9,6 +9,8 @@
  * process holds the pane, resizes, and kills the session.
  *
  *   native     default: manor-pty from native/manor-pty/target/release
+ *              (MANOR_PTY_DEV=1), or dist-electron when build-manor-pty.mjs
+ *              has put one there
  *   node       MANOR_PTY_HELPER=node
  *   fallback   MANOR_PTY_HELPER_PATH = an executable that isn't a program
  *
@@ -109,6 +111,8 @@ async function runMode(mode) {
   };
   delete env.MANOR_PTY_HELPER;
   delete env.MANOR_PTY_HELPER_PATH;
+  delete env.MANOR_PTY_DEV;
+  if (mode === "native") env.MANOR_PTY_DEV = "1";
   if (mode === "node") env.MANOR_PTY_HELPER = "node";
   if (mode === "fallback") {
     const bogus = path.join(home, "not-a-program");

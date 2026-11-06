@@ -53,15 +53,20 @@ vi.mock("../../shell", () => ({
 }));
 
 import {
+  FAILURES_BEFORE_GIVING_UP,
   choosePtyHelper,
-  markNativeHelperBroken,
   nativeHelperCandidates,
+  recordNativeHelperFailure,
+  recordNativeHelperReady,
   resetPtyHelperState,
 } from "../pty-helper";
 import { Session } from "../session";
 
 describe("choosePtyHelper", () => {
-  beforeEach(() => resetPtyHelperState());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    resetPtyHelperState();
+  });
   const dir =
     "/Applications/Manor.app/Contents/Resources/app.asar/dist-electron";
 
@@ -69,8 +74,24 @@ describe("choosePtyHelper", () => {
     expect(nativeHelperCandidates(dir, "darwin", "arm64")).toEqual([
       "/Applications/Manor.app/Contents/Resources/app.asar.unpacked/dist-electron/manor-pty-darwin-arm64",
       "/Applications/Manor.app/Contents/Resources/app.asar.unpacked/dist-electron/manor-pty-darwin-universal",
-      "/Applications/Manor.app/Contents/Resources/app.asar/native/manor-pty/target/release/manor-pty",
     ]);
+  });
+
+  it("looks for a cargo build only with MANOR_PTY_DEV=1", () => {
+    const cargo =
+      "/repo/apps/desktop/native/manor-pty/target/release/manor-pty";
+    const opts = {
+      dir: "/repo/apps/desktop/dist-electron",
+      platform: "linux" as const,
+      arch: "x64",
+      isExecutable: (f: string) => f === cargo,
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(choosePtyHelper({ ...opts, env: {} }).kind).toBe("node");
+    expect(choosePtyHelper({ ...opts, env: { MANOR_PTY_DEV: "1" } })).toEqual({
+      kind: "native",
+      path: cargo,
+    });
   });
 
   it("looks beside a bundle that isn't in an archive (remote hosts)", () => {
@@ -138,12 +159,35 @@ describe("choosePtyHelper", () => {
     expect(got).toEqual({ kind: "native", path: "/tmp/manor-pty" });
   });
 
-  it("stays on Node once the native helper has failed", () => {
+  it("gives up on the native helper at once when it can never start", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    markNativeHelperBroken("/x/manor-pty", "test");
+    recordNativeHelperFailure("/x/manor-pty", "spawn EACCES", "EACCES");
     expect(
       choosePtyHelper({ env: {}, dir, isExecutable: () => true }).kind,
     ).toBe("node");
+  });
+
+  it("keeps trying it after a passing failure, until too many in a row", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pick = () =>
+      choosePtyHelper({ env: {}, dir, isExecutable: () => true }).kind;
+    for (let i = 1; i < FAILURES_BEFORE_GIVING_UP; i++) {
+      recordNativeHelperFailure("/x/manor-pty", "spawn EAGAIN", "EAGAIN");
+      expect(pick()).toBe("native");
+    }
+    recordNativeHelperFailure("/x/manor-pty", "exited before Ready");
+    expect(pick()).toBe("node");
+  });
+
+  it("a Ready in between starts the count again", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (let i = 0; i < FAILURES_BEFORE_GIVING_UP * 2; i++) {
+      recordNativeHelperFailure("/x/manor-pty", "exited before Ready");
+      if (i % 2 === 1) recordNativeHelperReady();
+    }
+    expect(
+      choosePtyHelper({ env: {}, dir, isExecutable: () => true }).kind,
+    ).toBe("native");
   });
 });
 
@@ -226,7 +270,7 @@ describe("Session with the native helper", () => {
     }
   });
 
-  it("falls back when manor-pty exits before Ready, and later sessions skip it", () => {
+  it("falls back when manor-pty exits before Ready, and the next session tries it again", () => {
     const a = new Session(
       "s3",
       "/tmp",
@@ -239,6 +283,30 @@ describe("Session with the native helper", () => {
     expect(children.map((c) => c.kind)).toEqual(["spawn", "fork"]);
     const b = new Session(
       "s4",
+      "/tmp",
+      80,
+      24,
+      fs.mkdtempSync(path.join(os.tmpdir(), "manor-pty-helper-")),
+    );
+    b.spawn();
+    expect(children.map((c) => c.kind)).toEqual(["spawn", "fork", "spawn"]);
+  });
+
+  it("after a permanent spawn error, later sessions skip manor-pty", () => {
+    const a = new Session(
+      "s7",
+      "/tmp",
+      80,
+      24,
+      fs.mkdtempSync(path.join(os.tmpdir(), "manor-pty-helper-")),
+    );
+    a.spawn();
+    children[0].child.emit(
+      "error",
+      Object.assign(new Error("spawn ENOEXEC"), { code: "ENOEXEC" }),
+    );
+    const b = new Session(
+      "s8",
       "/tmp",
       80,
       24,

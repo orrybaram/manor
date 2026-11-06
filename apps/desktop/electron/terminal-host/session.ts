@@ -27,7 +27,12 @@ import { ShellManager } from "../shell";
 import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
 import { AGENT_NAMES, PaneFactsExtractor } from "./pane-facts";
-import { choosePtyHelper, markNativeHelperBroken } from "./pty-helper";
+import {
+  choosePtyHelper,
+  nodeHelperPath,
+  recordNativeHelperFailure,
+  recordNativeHelperReady,
+} from "./pty-helper";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -346,6 +351,7 @@ export class Session {
   }
 
   private startNodeHelper(subprocessPath: string): void {
+    this.helperKind = "node";
     this.attachSubprocess(
       fork(subprocessPath, [], {
         stdio: ["pipe", "pipe", "inherit", "ipc"],
@@ -360,26 +366,30 @@ export class Session {
    * the pane comes up either way.
    */
   private startNativeHelper(helperPath: string): void {
+    this.helperKind = "native";
     let child: ChildProcess;
     try {
       child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "inherit"] });
     } catch (err) {
       // Only a few errnos arrive as an "error" event; the rest (ETXTBSY,
       // EBADARCH on macOS, ...) throw here.
-      markNativeHelperBroken(helperPath, String((err as Error).message ?? err));
-      this.startNodeHelper(choosePtyHelper().path);
+      const e = err as NodeJS.ErrnoException;
+      recordNativeHelperFailure(helperPath, String(e.message ?? err), e.code);
+      this.startNodeHelper(nodeHelperPath());
       return;
     }
-    const fallBack = (reason: string) => {
+    const fallBack = (reason: string, code?: string) => {
       if (this.helperReady || this.subprocess !== child) return;
-      markNativeHelperBroken(helperPath, reason);
+      recordNativeHelperFailure(helperPath, reason, code);
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
       child.kill("SIGKILL");
       this.decoder.reset();
-      this.startNodeHelper(choosePtyHelper().path);
+      this.startNodeHelper(nodeHelperPath());
     };
-    child.on("error", (err) => fallBack(err.message));
+    child.on("error", (err: NodeJS.ErrnoException) =>
+      fallBack(err.message, err.code),
+    );
     this.attachSubprocess(child, () => fallBack("exited before Ready"));
   }
 
@@ -416,6 +426,8 @@ export class Session {
 
   /** The helper has said Ready: it runs, so an exit from here on is the pane's. */
   private helperReady = false;
+  /** Which helper `subprocess` is. */
+  private helperKind: "native" | "node" = "node";
 
   private pendingSpawnArgs: string[] = [];
 
@@ -423,6 +435,7 @@ export class Session {
     switch (type) {
       case MSG.READY: {
         this.helperReady = true;
+        if (this.helperKind === "native") recordNativeHelperReady();
         // Subprocess is ready — send spawn command
         const zdotdir = ShellManager.zdotdirPath();
         const shell = defaultShell();

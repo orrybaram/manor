@@ -1,7 +1,13 @@
 import fs from "fs";
 import path from "path";
 import type { Page } from "@playwright/test";
-import { bootWorkspaceWithTerminal, openTerminalTab, test, expect } from "./fixtures";
+import {
+  assertVisiblePaneCount,
+  bootWorkspaceWithTerminal,
+  openTerminalTab,
+  test,
+  expect,
+} from "./fixtures";
 import { activePaneId, awaitShellReady, scrollback } from "./helpers/terminal";
 
 /**
@@ -108,12 +114,12 @@ test("a hidden pane past the hold limit restores from the snapshot, with no seam
 
 test("a hidden pane answers a terminal query on time", async ({ app, window, tempHome }) => {
   const paneId = await hiddenPane(app, window, tempHome);
-  // Cursor position, then background colour: each `read` waits 2s for its reply.
+  // Cursor position, then background colour: each `read` waits 1s for its reply.
   await ptyType(
     window,
     paneId,
-    "printf '\\e[6n'; read -rs -t 2 -d R r && echo zq-dsr-ok || echo zq-dsr-none; " +
-      "printf '\\e]11;?\\a'; read -rs -t 2 -d '\\' r && echo zq-osc-ok || echo zq-osc-none\r",
+    "printf '\\e[6n'; read -rs -t 1 -d R r && echo zq-dsr-ok || echo zq-dsr-none; " +
+      "printf '\\e]11;?\\a'; read -rs -t 1 -d '\\' r && echo zq-osc-ok || echo zq-osc-none\r",
   );
   await expect.poll(() => scrollback(tempHome, paneId), { timeout: 10_000 }).toMatch(/zq-osc-(ok|none)/);
   const out = scrollback(tempHome, paneId);
@@ -158,4 +164,23 @@ test("a pane in a hidden window holds its output and catches up when shown", asy
   await setVisibility("visible");
   await expect.poll(() => written(window, paneId)).toMatch(/^zq-45-behind$/m);
   expect(await heldSize(window, paneId)).toBeNull();
+});
+
+test("both panes of a split are on screen and neither holds", async ({ app, window, tempHome }) => {
+  await bootWorkspaceWithTerminal(app, window, tempHome, "hold");
+  const first = await activePaneId(window);
+  await awaitShellReady(window, tempHome, first);
+  await window.keyboard.press("ControlOrMeta+Alt+\\");
+  await assertVisiblePaneCount(window, 2, 5_000);
+  const ids = await window
+    .locator('[data-testid="workspace-pane"]:visible')
+    .evaluateAll((els) => els.map((el) => el.getAttribute("data-pane-id")!));
+  const second = ids.find((id) => id !== first)!;
+  await awaitShellReady(window, tempHome, second);
+
+  for (const id of ids) expect(await heldSize(window, id)).toBeNull();
+  // The pane without focus draws as output arrives.
+  await ptyType(window, first, "echo zq-$((40+6))-split\r");
+  await expect.poll(() => written(window, first)).toMatch(/^zq-46-split$/m);
+  await shot(window, "split-both-live");
 });

@@ -306,6 +306,26 @@ describe("useTerminalStream — a pane off screen holds its output", () => {
     expect(replies).toEqual(["\x1b[2;1R"]);
   });
 
+  it("applies kitty keyboard changes in dropped output after the snapshot", async () => {
+    // What Shift+Enter in an agent depends on: Manor's kitty handler tracks
+    // these flags in the terminal's parser, outside xterm's own state.
+    const term = headless();
+    const pushes: string[] = [];
+    term.parser.registerCsiHandler({ prefix: ">", final: "u" }, (params) => {
+      pushes.push(String(params[0]));
+      return true;
+    });
+    const attach = attachOk("snap\r\n", 2);
+    mount(term, false, attach);
+    output?.(overflow(), 1);
+    output?.("\x1b[>11u", 2);
+    show(term, true, attach);
+    await act(async () => {});
+    await flush(term);
+    expect(attach).toHaveBeenCalled();
+    expect(pushes).toEqual(["11"]);
+  });
+
   it("tries a failed restore again, and lands it", async () => {
     vi.useFakeTimers();
     try {

@@ -247,6 +247,29 @@ fn resize_lands_before_resized_and_the_shell_sees_it() {
 }
 
 #[test]
+fn fractional_and_out_of_range_sizes_are_truncated_and_clamped() {
+    let mut h = Helper::start();
+    let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();
+    let payload = serde_json::json!({
+        "shell": "/bin/sh", "args": ["-c", "stty size; read _; stty size; read _; stty size"],
+        "cwd": "/tmp", "cols": 80.7, "rows": 24.2, "env": env,
+    });
+    h.send(SPAWN, payload.to_string().as_bytes());
+    let (kind, p) = h.next();
+    assert_eq!(kind, SPAWNED, "{}", String::from_utf8_lossy(&p));
+    h.output_until("24 80");
+    for (resize, want) in [
+        (&br#"{"cols":132.9,"rows":50.1}"#[..], "50 132"),
+        (&br#"{"cols":100000,"rows":-3}"#[..], "1 65535"),
+    ] {
+        h.send(RESIZE, resize);
+        while h.next().0 != RESIZED {}
+        h.send(WRITE, b"\r");
+        h.output_until(want);
+    }
+}
+
+#[test]
 fn pause_stops_output_and_resume_brings_it_back() {
     let mut h = Helper::start();
     h.spawn_sh("read _; while :; do echo tick; sleep 0.05; done");

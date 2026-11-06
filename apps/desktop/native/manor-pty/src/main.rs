@@ -18,7 +18,7 @@ mod pty;
 mod utf8;
 mod wait;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -43,7 +43,9 @@ struct SpawnPayload {
     #[serde(default)]
     args: Vec<String>,
     cwd: String,
+    #[serde(deserialize_with = "dimension")]
     cols: u16,
+    #[serde(deserialize_with = "dimension")]
     rows: u16,
     #[serde(default)]
     env: HashMap<String, String>,
@@ -56,8 +58,23 @@ struct SpawnPayload {
 
 #[derive(Deserialize)]
 struct ResizePayload {
+    #[serde(deserialize_with = "dimension")]
     cols: u16,
+    #[serde(deserialize_with = "dimension")]
     rows: u16,
+}
+
+/// A size in cells from any JSON number: the daemon passes clients' sizes
+/// through unchecked, and node-pty truncates fractions rather than refusing
+/// them. Clamped to 1..=65535, so a bad size can't fail a spawn or skip a
+/// resize (whose Resized then went out for a size the PTY never took).
+fn dimension<'de, D: Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    let n = f64::deserialize(d)?;
+    Ok(if n.is_finite() {
+        n.trunc().clamp(1.0, u16::MAX as f64) as u16
+    } else {
+        1
+    })
 }
 
 #[derive(Deserialize)]
@@ -211,8 +228,11 @@ impl Helper {
                 self.flush_data(false);
                 frame::encode_into(&mut self.out, frame::RESIZED, b"");
             }
+            // Once the shell is reaped its pid can belong to anyone: Kill and
+            // Signal after that would reach an unrelated process.
             frame::KILL => {
                 if let Some(child) = &self.child
+                    && !self.exited
                     && procs::kill_tree(child.pid, libc::SIGTERM).is_ok()
                 {
                     self.kill_deadline = Some(Instant::now() + KILL_ESCALATE_AFTER);
@@ -220,6 +240,7 @@ impl Helper {
             }
             frame::SIGNAL => {
                 if let (Some(child), Ok(s)) = (&self.child, serde_json::from_slice::<SignalPayload>(payload))
+                    && !self.exited
                     && let Some(sig) = signal_number(&s.signal)
                 {
                     // SAFETY: plain syscall.

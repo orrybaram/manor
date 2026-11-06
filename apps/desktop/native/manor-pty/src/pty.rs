@@ -197,8 +197,24 @@ pub fn spawn(
     set_cloexec(errpipe[0]);
     set_cloexec(errpipe[1]);
 
+    // Signals stay blocked across fork until the child has reset its
+    // handlers: until then the child runs ours, which would write into our
+    // signal pipe, and a SIGTERM there would make us end the pane.
+    // SAFETY: sigset_t is plain data, filled by sigfillset.
+    let mut all: libc::sigset_t = unsafe { std::mem::zeroed() };
+    let mut before: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: masking signals on our own (only) thread.
+    unsafe {
+        libc::sigfillset(&mut all);
+        libc::sigprocmask(libc::SIG_SETMASK, &all, &mut before);
+    }
+
     // SAFETY: fork; the child only calls async-signal-safe functions below.
     let pid = unsafe { libc::fork() };
+    if pid != 0 {
+        // SAFETY: restoring the mask we had; pending signals arrive now.
+        unsafe { libc::sigprocmask(libc::SIG_SETMASK, &before, std::ptr::null_mut()) };
+    }
     if pid < 0 {
         let e = std::io::Error::last_os_error();
         // SAFETY: closing our own fds.

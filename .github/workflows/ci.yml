@@ -64,3 +64,76 @@ jobs:
       - name: Build
         working-directory: apps/desktop
         run: pnpm exec vite build
+
+  # The per-pane PTY helper (apps/desktop/native/manor-pty): lint and test it
+  # on both platforms it ships for.
+  manor-pty:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop/native/manor-pty
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Rust toolchain
+        run: rustup update stable --no-self-update && rustup default stable && rustup component add clippy rustfmt
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --release
+
+  # Both helpers through bench:pty on a real Mac, so every change to the
+  # helper has macOS numbers next to the Linux ones. Results are an artifact.
+  manor-pty-bench-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: apps/desktop
+        run: |
+          pnpm exec vite build
+          cargo build --release --manifest-path native/manor-pty/Cargo.toml
+
+      - name: Benchmark the Node helper
+        working-directory: apps/desktop
+        run: node scripts/bench-pty-helper.mjs --impl node --out "$RUNNER_TEMP/bench.jsonl"
+
+      - name: Benchmark manor-pty
+        working-directory: apps/desktop
+        run: node scripts/bench-pty-helper.mjs --impl native --out "$RUNNER_TEMP/bench.jsonl"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-pty-macos
+          path: ${{ runner.temp }}/bench.jsonl

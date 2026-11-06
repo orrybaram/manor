@@ -11,6 +11,9 @@
  *   manor-cli.js             the `manor` CLI, run by the `~/.manor/bin/manor`
  *                            shim remote-bootstrap.ts writes
  *   host-server-index.js     the host server, run by `manor-host serve`
+ *   manor-pty-<os>-<arch>    the native PTY helper, from build-manor-pty.mjs;
+ *                            the daemon falls back to pty-subprocess.js on a
+ *                            platform with none
  *   package.json             generated; pins the bundles' externals at the
  *                            versions in the root package.json
  *
@@ -82,6 +85,16 @@ try {
   fs.mkdirSync(pkgDir);
   for (const bundle of BUNDLES) {
     fs.copyFileSync(path.join(OUT_DIR, bundle), path.join(pkgDir, bundle));
+  }
+  const helpers = fs.readdirSync(OUT_DIR).filter((f) => /^manor-pty-[a-z]+-[a-z0-9]+$/.test(f));
+  if (helpers.length === 0) {
+    console.warn(
+      "build-host-tarball: no manor-pty binaries in dist-electron (run build-manor-pty.mjs); hosts will use pty-subprocess.js",
+    );
+  }
+  for (const helper of helpers) {
+    fs.copyFileSync(path.join(OUT_DIR, helper), path.join(pkgDir, helper));
+    fs.chmodSync(path.join(pkgDir, helper), 0o755);
   }
   const hostPkg = {
     name: "manor-host",

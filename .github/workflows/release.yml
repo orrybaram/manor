@@ -93,6 +93,10 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
+      # For build-manor-pty.mjs (the native PTY helper); the runner has rustup.
+      - name: Rust toolchain
+        run: rustup update stable --no-self-update && rustup default stable
+
       # The tarball takes its version from apps/desktop/package.json, as the
       # release job's does.
       - name: Sync version from tag
@@ -106,6 +110,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm run build
+          node apps/desktop/scripts/build-manor-pty.mjs --linux-only
           node apps/desktop/scripts/build-host-tarball.mjs
           cp "apps/desktop/dist-electron/manor-host-$VERSION.tgz" apps/desktop/docker/host-image/prebuilt/
 
@@ -157,6 +162,10 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # For build-manor-pty.mjs (the native PTY helper); the runner has rustup.
+      - name: Rust toolchain
+        run: rustup update stable --no-self-update && rustup default stable
 
       - name: Sync version from tag
         working-directory: apps/desktop
@@ -215,7 +224,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and publish
-        run: pnpm run build && node apps/desktop/scripts/build-host-tarball.mjs && pnpm --filter manor exec electron-builder --publish always
+        run: pnpm run build && node apps/desktop/scripts/build-manor-pty.mjs && node apps/desktop/scripts/build-host-tarball.mjs && pnpm --filter manor exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}

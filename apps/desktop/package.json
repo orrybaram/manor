@@ -12,7 +12,7 @@
     "build:web:relay": "node scripts/build-web-relay.mjs",
     "preview": "vite preview",
     "bench:pty": "node scripts/bench-pty-helper.mjs",
-    "package": "pnpm typecheck && vite build && node scripts/build-host-tarball.mjs && electron-builder",
+    "package": "pnpm typecheck && vite build && node scripts/build-manor-pty.mjs && node scripts/build-host-tarball.mjs && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "pnpm build && pnpm build:web:relay && playwright test --project=e2e && playwright test --project=perf",
@@ -27,7 +27,8 @@
     "test:e2e:mobile": "pnpm build && pnpm build:web:relay && playwright test tests/e2e/mobile-audit.spec.ts",
     "e2e:mobile": "playwright test tests/e2e/mobile-audit.spec.ts",
     "postinstall": "electron-rebuild",
-    "relay:dev:upload": "node scripts/upload-web-relay.mjs --local"
+    "relay:dev:upload": "node scripts/upload-web-relay.mjs --local",
+    "build:native": "node scripts/build-manor-pty.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -140,7 +141,8 @@
       "dist/**/*",
       "!dist/mac-arm64",
       "!dist/builder-effective-config.yaml",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!dist-electron/manor-pty-linux-*"
     ],
     "extraResources": [
       {
@@ -151,7 +153,8 @@
     "asarUnpack": [
       "dist-electron/mcp-webview-server.js",
       "dist-electron/agent-hook.js",
-      "dist-electron/manor-cli.js"
+      "dist-electron/manor-cli.js",
+      "dist-electron/manor-pty-darwin-*"
     ]
   }
 }

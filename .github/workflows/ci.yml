@@ -95,8 +95,16 @@ jobs:
       - name: Test
         run: cargo test --release
 
-  # Both helpers through bench:pty on a real Mac, so every change to the
-  # helper has macOS numbers next to the Linux ones. Results are an artifact.
+      - name: Build the static Linux binaries the host tarball ships
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        run: |
+          node scripts/build-manor-pty.mjs --linux-only
+          file dist-electron/manor-pty-linux-* | tee /dev/stderr | grep -c 'statically linked\|static-pie linked' | grep -qx 2
+
+  # On a real Mac: package the app (unsigned) and check the helper ships
+  # where the daemon looks for it, then run both helpers through bench:pty
+  # (the native one as shipped). Results are an artifact.
   manor-pty-bench-macos:
     runs-on: macos-latest
     timeout-minutes: 25
@@ -120,8 +128,24 @@ jobs:
       - name: Build
         working-directory: apps/desktop
         run: |
+          rustup update stable --no-self-update && rustup default stable
           pnpm exec vite build
-          cargo build --release --manifest-path native/manor-pty/Cargo.toml
+          node scripts/build-manor-pty.mjs
+          node scripts/build-host-tarball.mjs
+
+      - name: Package (unsigned) and check the helper ships
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          lipo -archs dist-electron/manor-pty-darwin-universal | tee /dev/stderr | grep -q 'x86_64 arm64'
+          pnpm exec electron-builder --mac --dir --publish never -c.mac.identity=null -c.mac.notarize=false
+          app=$(ls -d dist/mac*/Manor.app | head -1)
+          unpacked="$app/Contents/Resources/app.asar.unpacked/dist-electron"
+          ls -l "$unpacked" | grep manor-pty
+          test -x "$unpacked/manor-pty-darwin-universal"
+          ! ls "$unpacked" | grep -q manor-pty-linux
+          tar -tzvf dist-electron/manor-host-*.tgz | grep manor-pty
+          echo "SHIPPED_PTY=$PWD/$unpacked/manor-pty-darwin-universal" >> "$GITHUB_ENV"
 
       - name: Benchmark the Node helper
         working-directory: apps/desktop
@@ -129,7 +153,7 @@ jobs:
 
       - name: Benchmark manor-pty
         working-directory: apps/desktop
-        run: node scripts/bench-pty-helper.mjs --impl native --out "$RUNNER_TEMP/bench.jsonl"
+        run: node scripts/bench-pty-helper.mjs --impl native --helper "$SHIPPED_PTY" --out "$RUNNER_TEMP/bench.jsonl"
 
       - name: Upload results
         if: always()

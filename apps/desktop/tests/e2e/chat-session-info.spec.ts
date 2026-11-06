@@ -1,10 +1,12 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { expect, type Locator, type Page } from "@playwright/test";
 
 import { createWorkspace, importSeededProject, openTerminalTab } from "./fixtures";
 import { FAKE_AGENT_TRANSCRIPT, FAKE_CHAT_PROMPT } from "./helpers/fake-agent";
+import { installFakeGh } from "./helpers/fake-gh";
 import { Filmstrip } from "./helpers/filmstrip";
 import { waitForVisibleSession } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
@@ -25,6 +27,35 @@ import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal
  */
 
 const AGENT_TITLE = "e2e-session-info";
+
+/**
+ * The workspace's open pull request, from a fake `gh`: a phone shows its PR,
+ * CI and diff chips, the desk leaves them to the sidebar.
+ */
+const FAKE_GH_BIN = installFakeGh(fs.mkdtempSync(path.join(os.tmpdir(), "manor-session-info-gh-")), {
+  prs: {
+    "session-info": {
+      number: 7,
+      state: "OPEN",
+      title: "Session info",
+      url: "https://github.com/acme/app/pull/7",
+      isDraft: false,
+      additions: 12,
+      deletions: 3,
+      reviewDecision: null,
+      updatedAt: "2026-11-06T10:00:00Z",
+      autoMergeRequest: null,
+      statusCheckRollup: [{ name: "unit", conclusion: "SUCCESS", status: "COMPLETED" }],
+    },
+  },
+});
+const ORIGINAL_PATH = process.env.PATH ?? "";
+test.beforeAll(() => {
+  process.env.PATH = `${FAKE_GH_BIN}${path.delimiter}${ORIGINAL_PATH}`;
+});
+test.afterAll(() => {
+  process.env.PATH = ORIGINAL_PATH;
+});
 
 /** Manor's own theme, which `useTheme` doesn't offer. */
 async function useManorTheme(w: Page) {
@@ -224,6 +255,17 @@ test.describe("chat session info", () => {
       await expect(phoneChat).toBeVisible({ timeout: 20_000 });
       await expect(phoneChat.getByTestId("chat-turn-end")).toBeVisible({ timeout: 15_000 });
       await expect(phoneChat.getByTestId("chat-agents-chip")).toHaveText(/2 agents/);
+      // The phone has the pull request's chips; the desk, with the PR in its
+      // sidebar, doesn't.
+      const phoneChips = phoneChat.getByTestId("chat-status-chips");
+      await expect(phoneChips).toContainText("#7", { timeout: 30_000 });
+      await expect(phoneChips).toContainText("CI");
+      await expect(phoneChips).toContainText("+12");
+      const deskChips = chat.getByTestId("chat-status-chips");
+      await expect(deskChips).not.toContainText("#7");
+      await expect(deskChips).not.toContainText("CI");
+      await expect(deskChips).not.toContainText("+12");
+      await film.shot(window, "desk-no-pr-chips");
       await film.shot(page, "phone-dark");
       await shootAgentsList(film, page, phoneChat, "phone-dark-agents-list", true);
       await phoneChat.getByTestId("chat-branch-chip").click();

@@ -37,6 +37,8 @@ import styles from "./ChatPane.module.css";
  * Source Control), the background agents and other running tasks, so "2
  * failing" is in view while you ask Claude to fix it. The session's context
  * size sits on the right.
+ * The PR, CI and diff chips are a phone's only: the desk already shows them
+ * in the sidebar and the PR card.
  * Renders nothing when none of them has anything to show; a chip with
  * nothing to show is left out.
  *
@@ -81,7 +83,7 @@ type ChatStatusLineProps = {
 
 type ChipName = "branch" | "model" | "effort" | "pr" | "ci" | "diff" | "agents" | "running";
 
-const DESK_ORDER: ChipName[] = ["branch", "model", "effort", "pr", "ci", "diff", "agents", "running"];
+const DESK_ORDER: ChipName[] = ["branch", "model", "effort", "agents", "running"];
 const PHONE_ORDER: ChipName[] = ["branch", "agents", "running", "ci", "pr", "diff", "model", "effort"];
 
 const NO_TASKS: readonly TaskItem[] = [];
@@ -126,11 +128,12 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
   const branch = branchChip(workspace?.branch, session?.gitBranch);
   const model = session?.model ? modelDisplayName(session.model) : null;
   const effort = session?.effort || null;
-  if (!pr && !ci && !diff && !hasTokens && !running && !showAgents && !branch && !model && !effort) {
+  const phone = layout === "phone";
+  const prChips = phone && (pr || ci || diff);
+  if (!prChips && !hasTokens && !running && !showAgents && !branch && !model && !effort) {
     return null;
   }
 
-  const phone = layout === "phone";
   const draft = pr?.isDraft === true;
   const PrIcon = draft ? GitPullRequestDraft : GitPullRequest;
 

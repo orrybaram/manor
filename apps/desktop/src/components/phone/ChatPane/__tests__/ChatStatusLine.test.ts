@@ -131,6 +131,51 @@ describe("ChatStatusLine — session chips", () => {
     expect(testId("chat-status-line")?.textContent).toContain("12k");
   });
 
+  it("leaves the pull request, CI and diff to a phone", () => {
+    useProjectStore.setState({
+      projects: [
+        makeProject({
+          workspaces: [
+            workspace({
+              pr: {
+                number: 7,
+                state: "open",
+                title: "Fix it",
+                url: "https://github.com/o/r/pull/7",
+                checks: { total: 1, passing: 1, failing: 0, pending: 0 },
+              },
+              diffStats: { added: 12, removed: 3 },
+            }),
+          ],
+        }),
+      ],
+    });
+    render({ session: SESSION, layout: "desk" });
+    expect(chipOrder()).toEqual(["chat-branch-chip", "chat-model-chip", "chat-effort-chip"]);
+    render({ session: SESSION, layout: "phone" });
+    const phone = testId("chat-status-chips")?.textContent ?? "";
+    expect(phone).toContain("#7");
+    expect(phone).toContain("CI");
+    expect(phone).toContain("+12");
+  });
+
+  it("draws nothing on the desk when the pull request is all there is", () => {
+    useProjectStore.setState({
+      projects: [
+        makeProject({
+          workspaces: [
+            workspace({
+              branch: "",
+              pr: { number: 7, state: "open", title: "Fix it", url: "https://github.com/o/r/pull/7" },
+            }),
+          ],
+        }),
+      ],
+    });
+    render({ session: null, layout: "desk" });
+    expect(testId("chat-status-line")).toBeNull();
+  });
+
   it("leaves out a chip with nothing to show", () => {
     render({ session: { model: null, effort: null, gitBranch: null }, layout: "desk" });
     expect(testId("chat-branch-chip")).not.toBeNull();

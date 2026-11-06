@@ -23,7 +23,7 @@ pub fn parents() -> HashMap<i32, i32> {
     {
         for pid in macos::all_pids() {
             if let Some(info) = macos::bsdinfo(pid) {
-                map.insert(pid, info.pbi_ppid as i32);
+                map.insert(pid, info.pbsi_ppid as i32);
             }
         }
     }
@@ -161,11 +161,14 @@ pub mod macos {
         pids
     }
 
-    pub fn bsdinfo(pid: i32) -> Option<libc::proc_bsdinfo> {
-        let mut info = MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-        let size = size_of::<libc::proc_bsdinfo>() as i32;
-        // SAFETY: buffer is a proc_bsdinfo of the size passed.
-        let got = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size) };
+    /// A process's parent and short name. The short flavour, because the
+    /// full one refuses a process whose euid isn't ours (`sudo`, a setuid
+    /// `ping`), which node-pty's sysctl lookup would still name.
+    pub fn bsdinfo(pid: i32) -> Option<libc::proc_bsdshortinfo> {
+        let mut info = MaybeUninit::<libc::proc_bsdshortinfo>::zeroed();
+        let size = size_of::<libc::proc_bsdshortinfo>() as i32;
+        // SAFETY: buffer is a proc_bsdshortinfo of the size passed.
+        let got = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDT_SHORTBSDINFO, 0, info.as_mut_ptr().cast(), size) };
         // SAFETY: proc_pidinfo filled it when it returned the full size.
         (got == size).then(|| unsafe { info.assume_init() })
     }
@@ -226,6 +229,22 @@ pub mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// launchd is root's: the full bsdinfo flavour refuses it to a normal
+    /// user, and so would hide a `sudo` in a pane's foreground.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn names_another_users_process() {
+        let info = macos::bsdinfo(1).expect("pid 1's short info");
+        let comm: Vec<u8> = info
+            .pbsi_comm
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        assert_eq!(comm, b"launchd");
+        assert!(parents().contains_key(&1));
+    }
 
     #[test]
     fn finds_itself_and_its_children() {

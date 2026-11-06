@@ -360,7 +360,16 @@ export class Session {
    * the pane comes up either way.
    */
   private startNativeHelper(helperPath: string): void {
-    const child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "inherit"] });
+    let child: ChildProcess;
+    try {
+      child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "inherit"] });
+    } catch (err) {
+      // Only a few errnos arrive as an "error" event; the rest (ETXTBSY,
+      // EBADARCH on macOS, ...) throw here.
+      markNativeHelperBroken(helperPath, String((err as Error).message ?? err));
+      this.startNodeHelper(choosePtyHelper().path);
+      return;
+    }
     const fallBack = (reason: string) => {
       if (this.helperReady || this.subprocess !== child) return;
       markNativeHelperBroken(helperPath, reason);

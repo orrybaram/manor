@@ -223,7 +223,7 @@ fn foreground_name(pid: i32) -> Option<String> {
     {
         let info = procs::macos::bsdinfo(pid)?;
         let comm: Vec<u8> = info
-            .pbi_comm
+            .pbsi_comm
             .iter()
             .take_while(|c| **c != 0)
             .map(|c| *c as u8)

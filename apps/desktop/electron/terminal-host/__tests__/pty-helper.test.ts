@@ -27,6 +27,8 @@ const children: {
   file: string;
   child: ReturnType<typeof fakeChild>;
 }[] = [];
+/** When set, the mocked spawn throws it, as child_process.spawn does for most errnos. */
+let spawnThrows: Error | null = null;
 
 vi.mock("node:child_process", () => ({
   fork: vi.fn((file: string) => {
@@ -35,6 +37,7 @@ vi.mock("node:child_process", () => ({
     return child;
   }),
   spawn: vi.fn((file: string) => {
+    if (spawnThrows) throw spawnThrows;
     const child = fakeChild(200 + children.length);
     children.push({ kind: "spawn", file, child });
     return child;
@@ -185,6 +188,25 @@ describe("Session with the native helper", () => {
     children[1].child.stdout.write(encodeFrame(MSG.READY));
     expect((await payload).shell).toBeTruthy();
     expect(session.alive).toBe(true);
+  });
+
+  it("falls back when spawning manor-pty throws (ETXTBSY, EBADARCH, ...)", () => {
+    spawnThrows = Object.assign(new Error("spawn ETXTBSY"), {
+      code: "ETXTBSY",
+    });
+    try {
+      const session = new Session(
+        "s6",
+        "/tmp",
+        80,
+        24,
+        fs.mkdtempSync(path.join(os.tmpdir(), "manor-pty-helper-")),
+      );
+      expect(() => session.spawn()).not.toThrow();
+      expect(children.map((c) => c.kind)).toEqual(["fork"]);
+    } finally {
+      spawnThrows = null;
+    }
   });
 
   it("falls back when manor-pty exits before Ready, and later sessions skip it", () => {

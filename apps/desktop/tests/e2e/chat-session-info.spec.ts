@@ -160,6 +160,22 @@ test.describe("chat session info", () => {
     await film.shot(window, "desk-dark-working-later");
     await shootAgentsList(film, window, chat, "desk-dark-agents-list", false);
 
+    // 1b. A narrow desk pane: the chips wrap rather than run off the edge.
+    await chat.evaluate((el) => {
+      (el as HTMLElement).style.maxWidth = "220px";
+    });
+    const chips = chat.getByTestId("chat-status-chips");
+    const chipsBox = (await chips.boundingBox())!;
+    const lastChip = (await chips.locator(":scope > *").last().boundingBox())!;
+    expect(lastChip.x + lastChip.width).toBeLessThanOrEqual(chipsBox.x + chipsBox.width + 0.5);
+    expect(lastChip.height).toBeLessThanOrEqual(18.5);
+    const firstChip = (await chips.locator(":scope > *").first().boundingBox())!;
+    expect(lastChip.y).toBeGreaterThan(firstChip.y);
+    await statusLine.screenshot({ path: path.join(film.dir, "desk-narrow-status-line.png") });
+    await chat.evaluate((el) => {
+      (el as HTMLElement).style.maxWidth = "";
+    });
+
     // 2. The turn ends with both agents still out.
     assistant("a-end", "msg-4", [{ type: "text", text: "I'll pick their results up when they report." }], { stop_reason: "end_turn" });
     append({ ...base, type: "system", subtype: "turn_duration", uuid: "s-turn-1", timestamp: now(), durationMs: 134_000, messageCount: 12, pendingBackgroundAgentCount: 2 });

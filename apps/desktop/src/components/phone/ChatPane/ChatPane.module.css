@@ -1189,8 +1189,8 @@ button.editToggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 7px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
   background: var(--surface);
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -1201,17 +1201,18 @@ button.editToggle {
   position: relative;
 }
 
-/* The chip is ~22px tall; pad the hit area out to a comfortable tap. */
+/* The chip is 18px tall; pad the hit area out to a comfortable tap. */
 .statusChip::after {
   content: "";
   position: absolute;
-  inset: -8px -2px;
+  inset: -10px -2px;
 }
 
 /* The chips, in the line's left; the right is left to the context size.
    One line on a phone: they scroll sideways, fading at the right edge,
    rather than wrap. The block padding keeps the chips' tap areas inside
-   the scroll box; the negative margin keeps the line its height. */
+   the scroll box; the negative margin keeps the line its height. On the
+   desk they wrap instead, so a narrow pane cuts none of them off. */
 .statusChips {
   flex: 1;
   min-width: 0;
@@ -1224,8 +1225,8 @@ button.editToggle {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  padding: 8px 16px 8px 0;
-  margin-block: -8px;
+  padding: 10px 16px 10px 0;
+  margin-block: -10px;
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
 }
 
@@ -1238,7 +1239,8 @@ button.editToggle {
 }
 
 .statusLine[data-layout="desk"] .statusChips {
-  overflow: hidden;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 /* A long branch name on a narrow desk pane mustn't push the chips after it
@@ -1447,7 +1449,8 @@ button.editToggle {
    chips give way first on a narrow phone. */
 .statusTokens {
   flex-shrink: 0;
-  padding: 3px 4px;
+  align-self: flex-start;
+  padding: 1px 4px;
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: 11px;

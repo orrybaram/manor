@@ -44,10 +44,15 @@ const PROJECT_NAME = "test-project";
 const WORKSPACE_A = "newagent-a";
 const WORKSPACE_B = "newagent-b";
 
-/** A pane's grid as text, read off its live `Terminal` (xterm draws to a canvas). */
+/**
+ * A pane's grid as text, read off its live `Terminal` (xterm draws to a
+ * canvas). An agent's pane opens on its chat, which hides the terminal and
+ * so holds its output: caught up first, to read what showing it would show.
+ */
 function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
+    handle?.catchUp();
     return handle ? handle.serialize({ scrollback: 20_000 }) : "";
   }, paneId);
 }

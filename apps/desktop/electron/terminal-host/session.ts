@@ -9,7 +9,7 @@
  *   so every byte is parsed once
  */
 
-import { fork, type ChildProcess } from "node:child_process";
+import { fork, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,6 +27,7 @@ import { ShellManager } from "../shell";
 import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
 import { AGENT_NAMES, PaneFactsExtractor } from "./pane-facts";
+import { choosePtyHelper, markNativeHelperBroken } from "./pty-helper";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -83,8 +84,8 @@ export function marksPrompt(shell: string, args: string[]): boolean {
  * And gives the shell a UTF-8 locale when it would otherwise have none; see
  * {@link UTF8_CTYPE}.
  *
- * The pty-subprocess.js fork() is intentionally excluded from this filtering; it
- * is a Node.js subprocess that legitimately needs the full process environment.
+ * The PTY helper itself (pty-subprocess.js or manor-pty) is intentionally
+ * excluded from this filtering: it gets the full process environment.
  *
  * @param base      Source environment (pass process.env in production)
  * @param overrides Manor-specific vars merged in last (MANOR_PANE_ID, TERM, etc.)
@@ -335,21 +336,64 @@ export class Session {
     };
   }
 
-  /** Spawn the PTY subprocess */
+  /** Spawn the PTY subprocess: `manor-pty` when shipped, else Node. */
   spawn(shellArgs: string[] = []): void {
-    const subprocessPath = path.join(__dirname, "pty-subprocess.js");
+    // Wait for Ready, then send Spawn (in handleSubprocessFrame).
+    this.pendingSpawnArgs = shellArgs;
+    const helper = choosePtyHelper();
+    if (helper.kind === "native") this.startNativeHelper(helper.path);
+    else this.startNodeHelper(helper.path);
+  }
 
-    this.subprocess = fork(subprocessPath, [], {
-      stdio: ["pipe", "pipe", "inherit", "ipc"],
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    });
+  private startNodeHelper(subprocessPath: string): void {
+    this.attachSubprocess(
+      fork(subprocessPath, [], {
+        stdio: ["pipe", "pipe", "inherit", "ipc"],
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      }),
+    );
+  }
+
+  /**
+   * Start `manor-pty`. If it can't start (missing, not executable, wrong
+   * architecture) or dies before saying Ready, fall back to the Node helper:
+   * the pane comes up either way.
+   */
+  private startNativeHelper(helperPath: string): void {
+    const child = spawn(helperPath, [], { stdio: ["pipe", "pipe", "inherit"] });
+    const fallBack = (reason: string) => {
+      if (this.helperReady || this.subprocess !== child) return;
+      markNativeHelperBroken(helperPath, reason);
+      child.removeAllListeners();
+      child.stdout?.removeAllListeners();
+      child.kill("SIGKILL");
+      this.decoder.reset();
+      this.startNodeHelper(choosePtyHelper().path);
+    };
+    child.on("error", (err) => fallBack(err.message));
+    this.attachSubprocess(child, () => fallBack("exited before Ready"));
+  }
+
+  private attachSubprocess(
+    child: ChildProcess,
+    onEarlyExit?: () => void,
+  ): void {
+    this.subprocess = child;
+    this.helperReady = false;
+    // A write racing the helper's exit fails with EPIPE; the exit handler
+    // below deals with the exit, so the error itself needs no handling.
+    child.stdin?.on("error", () => {});
 
     // Read stdout from subprocess (binary frames)
-    this.subprocess.stdout!.on("data", (chunk: Buffer) => {
+    child.stdout!.on("data", (chunk: Buffer) => {
       this.decoder.push(chunk);
     });
 
-    this.subprocess.on("exit", () => {
+    child.on("exit", () => {
+      if (!this.helperReady && onEarlyExit) {
+        onEarlyExit();
+        return;
+      }
       if (this._alive) {
         this._alive = false;
         this.broadcastEvent({
@@ -359,17 +403,17 @@ export class Session {
         });
       }
     });
-
-    // Wait for Ready, then send Spawn
-    // The Ready handling is done in handleSubprocessFrame
-    this.pendingSpawnArgs = shellArgs;
   }
+
+  /** The helper has said Ready: it runs, so an exit from here on is the pane's. */
+  private helperReady = false;
 
   private pendingSpawnArgs: string[] = [];
 
   private handleSubprocessFrame(type: number, payload: Buffer): void {
     switch (type) {
       case MSG.READY: {
+        this.helperReady = true;
         // Subprocess is ready — send spawn command
         const zdotdir = ShellManager.zdotdirPath();
         const shell = defaultShell();

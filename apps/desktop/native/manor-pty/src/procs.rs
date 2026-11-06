@@ -50,13 +50,49 @@ pub fn tree(root: i32) -> Vec<i32> {
 
 /// Direct children of `pid`.
 pub fn children_of(pid: i32) -> Vec<i32> {
-    let mut kids: Vec<i32> = parents()
-        .into_iter()
-        .filter(|&(_, ppid)| ppid == pid)
-        .map(|(p, _)| p)
-        .collect();
+    let mut kids = direct_children(pid).unwrap_or_else(|| {
+        parents()
+            .into_iter()
+            .filter(|&(_, ppid)| ppid == pid)
+            .map(|(p, _)| p)
+            .collect()
+    });
     kids.sort_unstable();
     kids
+}
+
+/// Children without walking the whole table: every thread's
+/// `/proc/<pid>/task/<tid>/children` on Linux (a child belongs to the thread
+/// that forked it), `proc_listchildpids` on macOS. None if unavailable.
+fn direct_children(pid: i32) -> Option<Vec<i32>> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut kids = Vec::new();
+        for task in std::fs::read_dir(format!("/proc/{pid}/task")).ok()?.flatten() {
+            let raw = std::fs::read_to_string(task.path().join("children")).ok()?;
+            kids.extend(raw.split_whitespace().filter_map(|s| s.parse::<i32>().ok()));
+        }
+        Some(kids)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut buf = vec![0i32; 256];
+        // SAFETY: buffer size in bytes matches the allocation.
+        let n = unsafe {
+            libc::proc_listchildpids(
+                pid,
+                buf.as_mut_ptr().cast(),
+                (buf.len() * std::mem::size_of::<i32>()) as i32,
+            )
+        };
+        if n < 0 {
+            return None;
+        }
+        // It returns a count of pids; clamp in case a version returns bytes.
+        buf.truncate((n as usize).min(buf.len()));
+        buf.retain(|p| *p > 0);
+        Some(buf)
+    }
 }
 
 /// Send `signal` to `root` and everything below it, like the `tree-kill`

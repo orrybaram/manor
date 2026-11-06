@@ -545,4 +545,9 @@ export interface PtySpawnPayload {
   cols: number;
   rows: number;
   env: Record<string, string>;
+  /**
+   * Agent CLI names to find in command lines (`AGENT_NAMES`), for the native
+   * helper; `pty-subprocess.js` imports the table itself and ignores this.
+   */
+  agentNames?: string[];
 }

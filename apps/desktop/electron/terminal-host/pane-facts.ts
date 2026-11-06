@@ -30,6 +30,9 @@ const AGENT_KIND_BY_NAME: ReadonlyArray<readonly [name: string, kind: AgentKind]
   ["pi", "pi"],
 ];
 
+/** The agent CLI names, in match order: sent to the native PTY helper. */
+export const AGENT_NAMES: readonly string[] = AGENT_KIND_BY_NAME.map(([name]) => name);
+
 /**
  * Patterns that find a known agent CLI in a process's command line (e.g.
  * `node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.mjs`), in

@@ -1,0 +1,105 @@
+{
+  "agentNames": ["claude", "opencode", "codex", "pi"],
+  "processBasename": [
+    ["/bin/sh", "sh"],
+    ["-zsh", "zsh"],
+    ["node", "node"],
+    ["/usr/local/bin/claude", "claude"],
+    ["", ""]
+  ],
+  "shellScriptName": [
+    [["sh"], null],
+    [["/bin/zsh", "-i"], null],
+    [["sh", "/x/manor-e2e-agent", "--session", "s"], "manor-e2e-agent"],
+    [["/bin/bash", "-e", "--", "./deploy.sh", "x"], "deploy.sh"],
+    [["sh", "-c", "/opt/bin/codex --full-auto"], "codex"],
+    [["sh", "-ec", "make build"], "make"],
+    [["sh", "-c", "exec claude --resume x"], "claude"],
+    [["sh", "-c", "exec bash"], null],
+    [["sh", "/bin/zsh"], null],
+    [["sh", "-c", ""], null],
+    [["sh", "-c"], null],
+    [["bash", "+x", "run.sh"], "run.sh"]
+  ],
+  "shellForegroundName": [
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": 100,
+        "leaderArgs": ["sh"],
+        "agentBelow": null
+      },
+      null
+    ],
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": 200,
+        "leaderArgs": ["sh", "/x/manor-e2e-agent", "--session", "s"],
+        "agentBelow": null
+      },
+      "manor-e2e-agent"
+    ],
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": 200,
+        "leaderArgs": ["/bin/sh", "/usr/local/bin/my-claude"],
+        "agentBelow": "claude"
+      },
+      "claude"
+    ],
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": null,
+        "leaderArgs": null,
+        "agentBelow": null
+      },
+      null
+    ],
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": 200,
+        "leaderArgs": null,
+        "agentBelow": null
+      },
+      null
+    ],
+    [
+      {
+        "shellPid": 100,
+        "leaderPid": 200,
+        "leaderArgs": ["zsh", "-i"],
+        "agentBelow": null
+      },
+      null
+    ]
+  ],
+  "agentInCommandLine": [
+    [
+      "node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.mjs",
+      "claude"
+    ],
+    ["node /opt/Claude/bin/run", "claude"],
+    ["bun /home/me/.opencode/bin/opencode", "opencode"],
+    ["node /usr/lib/node_modules/@openai/codex/bin/codex.js", "codex"],
+    ["node /usr/lib/node_modules/pi-coding-agent/dist/cli.js", "pi"],
+    ["node -e setInterval(()=>{},1e9) claude", "claude"],
+    ["node claudette.js", null],
+    ["node pipeline.js", null],
+    ["node my_claude_tool.js", null],
+    ["node api.js", null],
+    ["sleep 1000", null],
+    ["node 终端claude终端", "claude"]
+  ],
+  "isVersionString": [
+    ["2.1.80", true],
+    ["10.0", true],
+    ["2.", false],
+    ["v2.1", false],
+    ["node", false],
+    ["2", false]
+  ]
+}

@@ -134,6 +134,17 @@ const shellEnv = {
   PS1: "$ ",
 };
 
+/** The agents the daemon tells a helper to look for (`AGENT_NAMES`). */
+const agentNames = JSON.parse(
+  fs.readFileSync(
+    path.join(
+      desktopDir,
+      "electron/terminal-host/__fixtures__/foreground-parity.json",
+    ),
+    "utf-8",
+  ),
+).agentNames;
+
 class Pane {
   constructor({
     shell,
@@ -151,6 +162,7 @@ class Pane {
       cols,
       rows,
       env: { ...env, ...extraEnv },
+      agentNames,
     };
     this.listeners = new Set();
     this.dataBytes = 0;
@@ -653,13 +665,22 @@ async function b6Names() {
     ["plain program", "sleep 1000"],
     ["fake agent", fakeAgentCommand().replace(/^exec /, "")],
     ["script wrapper", script],
+    [
+      "agent, then ^C back to the prompt",
+      fakeAgentCommand().replace(/^exec /, ""),
+      "\x03",
+    ],
   ];
   const results = {};
-  for (const [name, command] of scenarios) {
+  for (const [name, command, then] of scenarios) {
     const [p] = await startPanes(1, { shell, args, cwd: dir });
     await sleep(1500);
     if (command) p.write(`${command}\r`);
     await sleep(3000);
+    if (then) {
+      p.write(then);
+      await sleep(2000);
+    }
     results[name] = [...new Set(p.fgNames)];
     await p.dispose();
   }

@@ -11,6 +11,15 @@
 
 export const KNOWN_SHELLS: ReadonlySet<string> = new Set(["zsh", "bash", "fish", "sh"]);
 
+/** Foreground names that hide the agent they run: look at the children. */
+export const JS_RUNTIMES: ReadonlySet<string> = new Set(["node", "deno", "bun"]);
+
+/**
+ * Some CLIs (e.g. Claude Code) set their process title to a version string
+ * like "2.1.80". Detect these so we can fall back to child arg inspection.
+ */
+export const VERSION_STRING_RE = /^\d+\.\d+/;
+
 /** `/bin/sh` → `sh`, `-zsh` (a login shell) → `zsh`. */
 export function processBasename(name: string): string {
   return (name.split("/").pop() ?? name).replace(/^-/, "");

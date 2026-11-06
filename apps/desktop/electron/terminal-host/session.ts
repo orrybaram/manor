@@ -26,7 +26,7 @@ import {
 import { ShellManager } from "../shell";
 import { manorBinDir } from "../paths";
 import { ScrollbackWriter } from "./scrollback";
-import { PaneFactsExtractor } from "./pane-facts";
+import { AGENT_NAMES, PaneFactsExtractor } from "./pane-facts";
 import type {
   TerminalSnapshot,
   TerminalModes,
@@ -385,6 +385,7 @@ export class Session {
           cwd: this.cwd || process.env.HOME || "/",
           cols: this.cols,
           rows: this.rows,
+          agentNames: [...AGENT_NAMES],
           env: buildShellEnv(process.env, {
             MANOR_PANE_ID: this.sessionId,
             // What the pane runs, for the programs in it that ask.

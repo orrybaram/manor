@@ -18,7 +18,13 @@ import {
 } from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
 import { AGENT_COMMAND_PATTERNS } from "./pane-facts";
-import { KNOWN_SHELLS, processBasename, shellForegroundName } from "./foreground-shell";
+import {
+  JS_RUNTIMES,
+  KNOWN_SHELLS,
+  VERSION_STRING_RE,
+  processBasename,
+  shellForegroundName,
+} from "./foreground-shell";
 import treeKill from "tree-kill";
 
 const execFileAsync = promisify(execFile);
@@ -29,11 +35,6 @@ let fgProcInterval: ReturnType<typeof setInterval> | null = null;
 let lastFgProcName: string | null = null;
 let fgPollRunning = false;
 
-const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
-
-// Some CLIs (e.g. Claude Code) set their process title to a version string
-// like "2.1.80". Detect these so we can fall back to child arg inspection.
-const VERSION_STRING_RE = /^\d+\.\d+/;
 
 
 /**

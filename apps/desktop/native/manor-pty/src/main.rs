@@ -11,6 +11,7 @@
 //!   here
 //! - SIGCHLD → EXIT once the shell is gone
 
+mod foreground;
 mod frame;
 mod procs;
 mod pty;
@@ -38,6 +39,11 @@ struct SpawnPayload {
     rows: u16,
     #[serde(default)]
     env: HashMap<String, String>,
+    /// Agent CLIs to look for in command lines (`pane-facts.ts`'s table),
+    /// so the list lives in one place. Absent from an older daemon: then
+    /// only plain process names are reported.
+    #[serde(default, rename = "agentNames")]
+    agent_names: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +139,7 @@ struct Helper {
     stdin_open: bool,
     kill_deadline: Option<Instant>,
     read_buf: Vec<u8>,
+    sampler: Option<foreground::Sampler>,
 }
 
 impl Helper {
@@ -150,6 +157,7 @@ impl Helper {
             stdin_open: true,
             kill_deadline: None,
             read_buf: vec![0; READ_CHUNK + 4],
+            sampler: None,
         };
         frame::encode_into(&mut h.out, frame::READY, b"");
         h
@@ -219,6 +227,7 @@ impl Helper {
         match pty::spawn(&p.shell, &p.args, &p.cwd, &env, p.cols, p.rows) {
             Ok(child) => {
                 json_frame(&mut self.out, frame::SPAWNED, serde_json::json!({ "pid": child.pid }));
+                self.sampler = Some(foreground::Sampler::new(child.pid, &p.shell, p.agent_names));
                 self.child = Some(child);
             }
             Err(e) => {
@@ -393,6 +402,7 @@ impl Helper {
         self.flush_carry();
         json_frame(&mut self.out, frame::EXIT, serde_json::json!({ "exitCode": code }));
         self.kill_deadline = None;
+        self.sampler = None;
     }
 
     fn check_kill_deadline(&mut self) {
@@ -417,8 +427,21 @@ impl Helper {
         std::process::exit(0);
     }
 
+    fn sample_foreground(&mut self) {
+        let (Some(sampler), Some(child)) = (&mut self.sampler, &self.child) else {
+            return;
+        };
+        if Instant::now() < sampler.next_at {
+            return;
+        }
+        if let Some(name) = sampler.sample(child.master.as_raw_fd()) {
+            json_frame(&mut self.out, frame::FGPROC, serde_json::json!({ "name": name }));
+        }
+    }
+
     fn timeout_ms(&self) -> i32 {
-        match self.kill_deadline {
+        let sample = self.sampler.as_ref().map(|s| s.next_at);
+        match [self.kill_deadline, sample].into_iter().flatten().min() {
             None => -1,
             // Round up so a sub-millisecond wait doesn't poll with 0 and spin.
             Some(d) => d
@@ -536,5 +559,6 @@ fn main() {
             h.write_pty();
         }
         h.check_kill_deadline();
+        h.sample_foreground();
     }
 }

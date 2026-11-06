@@ -330,9 +330,15 @@ function daemonRss(tempHome: string): {
     let children = 0;
     const childPids: number[] = [];
     for (const [p, rss, comm] of rows) {
-      // The daemon and its pty helpers are node; shells are the user's.
+      // The daemon and its pty helpers (node, or the native manor-pty);
+      // shells are the user's.
       if (Number(p) === pid) daemonKb += Number(rss);
-      else if (comm === "node" || comm === "electron" || comm === "Electron") {
+      else if (
+        comm === "node" ||
+        comm === "electron" ||
+        comm === "Electron" ||
+        comm.startsWith("manor-pty")
+      ) {
         childKb += Number(rss);
         children++;
         childPids.push(Number(p));

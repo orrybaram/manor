@@ -11,6 +11,7 @@
     "build:web": "vite build --config vite.web.config.ts",
     "build:web:relay": "node scripts/build-web-relay.mjs",
     "preview": "vite preview",
+    "bench:pty": "node scripts/bench-pty-helper.mjs",
     "package": "pnpm typecheck && vite build && node scripts/build-host-tarball.mjs && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest",

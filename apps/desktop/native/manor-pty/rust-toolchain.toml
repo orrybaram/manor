@@ -1,0 +1,8 @@
+# One exact Rust for CI, release and local builds, so a shipped manor-pty
+# doesn't change with whatever stable was on the day, and a new stable lint
+# can't fail clippy (-D warnings) on a PR that didn't touch this crate.
+# Bump it on purpose. build-manor-pty.mjs adds the cross targets.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

@@ -83,8 +83,9 @@ jobs:
         with:
           persist-credentials: false
 
+      # The version in rust-toolchain.toml, with clippy and rustfmt.
       - name: Rust toolchain
-        run: rustup update stable --no-self-update && rustup default stable && rustup component add clippy rustfmt
+        run: rustup toolchain install
 
       - name: Format
         run: cargo fmt --check
@@ -128,7 +129,7 @@ jobs:
       - name: Build
         working-directory: apps/desktop
         run: |
-          rustup update stable --no-self-update && rustup default stable
+          (cd native/manor-pty && rustup toolchain install)
           pnpm exec vite build
           node scripts/build-manor-pty.mjs
           node scripts/build-host-tarball.mjs

@@ -51,12 +51,15 @@ export async function activePaneId(window: Page): Promise<string> {
 /**
  * A pane's whole grid, read off the terminal itself (xterm draws into a
  * canvas) through `window.__manorTerminals` — on the desktop or in the web
- * app, which runs the identical component.
+ * app, which runs the identical component. A pane off screen is caught up
+ * first, so this reads what showing it would show.
  */
 export async function paneText(page: Page, paneId: string): Promise<string> {
   return page.evaluate((id) => {
     const handle = window.__manorTerminals?.get(id);
     if (!handle) throw new Error(`no terminal registered for ${id}`);
+    // A pane off screen holds its output; read what it would show.
+    handle.catchUp();
     return handle.serialize({ scrollback: 20_000 });
   }, paneId);
 }

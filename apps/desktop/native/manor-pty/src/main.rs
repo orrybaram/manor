@@ -27,6 +27,11 @@ use std::time::{Duration, Instant};
 /// Stop reading the PTY while this much is waiting to go to the daemon.
 const OUT_HIGH_WATER: usize = 256 * 1024;
 const READ_CHUNK: usize = 64 * 1024;
+/// How long streaming output gathers before it's framed: pty-subprocess.js's
+/// OUTPUT_BATCH_INTERVAL_MS.
+const BATCH_WINDOW: Duration = Duration::from_millis(4);
+/// A frame at least this big means output is streaming, not being typed.
+const STREAMING_FRAME: usize = 256;
 const KILL_ESCALATE_AFTER: Duration = Duration::from_secs(5);
 /// node-pty's DESTROY_SOCKET_TIMEOUT_MS: how long EXIT waits for the PTY to
 /// drain after the shell has gone.
@@ -134,8 +139,11 @@ struct Helper {
     out_off: usize,
     /// Bytes waiting for the PTY.
     pty_in: Vec<u8>,
-    /// The unfinished UTF-8 sequence at the end of the last read.
-    carry: Vec<u8>,
+    /// PTY output not framed yet (see `after_read`).
+    pending: Vec<u8>,
+    flush_at: Option<Instant>,
+    /// When the last DATA frame went, and how big it was.
+    last_flush: Option<(Instant, usize)>,
     paused: bool,
     pty_eof: bool,
     exited: bool,
@@ -156,7 +164,9 @@ impl Helper {
             out: Vec::new(),
             out_off: 0,
             pty_in: Vec::new(),
-            carry: Vec::new(),
+            pending: Vec::new(),
+            flush_at: None,
+            last_flush: None,
             paused: false,
             pty_eof: false,
             exited: false,
@@ -164,7 +174,7 @@ impl Helper {
             exit_by: None,
             stdin_open: true,
             kill_deadline: None,
-            read_buf: vec![0; READ_CHUNK + 4],
+            read_buf: vec![0; READ_CHUNK],
             sampler: None,
         };
         frame::encode_into(&mut h.out, frame::READY, b"");
@@ -179,7 +189,7 @@ impl Helper {
         self.child.as_ref().and_then(pty::Child::fd).is_some()
             && !self.pty_eof
             && !self.paused
-            && self.out_pending() < OUT_HIGH_WATER
+            && self.queued() < OUT_HIGH_WATER
     }
 
     fn handle_frame(&mut self, kind: u8, payload: &[u8]) {
@@ -197,7 +207,8 @@ impl Helper {
                 ) {
                     let _ = pty::resize(fd, r.cols, r.rows);
                 }
-                // Output read at the old size is already queued ahead of this.
+                // Output read at the old size goes out ahead of this.
+                self.flush_data(false);
                 frame::encode_into(&mut self.out, frame::RESIZED, b"");
             }
             frame::KILL => {
@@ -262,69 +273,79 @@ impl Helper {
         }
     }
 
-    /// Read what the PTY has, up to the high-water mark, into DATA frames.
-    /// A PTY hands out a few KB per read; everything already waiting goes
-    /// into one frame of up to `READ_CHUNK`, so the daemon handles fewer,
-    /// larger frames without a batching delay.
-    fn read_pty(&mut self, ignore_flow: bool) {
+    /// Read what the PTY has into `pending`, up to the high-water mark.
+    fn read_pty(&mut self) {
         let Some(fd) = self.child.as_ref().and_then(pty::Child::fd) else {
             return;
         };
-        loop {
-            if self.pty_eof || (!ignore_flow && (self.paused || self.out_pending() >= OUT_HIGH_WATER)) {
-                return;
+        while !self.pty_eof && !self.paused && self.queued() < OUT_HIGH_WATER {
+            // SAFETY: reading into our buffer.
+            let n = unsafe { libc::read(fd, self.read_buf.as_mut_ptr().cast(), READ_CHUNK) };
+            if n > 0 {
+                self.pending.extend_from_slice(&self.read_buf[..n as usize]);
+                self.after_read();
+                continue;
             }
-            let carried = self.carry.len();
-            self.read_buf[..carried].copy_from_slice(&self.carry);
-            let mut filled = carried;
-            let mut drained = false;
-            while filled < carried + READ_CHUNK {
-                // SAFETY: reading into our buffer past what's filled.
-                let n = unsafe {
-                    libc::read(
-                        fd,
-                        self.read_buf[filled..].as_mut_ptr().cast(),
-                        carried + READ_CHUNK - filled,
-                    )
-                };
-                if n > 0 {
-                    filled += n as usize;
-                    continue;
-                }
-                let err = std::io::Error::last_os_error();
-                if n < 0 && err.kind() == ErrorKind::Interrupted {
-                    continue;
-                }
-                if !(n < 0 && err.kind() == ErrorKind::WouldBlock) {
-                    // 0 or EIO: every slave fd is closed.
-                    self.pty_eof = true;
-                }
-                drained = true;
-                break;
+            let err = std::io::Error::last_os_error();
+            if n < 0 && err.kind() == ErrorKind::Interrupted {
+                continue;
             }
-            if filled > carried {
-                let hold = utf8::incomplete_tail(&self.read_buf[..filled]);
-                let send = filled - hold;
-                if send > 0 {
-                    frame::encode_into(&mut self.out, frame::DATA, &self.read_buf[..send]);
-                }
-                self.carry.clear();
-                self.carry.extend_from_slice(&self.read_buf[send..filled]);
+            if !(n < 0 && err.kind() == ErrorKind::WouldBlock) {
+                // 0 or EIO: every slave fd is closed.
+                self.pty_eof = true;
+                self.flush_data(true);
             }
-            if self.pty_eof {
-                self.flush_carry();
-            }
-            if drained {
-                return;
-            }
+            return;
         }
     }
 
-    fn flush_carry(&mut self) {
-        if !self.carry.is_empty() {
-            let carry = std::mem::take(&mut self.carry);
-            frame::encode_into(&mut self.out, frame::DATA, &carry);
+    /// Output goes out at once after a quiet spell or a small frame (a
+    /// keystroke's echo is a few bytes); while output streams, it gathers
+    /// for up to `BATCH_WINDOW` or `READ_CHUNK` bytes. A PTY hands out as little as 1 KB per read
+    /// (macOS), and each frame costs the daemon a decode, an emulator write
+    /// and a broadcast, so this keeps frames as few as pty-subprocess.js's.
+    fn after_read(&mut self) {
+        if self.pending.len() >= READ_CHUNK {
+            self.flush_data(false);
+            return;
         }
+        if self.flush_at.is_some() {
+            return;
+        }
+        let now = Instant::now();
+        match self.last_flush {
+            Some((t, bytes)) if bytes >= STREAMING_FRAME && now.duration_since(t) < BATCH_WINDOW => {
+                self.flush_at = Some(t + BATCH_WINDOW)
+            }
+            _ => self.flush_data(false),
+        }
+    }
+
+    /// Frame `pending` as DATA, holding back an unfinished UTF-8 sequence
+    /// unless `all` (the PTY is done).
+    fn flush_data(&mut self, all: bool) {
+        self.flush_at = None;
+        if self.pending.is_empty() {
+            return;
+        }
+        let hold = if all { 0 } else { utf8::incomplete_tail(&self.pending) };
+        let send = self.pending.len() - hold;
+        if send > 0 {
+            frame::encode_into(&mut self.out, frame::DATA, &self.pending[..send]);
+            self.pending.drain(..send);
+            self.last_flush = Some((Instant::now(), send));
+        }
+    }
+
+    fn flush_if_due(&mut self) {
+        if self.flush_at.is_some_and(|t| Instant::now() >= t) {
+            self.flush_data(false);
+        }
+    }
+
+    /// Bytes read from the PTY that the daemon hasn't taken yet.
+    fn queued(&self) -> usize {
+        self.out_pending() + self.pending.len()
     }
 
     fn write_pty(&mut self) {
@@ -441,7 +462,7 @@ impl Helper {
         }
         self.exit_by = None;
         self.pty_eof = true;
-        self.flush_carry();
+        self.flush_data(true);
         json_frame(&mut self.out, frame::EXIT, serde_json::json!({ "exitCode": code }));
         if let Some(child) = &mut self.child {
             child.master = None; // closes the PTY
@@ -485,7 +506,11 @@ impl Helper {
 
     fn timeout_ms(&self) -> i32 {
         let sample = self.sampler.as_ref().map(|s| s.next_at);
-        match [self.kill_deadline, sample, self.exit_by].into_iter().flatten().min() {
+        match [self.kill_deadline, sample, self.exit_by, self.flush_at]
+            .into_iter()
+            .flatten()
+            .min()
+        {
             None => -1,
             // Round up so a sub-millisecond wait doesn't poll with 0 and spin.
             Some(d) => d
@@ -589,7 +614,7 @@ fn main() {
                 h.write_pty();
             }
             if rev & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
-                h.read_pty(false);
+                h.read_pty();
             }
         }
         if let Some(i) = slot_stdout
@@ -602,6 +627,7 @@ fn main() {
             h.write_pty();
         }
         h.check_kill_deadline();
+        h.flush_if_due();
         h.finish_exit();
         h.sample_foreground();
     }

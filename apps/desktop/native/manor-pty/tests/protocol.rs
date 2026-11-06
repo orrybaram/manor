@@ -327,3 +327,25 @@ fn a_multibyte_flood_never_splits_a_character() {
     let text = String::from_utf8(bytes).unwrap();
     assert_eq!(text.matches("终端🦀é").count(), 3000);
 }
+
+#[test]
+fn streaming_output_gathers_into_few_frames() {
+    let mut h = Helper::start();
+    // 4 MB arrives a few KB (macOS: 1 KB) per read; framed per read that's
+    // thousands of frames for the daemon to handle.
+    h.spawn_sh("head -c 4194304 /dev/zero | tr '\\0' 'x'");
+    let (mut frames, mut bytes) = (0, 0);
+    loop {
+        let (kind, p) = h.next();
+        match kind {
+            DATA => {
+                frames += 1;
+                bytes += p.len();
+            }
+            EXIT => break,
+            _ => {}
+        }
+    }
+    assert_eq!(bytes, 4194304);
+    assert!(frames < 400, "{frames} frames for 4 MB");
+}

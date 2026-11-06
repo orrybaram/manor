@@ -234,13 +234,15 @@ export async function launchApp(
   // wrong app. Drop the lot: the launched app is meant to know nothing but
   // `tempHome`.
   //
-  // The one exception is MANOR_E2E_SSH_CONFIG: the remote-host suite's ssh
-  // config (scripts/test-remote-e2e.mjs), which Manor's managed ssh config
-  // includes as a test-only hook. It points at nothing outside the run.
+  // The exceptions point at nothing outside the run: MANOR_E2E_SSH_CONFIG,
+  // the remote-host suite's ssh config (scripts/test-remote-e2e.mjs), which
+  // Manor's managed ssh config includes as a test-only hook; and
+  // MANOR_PTY_HELPER, which picks the pty helper (node forces
+  // pty-subprocess.js), so a perf run can compare the two.
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(rest)) {
     if (value === undefined) continue;
-    if (key === "MANOR_E2E_SSH_CONFIG") {
+    if (key === "MANOR_E2E_SSH_CONFIG" || key === "MANOR_PTY_HELPER") {
       env[key] = value;
       continue;
     }

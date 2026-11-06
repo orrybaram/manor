@@ -38,6 +38,9 @@
  *     know, and only a daemon that has them sends them, to subprocesses it
  *     forked from its own bundle. Bumping would have restarted every live
  *     session on update for nothing.
+ *     Spawn's optional `agentNames`, for the native `manor-pty`, joined the
+ *     same way: `pty-subprocess.js` ignores it, and `manor-pty` without it
+ *     reports plain process names only.
  */
 export const PTY_SUBPROCESS_PROTOCOL = 1;
 

@@ -1,0 +1,342 @@
+//! Open a PTY and start the pane's shell on it, the way node-pty does:
+//! a new session with the slave as controlling terminal, argv[0] = the shell
+//! as given, the spawn payload's env and cwd.
+
+use std::ffi::CString;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+
+pub struct Child {
+    pub pid: i32,
+    /// None once the pane has exited and the PTY is closed.
+    pub master: Option<OwnedFd>,
+    /// Set when the child couldn't chdir or exec: node-pty's child prints
+    /// this to the pty and exits 1, so the pane shows it and then ends.
+    pub failed: Option<String>,
+}
+
+impl Child {
+    pub fn fd(&self) -> Option<RawFd> {
+        self.master.as_ref().map(|m| m.as_raw_fd())
+    }
+}
+
+fn winsize(cols: u16, rows: u16) -> libc::winsize {
+    libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    }
+}
+
+/// The terminal settings node-pty gives a new pty (`src/unix/pty.cc`), so a
+/// pane behaves the same under either helper: UTF-8 aware line editing
+/// (IUTF8), ^C/^Z/^\\, 38400 baud.
+fn node_pty_termios() -> libc::termios {
+    // SAFETY: termios is plain data; every field we rely on is set below.
+    let mut t: libc::termios = unsafe { std::mem::zeroed() };
+    t.c_iflag = libc::ICRNL | libc::IXON | libc::IXANY | libc::IMAXBEL | libc::BRKINT | libc::IUTF8;
+    t.c_oflag = libc::OPOST | libc::ONLCR;
+    t.c_cflag = libc::CREAD | libc::CS8 | libc::HUPCL;
+    t.c_lflag = libc::ICANON
+        | libc::ISIG
+        | libc::IEXTEN
+        | libc::ECHO
+        | libc::ECHOE
+        | libc::ECHOK
+        | libc::ECHOKE
+        | libc::ECHOCTL;
+    let cc = &mut t.c_cc;
+    cc[libc::VEOF] = 4;
+    cc[libc::VEOL] = 0xff;
+    cc[libc::VEOL2] = 0xff;
+    cc[libc::VERASE] = 0x7f;
+    cc[libc::VWERASE] = 0x17;
+    cc[libc::VKILL] = 0x15;
+    cc[libc::VREPRINT] = 0x12;
+    cc[libc::VINTR] = 0x03;
+    cc[libc::VQUIT] = 0x1c;
+    cc[libc::VSUSP] = 0x1a;
+    cc[libc::VSTART] = 0x11;
+    cc[libc::VSTOP] = 0x13;
+    cc[libc::VLNEXT] = 0x16;
+    cc[libc::VDISCARD] = 0x0f;
+    cc[libc::VMIN] = 1;
+    cc[libc::VTIME] = 0;
+    #[cfg(target_os = "macos")]
+    {
+        cc[libc::VDSUSP] = 0x19;
+        cc[libc::VSTATUS] = 0x14;
+    }
+    // SAFETY: setting speeds on our struct.
+    unsafe {
+        libc::cfsetispeed(&mut t, libc::B38400);
+        libc::cfsetospeed(&mut t, libc::B38400);
+    }
+    t
+}
+
+pub fn resize(master: RawFd, cols: u16, rows: u16) -> std::io::Result<()> {
+    let ws = winsize(cols, rows);
+    // SAFETY: TIOCSWINSZ with a valid winsize.
+    if unsafe { libc::ioctl(master, libc::TIOCSWINSZ, &ws) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn cstr(s: &str) -> std::io::Result<CString> {
+    CString::new(s).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "NUL in string"))
+}
+
+/// Where `execvp` would find `file`, searched with the spawn env's PATH.
+fn resolve(file: &str, env: &[(String, String)]) -> Vec<String> {
+    if file.contains('/') {
+        return vec![file.to_owned()];
+    }
+    let path = env
+        .iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("/usr/bin:/bin");
+    path.split(':')
+        .filter(|d| !d.is_empty())
+        .map(|d| format!("{d}/{file}"))
+        .collect()
+}
+
+/// XNU's "redrive the open" code, internal to the kernel's device layer.
+const EREDRIVEOPEN: i32 = -6;
+/// About a second of retries in all (5 ms, 10 ms, ... 95 ms).
+const OPENPTY_ATTEMPTS: u32 = 20;
+
+const STEP_CHDIR: u8 = 1;
+const STEP_EXEC: u8 = 2;
+
+fn strerror(code: i32) -> String {
+    // SAFETY: strerror returns a static, NUL-terminated message.
+    unsafe { std::ffi::CStr::from_ptr(libc::strerror(code)) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+pub fn spawn(
+    shell: &str,
+    args: &[String],
+    cwd: &str,
+    env: &[(String, String)],
+    cols: u16,
+    rows: u16,
+) -> std::io::Result<Child> {
+    // Everything the child needs is built before fork: no allocation after.
+    let candidates: Vec<CString> = resolve(shell, env).iter().map(|p| cstr(p)).collect::<Result<_, _>>()?;
+    let mut argv_c: Vec<CString> = vec![cstr(shell)?];
+    for a in args {
+        argv_c.push(cstr(a)?);
+    }
+    let mut argv: Vec<*const libc::c_char> = argv_c.iter().map(|c| c.as_ptr()).collect();
+    argv.push(std::ptr::null());
+    let env_c: Vec<CString> = env
+        .iter()
+        .map(|(k, v)| cstr(&format!("{k}={v}")))
+        .collect::<Result<_, _>>()?;
+    let mut envp: Vec<*const libc::c_char> = env_c.iter().map(|c| c.as_ptr()).collect();
+    envp.push(std::ptr::null());
+    let cwd_c = cstr(cwd)?;
+    let max_fd = {
+        let mut rl = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: plain getrlimit.
+        let n = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rl) } == 0 {
+            rl.rlim_cur
+        } else {
+            1024
+        };
+        n.min(65536) as i32
+    };
+
+    let mut master: RawFd = -1;
+    let mut slave: RawFd = -1;
+    let mut ws = winsize(cols, rows);
+    let mut term = node_pty_termios();
+    // Panes start together (a daemon restoring its sessions starts one helper
+    // per pane at once), and macOS's pty clone device can then fail an open
+    // with XNU's internal EREDRIVEOPEN (-6), which should never reach user
+    // space but does. Like EAGAIN and EINTR it's gone a moment later.
+    let mut attempt = 0;
+    loop {
+        // SAFETY: openpty writes two fds; the name is optional.
+        // macOS takes these as *mut, Linux as *const.
+        #[allow(clippy::unnecessary_mut_passed)]
+        let opened = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), &mut term, &mut ws) };
+        if opened == 0 {
+            break;
+        }
+        let err = std::io::Error::last_os_error();
+        let transient = matches!(err.raw_os_error(), Some(EREDRIVEOPEN | libc::EAGAIN | libc::EINTR));
+        attempt += 1;
+        if !transient || attempt >= OPENPTY_ATTEMPTS {
+            return Err(std::io::Error::new(err.kind(), format!("openpty: {err}")));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5 * attempt as u64));
+    }
+    // SAFETY: both fds are ours from openpty.
+    let master_fd = unsafe { OwnedFd::from_raw_fd(master) };
+    set_cloexec(master);
+
+    // A pipe the child reports a failed exec through; CLOEXEC closes it on success.
+    let mut errpipe = [0; 2];
+    // SAFETY: pipe into a 2-int array.
+    if unsafe { libc::pipe(errpipe.as_mut_ptr()) } != 0 {
+        // SAFETY: closing our own fd.
+        unsafe { libc::close(slave) };
+        return Err(std::io::Error::last_os_error());
+    }
+    set_cloexec(errpipe[0]);
+    set_cloexec(errpipe[1]);
+
+    // Signals stay blocked across fork until the child has reset its
+    // handlers: until then the child runs ours, which would write into our
+    // signal pipe, and a SIGTERM there would make us end the pane.
+    // SAFETY: sigset_t is plain data, filled by sigfillset.
+    let mut all: libc::sigset_t = unsafe { std::mem::zeroed() };
+    let mut before: libc::sigset_t = unsafe { std::mem::zeroed() };
+    // SAFETY: masking signals on our own (only) thread.
+    unsafe {
+        libc::sigfillset(&mut all);
+        libc::sigprocmask(libc::SIG_SETMASK, &all, &mut before);
+    }
+
+    // SAFETY: fork; the child only calls async-signal-safe functions below.
+    let pid = unsafe { libc::fork() };
+    if pid != 0 {
+        // SAFETY: restoring the mask we had; pending signals arrive now.
+        unsafe { libc::sigprocmask(libc::SIG_SETMASK, &before, std::ptr::null_mut()) };
+    }
+    if pid < 0 {
+        let e = std::io::Error::last_os_error();
+        // SAFETY: closing our own fds.
+        unsafe {
+            libc::close(slave);
+            libc::close(errpipe[0]);
+            libc::close(errpipe[1]);
+        }
+        return Err(e);
+    }
+    if pid == 0 {
+        // ── Child ──
+        // SAFETY: async-signal-safe calls only; every pointer was built pre-fork.
+        unsafe {
+            for sig in [
+                libc::SIGCHLD,
+                libc::SIGHUP,
+                libc::SIGINT,
+                libc::SIGQUIT,
+                libc::SIGTERM,
+                libc::SIGALRM,
+                libc::SIGPIPE,
+            ] {
+                libc::signal(sig, libc::SIG_DFL);
+            }
+            let mut empty: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut empty);
+            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
+
+            libc::setsid();
+            libc::ioctl(slave, libc::TIOCSCTTY as _, 0);
+            libc::dup2(slave, 0);
+            libc::dup2(slave, 1);
+            libc::dup2(slave, 2);
+            for fd in 3..max_fd {
+                if fd != errpipe[1] {
+                    libc::close(fd);
+                }
+            }
+            if libc::chdir(cwd_c.as_ptr()) != 0 {
+                let report = [STEP_CHDIR as i32, *errno()];
+                libc::write(errpipe[1], report.as_ptr().cast(), 8);
+                libc::_exit(1);
+            }
+            let mut err = libc::ENOENT;
+            for c in &candidates {
+                libc::execve(c.as_ptr(), argv.as_ptr(), envp.as_ptr());
+                let e = *errno();
+                if e != libc::ENOENT && e != libc::ENOTDIR {
+                    err = e;
+                }
+            }
+            let report = [STEP_EXEC as i32, err];
+            libc::write(errpipe[1], report.as_ptr().cast(), 8);
+            libc::_exit(1);
+        }
+    }
+
+    // ── Parent ──
+    // SAFETY: closing our copies.
+    unsafe {
+        libc::close(slave);
+        libc::close(errpipe[1]);
+    }
+    let mut buf = [0i32; 2];
+    let n = loop {
+        // SAFETY: reading into an 8-byte buffer.
+        let n = unsafe { libc::read(errpipe[0], buf.as_mut_ptr().cast(), 8) };
+        if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        break n;
+    };
+    // SAFETY: closing our fd.
+    unsafe { libc::close(errpipe[0]) };
+    set_nonblocking(master);
+    // The child exits 1 on its own; it's reaped like any other exit.
+    let failed = (n == 8).then(|| {
+        let step = if buf[0] == STEP_CHDIR as i32 {
+            "chdir(2)"
+        } else {
+            "execvp(3)"
+        };
+        format!("{step} failed.: {}", strerror(buf[1]))
+    });
+    Ok(Child {
+        pid,
+        master: Some(master_fd),
+        failed,
+    })
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn errno() -> *mut i32 {
+    // SAFETY: libc's thread-local errno.
+    unsafe { libc::__errno_location() }
+}
+#[cfg(target_os = "macos")]
+unsafe fn errno() -> *mut i32 {
+    // SAFETY: libc's thread-local errno.
+    unsafe { libc::__error() }
+}
+
+pub fn set_nonblocking(fd: RawFd) {
+    // SAFETY: fcntl flag update on our fd.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+}
+
+pub fn set_cloexec(fd: RawFd) {
+    // SAFETY: fcntl flag update on our fd.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+    }
+}
+
+/// The pty's foreground process group, from the master side.
+pub fn foreground_pgrp(master: RawFd) -> Option<i32> {
+    // SAFETY: tcgetpgrp on our master fd.
+    let pgrp = unsafe { libc::tcgetpgrp(master) };
+    (pgrp > 0).then_some(pgrp)
+}

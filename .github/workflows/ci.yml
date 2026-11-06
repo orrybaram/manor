@@ -64,3 +64,101 @@ jobs:
       - name: Build
         working-directory: apps/desktop
         run: pnpm exec vite build
+
+  # The per-pane PTY helper (apps/desktop/native/manor-pty): lint and test it
+  # on both platforms it ships for.
+  manor-pty:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/desktop/native/manor-pty
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The version in rust-toolchain.toml, with clippy and rustfmt.
+      - name: Rust toolchain
+        run: rustup toolchain install
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --release --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Build the static Linux binaries the host tarball ships
+        if: runner.os == 'Linux'
+        working-directory: apps/desktop
+        run: |
+          node scripts/build-manor-pty.mjs --linux-only
+          file dist-electron/manor-pty-linux-* | tee /dev/stderr | grep -c 'statically linked\|static-pie linked' | grep -qx 2
+
+  # On a real Mac: package the app (unsigned) and check the helper ships
+  # where the daemon looks for it, then run both helpers through bench:pty
+  # (the native one as shipped). Results are an artifact.
+  manor-pty-bench-macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: apps/desktop
+        run: |
+          (cd native/manor-pty && rustup toolchain install)
+          pnpm exec vite build
+          node scripts/build-manor-pty.mjs
+          node scripts/build-host-tarball.mjs
+
+      - name: Package (unsigned) and check the helper ships
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          lipo -archs dist-electron/manor-pty-darwin-universal | tee /dev/stderr | grep -q 'x86_64 arm64'
+          pnpm exec electron-builder --mac --dir --publish never -c.mac.identity=null -c.mac.notarize=false
+          app=$(ls -d dist/mac*/Manor.app | head -1)
+          unpacked="$app/Contents/Resources/app.asar.unpacked/dist-electron"
+          ls -l "$unpacked" | grep manor-pty
+          test -x "$unpacked/manor-pty-darwin-universal"
+          ! ls "$unpacked" | grep -q manor-pty-linux
+          tar -tzvf dist-electron/manor-host-*.tgz | grep manor-pty
+          echo "SHIPPED_PTY=$PWD/$unpacked/manor-pty-darwin-universal" >> "$GITHUB_ENV"
+
+      - name: Benchmark the Node helper
+        working-directory: apps/desktop
+        run: node scripts/bench-pty-helper.mjs --impl node --out "$RUNNER_TEMP/bench.jsonl"
+
+      - name: Benchmark manor-pty
+        working-directory: apps/desktop
+        run: node scripts/bench-pty-helper.mjs --impl native --helper "$SHIPPED_PTY" --out "$RUNNER_TEMP/bench.jsonl"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-pty-macos
+          path: ${{ runner.temp }}/bench.jsonl

@@ -18,7 +18,13 @@ import {
 } from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
 import { AGENT_COMMAND_PATTERNS } from "./pane-facts";
-import { KNOWN_SHELLS, processBasename, shellForegroundName } from "./foreground-shell";
+import {
+  JS_RUNTIMES,
+  KNOWN_SHELLS,
+  VERSION_STRING_RE,
+  processBasename,
+  shellForegroundName,
+} from "./foreground-shell";
 import treeKill from "tree-kill";
 
 const execFileAsync = promisify(execFile);
@@ -29,11 +35,6 @@ let fgProcInterval: ReturnType<typeof setInterval> | null = null;
 let lastFgProcName: string | null = null;
 let fgPollRunning = false;
 
-const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
-
-// Some CLIs (e.g. Claude Code) set their process title to a version string
-// like "2.1.80". Detect these so we can fall back to child arg inspection.
-const VERSION_STRING_RE = /^\d+\.\d+/;
 
 
 /**
@@ -245,10 +246,33 @@ function enqueueOutput(data: Buffer): void {
 // ── Write queue for stdout (async fs.write to avoid blocking) ──
 let writing = false;
 const writeQueue: Buffer[] = [];
+let writeQueueBytes = 0;
+
+/**
+ * Stop reading the pty while this much waits for the daemon, and read again
+ * below the low mark. Without it a daemon slower than the pane's program
+ * grows this process's heap by the whole backlog, and V8 keeps the memory.
+ * The program in the pane blocks on a full pty instead, as with Pause.
+ */
+const WRITE_QUEUE_HIGH_BYTES = 1024 * 1024;
+const WRITE_QUEUE_LOW_BYTES = 256 * 1024;
+let pausedByDaemon = false;
+let pausedByQueue = false;
+
+function updatePtyFlow(): void {
+  const wantPaused = pausedByDaemon || pausedByQueue;
+  if (wantPaused) ptyProcess?.pause();
+  else ptyProcess?.resume();
+}
 
 function writeFrame(type: MessageType, payload?: Buffer | string): void {
   const frame = encodeFrame(type, payload);
   writeQueue.push(frame);
+  writeQueueBytes += frame.length;
+  if (!pausedByQueue && writeQueueBytes > WRITE_QUEUE_HIGH_BYTES) {
+    pausedByQueue = true;
+    updatePtyFlow();
+  }
   drainWriteQueue();
 }
 
@@ -259,6 +283,11 @@ function drainWriteQueue(): void {
   const frame = writeQueue.shift()!;
   fs.write(1, frame, 0, frame.length, null, (err) => {
     writing = false;
+    writeQueueBytes -= frame.length;
+    if (pausedByQueue && writeQueueBytes < WRITE_QUEUE_LOW_BYTES) {
+      pausedByQueue = false;
+      updatePtyFlow();
+    }
     if (err) {
       if (!disposed) process.exit(1);
       return;
@@ -308,10 +337,12 @@ const decoder = new FrameDecoder((type, payload) => {
       handleDispose();
       break;
     case MSG.PAUSE:
-      ptyProcess?.pause();
+      pausedByDaemon = true;
+      updatePtyFlow();
       break;
     case MSG.RESUME:
-      ptyProcess?.resume();
+      pausedByDaemon = false;
+      updatePtyFlow();
       break;
   }
 });

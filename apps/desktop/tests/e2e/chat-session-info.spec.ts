@@ -160,6 +160,31 @@ test.describe("chat session info", () => {
     await film.shot(window, "desk-dark-working-later");
     await shootAgentsList(film, window, chat, "desk-dark-agents-list", false);
 
+    // 1b. A narrow desk pane: the chips stay on one line and scroll
+    // sideways under a faded edge, a mouse wheel included.
+    await chat.evaluate((el) => {
+      (el as HTMLElement).style.maxWidth = "220px";
+    });
+    const chips = chat.getByTestId("chat-status-chips");
+    const chipBoxes = await chips.locator(":scope > *").evaluateAll((els) =>
+      els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: r.top, height: r.height })),
+    );
+    expect(new Set(chipBoxes.map((b) => b.top)).size).toBe(1);
+    for (const b of chipBoxes) expect(b.height).toBeLessThanOrEqual(18.5);
+    expect(await chips.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await chips.evaluate((el) => getComputedStyle(el).maskImage)).toContain("linear-gradient");
+    await statusLine.screenshot({ path: path.join(film.dir, "desk-narrow-status-line.png") });
+    await chips.hover();
+    await window.mouse.wheel(0, 200);
+    await expect.poll(() => chips.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    await statusLine.screenshot({ path: path.join(film.dir, "desk-narrow-status-line-scrolled.png") });
+    await chips.evaluate((el) => {
+      el.scrollLeft = 0;
+    });
+    await chat.evaluate((el) => {
+      (el as HTMLElement).style.maxWidth = "";
+    });
+
     // 2. The turn ends with both agents still out.
     assistant("a-end", "msg-4", [{ type: "text", text: "I'll pick their results up when they report." }], { stop_reason: "end_turn" });
     append({ ...base, type: "system", subtype: "turn_duration", uuid: "s-turn-1", timestamp: now(), durationMs: 134_000, messageCount: 12, pendingBackgroundAgentCount: 2 });

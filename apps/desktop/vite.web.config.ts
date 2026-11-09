@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import pkg from "./package.json";
 import { WEB_CSP } from "@manor/protocol/web-headers";
+import { pdfjsAssets } from "./scripts/vite-pdfjs-assets";
 
 /**
  * `src/web.html`'s CSP `<meta>` tag is a second line of defence for the same
@@ -135,7 +136,7 @@ export default defineConfig({
   // the latter, which does not exist, and the app would boot with no
   // terminal font to load.
   publicDir: path.resolve(__dirname, "public"),
-  plugins: [react(), injectWebCsp(), webAppManifest()],
+  plugins: [react(), injectWebCsp(), webAppManifest(), pdfjsAssets()],
   build: {
     outDir: path.resolve(
       __dirname,

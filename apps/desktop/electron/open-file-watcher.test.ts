@@ -5,7 +5,7 @@ import path from "node:path";
 import { ExecShellBackend } from "./backend/exec-shell";
 import { localExec } from "./backend/exec";
 import { OpenFileWatcher, type FileChangedEvent } from "./open-file-watcher";
-import { contentHash, HOST_SCRIPTS, type FilesBackend } from "./workspace-files";
+import { contentHash, HOST_SCRIPTS, MAX_FILE_BYTES, type FilesBackend } from "./workspace-files";
 
 const INTERVAL_MS = 40;
 
@@ -99,6 +99,34 @@ describe("OpenFileWatcher", () => {
 
     await rm(path.join(tmp, "a.ts"));
 
+    await eventually(() => expect(events.map((e) => e.event.hash)).toEqual([null]));
+  });
+
+  it("reports each change of a binary file, which has no hash to tell them apart", async () => {
+    await writeFile(path.join(tmp, "a.png"), Buffer.from([0, 1]));
+    watcher.watch("w", { path: tmp, hostId: "local" }, ["a.png"]);
+    await settle();
+
+    await writeFile(path.join(tmp, "a.png"), Buffer.from([0, 2]));
+    await eventually(() => expect(events).toHaveLength(1));
+    await writeFile(path.join(tmp, "a.png"), Buffer.from([0, 3]));
+    await eventually(() => expect(events.map((e) => e.event.hash)).toEqual([null, null]));
+  });
+
+  it("follows a file too large for the editor, without reading it each tick", async () => {
+    const big = path.join(tmp, "big.pdf");
+    await writeFile(big, Buffer.alloc(MAX_FILE_BYTES + 1));
+    watcher.watch("w", { path: tmp, hostId: "local" }, ["big.pdf"]);
+    await settle();
+    await writeFile(big, Buffer.alloc(MAX_FILE_BYTES + 2));
+    await eventually(() => expect(events.map((e) => e.event.hash)).toEqual([null]));
+  });
+
+  it("reports a file over that size going away", async () => {
+    await writeFile(path.join(tmp, "big.pdf"), Buffer.alloc(MAX_FILE_BYTES + 1));
+    watcher.watch("w", { path: tmp, hostId: "local" }, ["big.pdf"]);
+    await settle();
+    await rm(path.join(tmp, "big.pdf"));
     await eventually(() => expect(events.map((e) => e.event.hash)).toEqual([null]));
   });
 

@@ -206,6 +206,19 @@ describe("diskChangeAction", () => {
   it("calls a dirty file that went away gone", () => {
     expect(diskChangeAction(dirty, null)).toBe("gone");
   });
+
+  it("doesn't ask again while a dirty file goes on changing unreadable", () => {
+    const gone = run(dirty, { type: "gone" });
+    expect(diskChangeAction(gone, null)).toBe("ignore");
+    expect(diskChangeAction(run(gone, { type: "keep-mine" }), null)).toBe("ignore");
+  });
+
+  it("calls it gone again if it came back after Keep mine and went", () => {
+    const kept = run(dirty, { type: "gone" }, { type: "keep-mine" });
+    const back = run(kept, { type: "read", content: "theirs", hash: "h9", reason: "changed" });
+    expect(back.conflict?.kind).toBe("changed");
+    expect(diskChangeAction(back, null)).toBe("gone");
+  });
 });
 
 describe("resumeOpenFile", () => {

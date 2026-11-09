@@ -1,0 +1,112 @@
+.frame {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+/* Static, so what is placed against the frame doesn't scroll with it. */
+.scroller {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  /* Pages size to its width: a scrollbar coming and going mustn't change that. */
+  scrollbar-gutter: stable;
+  outline: none;
+  background: var(--surface);
+}
+
+/* Room to centre an image that fits; one larger scrolls from its corner. */
+.imageScroller {
+  display: flex;
+}
+
+.imageFit,
+.imageActual {
+  margin: auto;
+  /* What shows through a transparent image: a checkerboard, on any theme. */
+  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+}
+
+.imageFit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.imageActual {
+  flex: none;
+  cursor: zoom-out;
+}
+
+.imageSize,
+.pdfBar {
+  position: absolute;
+  right: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.imageSize {
+  bottom: 8px;
+  padding: 2px 6px;
+  pointer-events: none;
+}
+
+.pdfBar {
+  top: 8px;
+  min-height: 24px;
+  padding: 0 4px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.pdfBarBtn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* Ghost's own hover is the bar's background. */
+.pdfBarBtn:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.pdfBarBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pdfZoom {
+  min-width: 34px;
+  text-align: center;
+}
+
+.pdfPages {
+  width: fit-content;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.pdfPage {
+  flex: none;
+  background: #fff;
+  box-shadow: 0 1px 4px #0005;
+}
+
+.pdfPage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

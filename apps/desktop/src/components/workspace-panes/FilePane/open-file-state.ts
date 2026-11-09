@@ -151,7 +151,13 @@ export function diskChangeAction(
 ): "ignore" | "after-save" | "read" | "gone" {
   if (state.saving) return "after-save";
   if (hash !== null && hash === state.expectedHash) return "ignore";
-  if (hash === null && state.dirty) return "gone";
+  if (hash === null && state.dirty) {
+    // Already said, or answered with Keep mine (which expects nothing on
+    // disk, and raised no conflict since): a file that goes on changing
+    // unreadable doesn't ask again.
+    const answered = state.conflict?.kind === "gone" || (!state.conflict && state.expectedHash === null);
+    return answered ? "ignore" : "gone";
+  }
   return "read";
 }
 

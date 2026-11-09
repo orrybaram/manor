@@ -28,7 +28,10 @@ function renderImage({ src, alt, width, height }: GfmImage) {
   );
 }
 
-/** What can't be shown: `files.read` serves text only, and http is refused. The alt text stands in. */
+/**
+ * What isn't shown: an image in the repo (the preview doesn't read bytes;
+ * `files.readBytes` could), and any http one. The alt text stands in.
+ */
 function renderLocalImage({ alt, src }: GfmImage) {
   return (
     <span className={styles.localImage} title={src}>

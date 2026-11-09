@@ -136,6 +136,17 @@ describe("POST /files/open", () => {
     expect(showFile).not.toHaveBeenCalled();
   });
 
+  it("opens an image or a PDF, whose bytes the editor would refuse", async () => {
+    const image = path.join(tmp, "a.png");
+    fs.writeFileSync(image, Buffer.from([0x89, 0, 1, 2]));
+    const res = await post({ path: image, workspacePath: workspace });
+    expect(res.status).toBe(200);
+    expect(openedTab().rootNode).toMatchObject({ contentType: "file", filePath: image });
+    const missing = await post({ path: path.join(tmp, "nope.pdf"), workspacePath: workspace });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toMatch(/does not exist/);
+  });
+
   it("refuses what the viewer couldn't show, leaving no tab", async () => {
     const missing = await post({ path: path.join(tmp, "nope.txt"), workspacePath: workspace });
     expect(missing.status).toBe(400);

@@ -31,8 +31,10 @@ import {
   isSafeRelPath,
   listWorkspaceFiles,
   readWorkspaceFile,
+  readWorkspaceFileBytes,
   renameWorkspaceFile,
   writeWorkspaceFile,
+  type FileBytesResult,
   type FileListResult,
   type FileMoveResult,
   type FileReadResult,
@@ -73,6 +75,18 @@ export function filesRead(
   assertWorkspace(workspace, "workspace");
   assertString(relPath, "relPath");
   return readWorkspaceFile(backendFor(ctx, workspace), workspace.path, relPath);
+}
+
+/** A piece of an image or a PDF, from byte `offset`, for the pane to show: as base64. */
+export function filesReadBytes(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  relPath: string,
+  offset?: number,
+): Promise<FileBytesResult> {
+  assertWorkspace(workspace, "workspace");
+  assertString(relPath, "relPath");
+  return readWorkspaceFileBytes(backendFor(ctx, workspace), workspace.path, relPath, offset);
 }
 
 export function filesWrite(
@@ -179,6 +193,7 @@ export function filesUnwatch(ctx: HandlerCtx<FileWatchDeps>): void {
 export const files = {
   list: method(filesList),
   read: method(filesRead),
+  readBytes: method(filesReadBytes),
   blameRevision: method(filesBlameRevision),
   blame: method(filesBlame),
   write: method(filesWrite, { mutating: true }),

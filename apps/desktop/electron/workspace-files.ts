@@ -24,7 +24,9 @@
  *
  * Content is UTF-8 text. `hash` is the SHA-256 of that text, so a caller
  * compares what it read, what it wrote and what `files.changed` reports
- * (`./open-file-watcher.ts`) without the content.
+ * (`./open-file-watcher.ts`) without the content. An image or a PDF, which
+ * the pane only shows, is read as its bytes instead, in pieces
+ * (`readWorkspaceFileBytes`).
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -34,6 +36,18 @@ import { errorMessage } from "./lib/errors";
 
 /** Larger files are refused rather than opened. */
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+/** Larger images and PDFs are refused. */
+export const MAX_FILE_BYTES_SHOWN = 50 * 1024 * 1024;
+
+/**
+ * An image or a PDF is read this much at a time, each piece its own round trip,
+ * so a slow link paces it: a remote host's heartbeat gets through between
+ * pieces, each is well inside a command's timeout, and a phone's relay channel
+ * never queues enough to close (`CHANNEL_BACKLOG_BYTES`). A multiple of 3,
+ * so each piece's base64 ends cleanly and the pieces join by concatenation.
+ */
+export const FILE_BYTES_CHUNK = 3 * 512 * 1024;
 
 /** How much of a file is looked at for a NUL byte to call it binary. */
 export const BINARY_SNIFF_BYTES = 8192;
@@ -61,7 +75,7 @@ export type FileFailureReason =
   | "not-found"
   /** Something at the path, but not a regular file (a directory). */
   | "not-a-file"
-  /** Over `MAX_FILE_BYTES`; `size` says by how much. */
+  /** Over `MAX_FILE_BYTES` (or `MAX_FILE_BYTES_SHOWN`); `size` says by how much. */
   | "too-large"
   /** A NUL byte in its first `BINARY_SNIFF_BYTES`, or not UTF-8. */
   | "binary"
@@ -95,9 +109,19 @@ export interface FileListResult {
 
 export type FileReadResult = { ok: true; content: string; hash: string } | FileFailure;
 
+export type FileBytesResult =
+  | {
+      ok: true;
+      /** This piece of the file, as base64. */
+      base64: string;
+      /** Where the next piece starts; null when this was the last. */
+      next: number | null;
+    }
+  | FileFailure;
+
 export type FileWriteResult = { ok: true; hash: string } | FileFailure;
 
-/** What `files.rename` and `files.delete` answer. */
+/** What `files.rename` and `files.delete` answer, or a check that needs no content. */
 export type FileMoveResult = { ok: true } | FileFailure;
 
 /** The hash `read`, `write` and `files.changed` all use. */
@@ -161,13 +185,23 @@ if [ -L "$f" ]; then
 fi
 `;
 
-/** Contain, refuse what is missing or too large, then print it as base64. */
-const READ_SCRIPT = `${CONTAIN}
+/** Contain, then refuse what is missing or too large. */
+const READ_CHECK_SCRIPT = `${CONTAIN}
 [ -e "$f" ] || exit ${EXIT.notFound}
 [ -f "$f" ] || exit ${EXIT.notAFile}
 size=$(wc -c < "$f" | tr -d ' ')
 if [ "$size" -gt "$3" ]; then echo "$size"; exit ${EXIT.tooLarge}; fi
+`;
+
+/** The check, then the file as base64. */
+const READ_SCRIPT = `${READ_CHECK_SCRIPT}
 base64 < "$f"
+`;
+
+/** The check, then the file's size and, from byte `$4`, up to `$5` bytes as base64. */
+const READ_CHUNK_SCRIPT = `${READ_CHECK_SCRIPT}
+echo "$size"
+tail -c +$(($4 + 1)) < "$f" | head -c "$5" | base64
 `;
 
 /**
@@ -290,7 +324,7 @@ function failure(reason: FileFailureReason, message: string, extra: Partial<File
  * Turn a host-side refusal (`EXIT`) into its `FileFailure`; anything else is
  * rethrown, as is a missing workspace.
  */
-function refusal(err: unknown, relPath: string): FileFailure {
+function refusal(err: unknown, relPath: string, limit = MAX_FILE_BYTES): FileFailure {
   const stdout = (err as { stdout?: unknown } | null)?.stdout;
   switch (exitCodeOf(err)) {
     case EXIT.noWorkspace:
@@ -305,7 +339,7 @@ function refusal(err: unknown, relPath: string): FileFailure {
       const size = Number.parseInt(typeof stdout === "string" ? stdout : "", 10);
       return failure(
         "too-large",
-        `${relPath} is too large to open (over ${MAX_FILE_BYTES / (1024 * 1024)} MB)`,
+        `${relPath} is too large to open (over ${limit / (1024 * 1024)} MB)`,
         Number.isFinite(size) ? { size } : {},
       );
     }
@@ -336,8 +370,8 @@ function shapeRefusal(relPath: string): FileFailure | null {
     : failure("outside-workspace", `${relPath || "(empty path)"} is outside the workspace`);
 }
 
-/** Room for `MAX_FILE_BYTES` as base64 (GNU wraps it at 76 columns), and a little. */
-const READ_MAX_BUFFER = Math.ceil(((MAX_FILE_BYTES * 4) / 3) * (77 / 76)) + 64 * 1024;
+/** Room for `limit` bytes as base64 (GNU wraps it at 76 columns), and a little. */
+const readMaxBuffer = (limit: number) => Math.ceil(((limit * 4) / 3) * (77 / 76)) + 64 * 1024;
 
 /** Decodes the bytes as they are: a BOM is kept, and anything not UTF-8 throws. */
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
@@ -352,7 +386,12 @@ export async function readWorkspaceFile(
   if (refused) return refused;
   let encoded: string;
   try {
-    encoded = await sh(backend, READ_SCRIPT, [workspace, relPath, String(MAX_FILE_BYTES)], READ_MAX_BUFFER);
+    encoded = await sh(
+      backend,
+      READ_SCRIPT,
+      [workspace, relPath, String(MAX_FILE_BYTES)],
+      readMaxBuffer(MAX_FILE_BYTES),
+    );
   } catch (err) {
     return refusal(err, relPath);
   }
@@ -368,6 +407,57 @@ export async function readWorkspaceFile(
     return failure("binary", `${relPath} is not UTF-8 text`);
   }
   return { ok: true, content, hash: contentHash(content) };
+}
+
+/**
+ * One piece of a file of `workspace` as it is on disk, from byte `offset`: an
+ * image or a PDF, to show. A file that changes between pieces reads as neither
+ * version; the change's `files.changed` has the caller read it again.
+ */
+export async function readWorkspaceFileBytes(
+  backend: FilesBackend,
+  workspace: string,
+  relPath: string,
+  offset = 0,
+): Promise<FileBytesResult> {
+  const refused = shapeRefusal(relPath);
+  if (refused) return refused;
+  // It reaches the host's shell arithmetic: only ever a number.
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error(`Bad offset: ${offset}`);
+  try {
+    const output = await sh(
+      backend,
+      READ_CHUNK_SCRIPT,
+      [workspace, relPath, String(MAX_FILE_BYTES_SHOWN), String(offset), String(FILE_BYTES_CHUNK)],
+      readMaxBuffer(FILE_BYTES_CHUNK),
+    );
+    const lineEnd = output.indexOf("\n");
+    const size = Number.parseInt(output.slice(0, lineEnd), 10);
+    const end = offset + FILE_BYTES_CHUNK;
+    return {
+      ok: true,
+      base64: output.slice(lineEnd + 1).replace(/\s/g, ""),
+      next: end < size ? end : null,
+    };
+  } catch (err) {
+    return refusal(err, relPath, MAX_FILE_BYTES_SHOWN);
+  }
+}
+
+/** Whether `readWorkspaceFileBytes` would answer, without moving the bytes. */
+export async function checkWorkspaceFileBytes(
+  backend: FilesBackend,
+  workspace: string,
+  relPath: string,
+): Promise<FileMoveResult> {
+  const refused = shapeRefusal(relPath);
+  if (refused) return refused;
+  try {
+    await sh(backend, READ_CHECK_SCRIPT, [workspace, relPath, String(MAX_FILE_BYTES_SHOWN)]);
+    return { ok: true };
+  } catch (err) {
+    return refusal(err, relPath, MAX_FILE_BYTES_SHOWN);
+  }
 }
 
 /**

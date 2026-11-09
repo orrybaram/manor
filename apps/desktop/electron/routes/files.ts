@@ -12,6 +12,7 @@
 
 import { isHomePath } from "../../src/lib/home";
 import { filePathFor, fileRoot, pathInFileRoot } from "../../src/lib/file-location";
+import { fileMedia } from "../../src/lib/file-media";
 import { allPaneIds, type PaneNode } from "../../src/lib/layout/pane-tree";
 import { createFileTab } from "../../src/lib/layout/tab-builders";
 import type { WorkspaceLayout } from "../../src/lib/layout/workspace-layout";
@@ -21,7 +22,7 @@ import {
   parseWorkspaceKey,
   workspaceKey,
 } from "../../src/lib/workspace-key";
-import { readWorkspaceFile } from "../workspace-files";
+import { checkWorkspaceFileBytes, readWorkspaceFile } from "../workspace-files";
 import { forwardToHost, onAdoptedHost } from "./host-forward";
 import { optionalBoolean, optionalString, requireString } from "./pane-validators";
 import { ROUTE_ORIGIN } from "./structural-route";
@@ -105,7 +106,8 @@ export const fileRoutes: ServerRoute[] = [
       }
 
       const filePath = filePathFor(workspacePath, absolute);
-      const read = await readWorkspaceFile(
+      const check = fileMedia(filePath) ? checkWorkspaceFileBytes : readWorkspaceFile;
+      const read = await check(
         deps.backendRegistry.get(normalizeHostId(hostId)),
         fileRoot({ path: workspacePath }, filePath).path,
         pathInFileRoot(filePath),

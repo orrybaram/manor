@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.27.0] - 2026-11-06
+
+### Fixes
+
+- **Chat status line**
+  - On a narrow desk pane, the chips now sit on one line that scrolls sideways under a faded right edge, so items like "1 running" are no longer cut off. The chips are also shorter.
+  - The desk no longer shows the PR, CI and diff chips, since the sidebar and the PR card already show them. The phone keeps them.
+- Prompts sent to Claude now arrive as one bracketed paste, as they already did for Codex, pi and opencode. Before this, a same-pane automation run with `fresh` showed `/clear` and then only the end of its prompt.
+
+### Improvements
+
+- **Terminal panes**
+  - A terminal pane that's off screen holds its output instead of drawing it. It catches up when you show it, focus it or type into it.
+  - The daemon now runs each pane through manor-pty, a native PTY helper, where one ships for your platform. Otherwise it falls back to the previous helper.
+
 ## [0.26.4] - 2026-11-04
 
 ### Features

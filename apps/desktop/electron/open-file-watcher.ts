@@ -5,7 +5,8 @@
  * Each connection names the files it has open (`files.watch`), per
  * workspace; the union is polled through a `PerHostPoller`, so a remote host
  * that is slow or away holds back only its own files. A tick is one command
- * per host: `cksum` of each open file, read from stdin (no names to parse),
+ * per host: `cksum` of each open file, read from stdin (no names to parse;
+ * a file too large for the editor is stamped by size and mtime instead),
  * so polling a handful of files every second costs a few bytes over ssh. Only
  * a file whose checksum moved is read (`readWorkspaceFile`), to report its
  * content hash — the hash `files.read` and `files.write` answer — and
@@ -23,7 +24,7 @@
 import { posix } from "node:path";
 import { PerHostPoller, type HostPath } from "./per-host-poller";
 import type { PublishToRenderer } from "./renderer-broadcast";
-import { isSafeRelPath, readWorkspaceFile, type FilesBackend } from "./workspace-files";
+import { isSafeRelPath, MAX_FILE_BYTES, readWorkspaceFile, type FilesBackend } from "./workspace-files";
 
 /** What `files.changed` carries. */
 export interface FileChangedEvent {
@@ -32,8 +33,9 @@ export interface FileChangedEvent {
   /** The file, relative to the workspace, as named in `files.watch`. */
   path: string;
   /**
-   * Its content hash now (as `files.read` answers it), or null when it can no
-   * longer be opened: deleted, or now binary or too large.
+   * Its content hash now (as `files.read` answers it), or null when it can't
+   * be read as text: deleted, binary or too large. Null says nothing about
+   * the content, so each change of such a file is reported.
    */
   hash: string | null;
 }
@@ -60,8 +62,20 @@ interface Watched {
 type Stamp = string;
 const MISSING: Stamp = "-";
 
-/** Prints one `cksum` line (or `-`) per argument, in order. */
-const STAMP_SCRIPT = `for f; do s=$(cksum < "$f" 2>/dev/null) || s=-; printf '%s\\n' "$s"; done`;
+/**
+ * Prints one stamp (or `-`) per argument, in order: its `cksum` line, or past
+ * what the editor opens, where reading all of it each second would cost too
+ * much, its size and mtime (GNU `stat`, then BSD's).
+ */
+const STAMP_SCRIPT = `for f; do
+  n=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+  if [ -z "$n" ]; then s=-
+  elif [ "$n" -gt ${MAX_FILE_BYTES} ]; then
+    s=$(stat -c '%s %Y' -- "$f" 2>/dev/null || stat -f '%z %m' -- "$f" 2>/dev/null) || s=-
+  else s=$(cksum < "$f" 2>/dev/null) || s=-
+  fi
+  printf '%s\\n' "$s"
+done`;
 
 const fileKey = (hostId: string, absPath: string) => `${hostId}\0${absPath}`;
 
@@ -209,9 +223,10 @@ export class OpenFileWatcher {
         return;
       }
     }
-    // Watched still, and not already reported at this hash.
+    // Watched still, and not already reported at this hash. No hash says
+    // nothing about the content: a move of the checksum is news.
     const now = this.watchers().get(key);
-    if (!now || (this.hashes.has(key) && this.hashes.get(key) === hash)) return;
+    if (!now || (hash !== null && this.hashes.get(key) === hash)) return;
     this.hashes.set(key, hash);
     for (const { owner, watched } of now) {
       this.opts.publishTo(owner, "files", "changed", {

@@ -10,8 +10,8 @@
  *   inside an asar archive (nothing in an archive can be executed)
  * - `../native/manor-pty/target/release/manor-pty`, a dev build's cargo
  *   output, only with `MANOR_PTY_DEV=1`: a shipped daemon runs nothing from
- *   outside its own bundle. So `pnpm dev` uses `pty-subprocess.js` unless
- *   that's set or `build-manor-pty.mjs` has put a binary in dist-electron.
+ *   outside its own bundle. `pnpm dev` (scripts/dev.mjs) runs that cargo
+ *   build and sets it.
  *
  * `MANOR_PTY_HELPER=node` always picks the Node helper. A native helper that
  * can never start (missing, not executable, the wrong architecture) is given

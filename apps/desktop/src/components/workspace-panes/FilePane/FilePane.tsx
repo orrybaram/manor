@@ -26,6 +26,7 @@ import { isNavRegionKeyboardFocused } from "../../../lib/focus-regions";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { fileRoot, isOutsideWorkspace, pathInFileRoot } from "../../../lib/file-location";
+import { fileMedia } from "../../../lib/file-media";
 import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { Button } from "../../ui/Button/Button";
@@ -33,6 +34,7 @@ import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
 import type { AgentMarks } from "./CodeEditor/change-marks";
 import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
+import { MediaFile } from "./MediaFile/MediaFile";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
 import { fetchDiffSingleFlight } from "../../../lib/diff/diff-fetch";
@@ -175,12 +177,13 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   // leaves the file as it was shown.
   const [next, setNext] = useState<{ path: string; diff: DiffShown | null } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  // The file's view: the rendered markdown while it shows, else the editor.
+  // The file's view: the rendered markdown while it shows, else the editor or
+  // the image or PDF (only one of those is ever mounted).
   const focusEditor = () => {
     const root = rootRef.current;
     const target =
       root?.querySelector<HTMLElement>('[data-testid="file-pane-markdown-preview"]') ??
-      root?.querySelector<HTMLElement>(".cm-content");
+      root?.querySelector<HTMLElement>('.cm-content, [data-testid="file-pane-media"]');
     target?.focus({ preventScroll: true });
   };
   const focusDrawer = () => {
@@ -242,6 +245,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const changes = useWorkspaceChanges(workspace);
   // The file as the tree and Source Control know it: one outside the workspace is neither's.
   const workspaceFile = filePath && !isOutsideWorkspace(filePath) ? filePath : null;
+  const media = filePath ? fileMedia(filePath) : null;
   const openFileDirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
   const changeCount = changes?.files.size ?? 0;
 
@@ -284,6 +288,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     };
   });
 
+  const fileKey = `${workspace?.hostId}\0${workspace?.path}\0${filePath}`;
   const mac = getPlatform() === "mac";
   const runKey = (key: FilePaneKey) => {
     if (key === "toggle-drawer") {
@@ -491,9 +496,20 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             source={diffSource}
             onClose={() => closeDeleted(diff.returnTo)}
           />
+        ) : filePath && workspace && media ? (
+          <div className={styles.openFile}>
+            <Breadcrumb path={filePath} />
+            <MediaFile
+              key={fileKey}
+              paneId={paneId}
+              workspace={fileRoot(workspace, filePath)}
+              path={pathInFileRoot(filePath)}
+              media={media}
+            />
+          </div>
         ) : filePath && workspace ? (
           <OpenFile
-            key={`${workspace.hostId}\0${workspace.path}\0${filePath}`}
+            key={fileKey}
             paneId={paneId}
             workspace={fileRoot(workspace, filePath)}
             path={pathInFileRoot(filePath)}
@@ -513,7 +529,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             {drawer === "scm" ? "Pick a change to see its diff" : "Pick a file from the tree"}
           </div>
         )}
-        {workspace && diff && (diff.deleted || diff.path === filePath) && (
+        {workspace && diff && (diff.deleted || (diff.path === filePath && !media)) && (
           <div className={styles.reviewFloat}>
             <ReviewBar
               workspacePath={workspace.path}

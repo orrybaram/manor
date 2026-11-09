@@ -7,16 +7,21 @@ import { ExecShellBackend } from "./backend/exec-shell";
 import { localExec } from "./backend/exec";
 import { createRemoteExec, type RemoteExecClient } from "./backend/remote-exec";
 import {
+  checkWorkspaceFileBytes,
   contentHash,
   createWorkspaceFile,
   deleteWorkspaceFile,
+  FILE_BYTES_CHUNK,
   HOST_SCRIPTS,
   isSafeRelPath,
   listWorkspaceFiles,
   MAX_FILE_BYTES,
+  MAX_FILE_BYTES_SHOWN,
   readWorkspaceFile,
+  readWorkspaceFileBytes,
   renameWorkspaceFile,
   writeWorkspaceFile,
+  type FileBytesResult,
   type FilesBackend,
 } from "./workspace-files";
 
@@ -131,6 +136,86 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
       const result = await listWorkspaceFiles(backend, ws);
 
       expect(result).toEqual({ paths: [".env", "a/one.txt"], truncated: false, source: "walk" });
+    });
+  });
+
+  describe("readBytes", () => {
+    it("answers the bytes as they are on disk, unwrapped", async () => {
+      // A NUL and bytes that aren't UTF-8, and long enough for GNU base64 to wrap.
+      const bytes = Buffer.concat([Buffer.from([0x89, 0x00, 0xff]), Buffer.alloc(300, 0x41)]);
+      await writeFile(path.join(ws, "a.png"), bytes);
+      const read = await readWorkspaceFileBytes(backend, ws, "a.png");
+      expect(read).toEqual({ ok: true, base64: bytes.toString("base64"), next: null });
+    });
+
+    it("answers a large file in pieces that join back into it", async () => {
+      const bytes = Buffer.alloc(FILE_BYTES_CHUNK * 2 + 7);
+      for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31) % 251;
+      await writeFile(path.join(ws, "a.pdf"), bytes);
+      const pieces: string[] = [];
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const read: FileBytesResult = await readWorkspaceFileBytes(backend, ws, "a.pdf", offset);
+        if (!read.ok) throw new Error(read.message);
+        pieces.push(read.base64);
+        offset = read.next;
+      }
+      expect(pieces).toHaveLength(3);
+      expect(Buffer.from(pieces.join(""), "base64").equals(bytes)).toBe(true);
+    });
+
+    it("ends exactly on a piece's edge, and reads an empty file", async () => {
+      await writeFile(path.join(ws, "edge.pdf"), Buffer.alloc(FILE_BYTES_CHUNK));
+      expect(await readWorkspaceFileBytes(backend, ws, "edge.pdf")).toMatchObject({ next: null });
+      await writeFile(path.join(ws, "empty.pdf"), "");
+      expect(await readWorkspaceFileBytes(backend, ws, "empty.pdf")).toEqual({
+        ok: true,
+        base64: "",
+        next: null,
+      });
+    });
+
+    it("takes a file over the editor's limit, and refuses one over its own", async () => {
+      await writeFile(path.join(ws, "fits.pdf"), Buffer.alloc(MAX_FILE_BYTES + 1));
+      expect(await readWorkspaceFileBytes(backend, ws, "fits.pdf")).toMatchObject({ ok: true });
+      await writeFile(path.join(ws, "big.pdf"), Buffer.alloc(MAX_FILE_BYTES_SHOWN + 1));
+      expect(await readWorkspaceFileBytes(backend, ws, "big.pdf")).toMatchObject({
+        ok: false,
+        reason: "too-large",
+        size: MAX_FILE_BYTES_SHOWN + 1,
+        message: "big.pdf is too large to open (over 50 MB)",
+      });
+    });
+
+    it("only takes a whole number for an offset", async () => {
+      await writeFile(path.join(ws, "a.png"), "x");
+      const offset = "1); touch pwned; (1" as unknown as number;
+      await expect(readWorkspaceFileBytes(backend, ws, "a.png", offset)).rejects.toThrow(/offset/);
+      await expect(readWorkspaceFileBytes(backend, ws, "a.png", -1)).rejects.toThrow(/offset/);
+    });
+
+    it("refuses what a text read refuses by its path", async () => {
+      expect(await readWorkspaceFileBytes(backend, ws, "../a.png")).toMatchObject({
+        reason: "outside-workspace",
+      });
+      expect(await readWorkspaceFileBytes(backend, ws, "gone.png")).toMatchObject({
+        reason: "not-found",
+      });
+    });
+
+    it("is checked the same, without its bytes", async () => {
+      await writeFile(path.join(ws, "a.png"), Buffer.from([0x89, 0x00]));
+      expect(await checkWorkspaceFileBytes(backend, ws, "a.png")).toEqual({ ok: true });
+      expect(await checkWorkspaceFileBytes(backend, ws, "gone.png")).toMatchObject({
+        reason: "not-found",
+      });
+      expect(await checkWorkspaceFileBytes(backend, ws, "../a.png")).toMatchObject({
+        reason: "outside-workspace",
+      });
+      await writeFile(path.join(ws, "big.pdf"), Buffer.alloc(MAX_FILE_BYTES_SHOWN + 1));
+      expect(await checkWorkspaceFileBytes(backend, ws, "big.pdf")).toMatchObject({
+        reason: "too-large",
+      });
     });
   });
 

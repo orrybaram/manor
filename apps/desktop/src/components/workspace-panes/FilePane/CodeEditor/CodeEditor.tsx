@@ -24,6 +24,7 @@ import {
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
+import type { EditorAsk } from "../markdown-preview";
 import { manorEditorTheme } from "../editor-theme";
 import { EditorFile, toText } from "../file-text";
 import type { ShownBlame } from "../file-blame";
@@ -111,6 +112,11 @@ type CodeEditorProps = {
    * draft comments from it, and takes new ones on selected lines.
    */
   reviewWorkspace?: string;
+  /**
+   * Read once, on mount: told before the editor acts on a request from outside
+   * (a line, Find, a change jump), for a view that may be hiding it.
+   */
+  onAsk?: (ask: EditorAsk) => void;
   ref?: Ref<CodeEditorRef>;
 };
 
@@ -144,6 +150,7 @@ export function CodeEditor({
   blame,
   diffBase = null,
   reviewWorkspace,
+  onAsk,
   ref,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -242,6 +249,7 @@ export function CodeEditor({
       );
     };
     const goTo = (view: EditorView, line: number) => {
+      onAsk?.("place");
       const target = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
       view.dispatch({
         selection: { anchor: target.from },
@@ -385,10 +393,14 @@ export function CodeEditor({
     }
     // A terminal link's `:line:col`, asked for before or after this opened.
     const showPendingLine = () => {
+      if (destroyed) return;
       const request = pendingLines.take(paneId, path);
-      if (request) showLine(view, request);
+      if (!request) return;
+      onAsk?.(request.line ? "place" : "keyboard");
+      showLine(view, request);
     };
-    showPendingLine();
+    // Out of this effect: `onAsk` may need to render before the line can focus.
+    queueMicrotask(showPendingLine);
     const stopLines = pendingLines.subscribe(paneId, showPendingLine);
     // The review list's jump to a comment on this file: centre its card and
     // light it, unfolding the unchanged stretch it is in. Only the diff shows
@@ -415,6 +427,7 @@ export function CodeEditor({
     // Edit › Find… (⌘F from the menu) names the focused pane.
     const stopFind = onUiRequest((request) => {
       if (request.type === "pane-search" && request.paneId === paneId) {
+        onAsk?.("place");
         openSearchPanel(view);
       }
     });

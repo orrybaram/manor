@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import Markdown from "react-markdown";
+import { useRef, useState, type MouseEvent, type ReactNode } from "react";
+import Markdown, { type Components } from "react-markdown";
 import { httpUrl } from "../../../lib/http-url";
 import { Button } from "../Button/Button";
 import { Link } from "../Link/Link";
@@ -20,6 +20,13 @@ type GfmMarkdownProps = {
   baseUrl?: string;
   /** How to render an image. */
   renderImage: (image: GfmImage) => ReactNode;
+  /**
+   * A link no URL can be made of (`./other.md`): what clicking it does, or
+   * null when it goes nowhere. Without this, such a link is plain text.
+   */
+  localLink?: (href: string) => (() => void) | null;
+  /** An image no URL can be made of. Without this, it is left out. */
+  renderLocalImage?: (image: GfmImage) => ReactNode;
 };
 
 /**
@@ -29,58 +36,85 @@ type GfmMarkdownProps = {
  * unknown tags never reach the DOM.
  *
  * http(s) links open in the browser, relative ones first resolved against
- * `baseUrl`; `#` links (footnotes) scroll within this block; anything else is
- * plain text, since the window-open handler ignores it. Link clicks never
+ * `baseUrl`; `#` links (footnotes, headings) scroll within this block; anything
+ * else is `localLink`'s, or plain text, since the window-open handler ignores it. Link clicks never
  * reach an enclosing clickable (a card, a row).
  */
 export function GfmMarkdown(props: GfmMarkdownProps) {
-  const { source, baseUrl, renderImage } = props;
+  const latest = useRef(props);
+  latest.current = props;
+  // Made once: a new component type would remount every link and image on each
+  // render, dropping focus and reloading the image.
+  const [components] = useState<Components>(() => ({
+    a: ({ href, id, node, children }) => {
+      if (href?.startsWith("#") && href.length > 1) {
+        return (
+          <InPlaceLink onPress={(e) => jumpTo(e.currentTarget, href)}>{children}</InPlaceLink>
+        );
+      }
+      const url = href ? httpUrl(href, latest.current.baseUrl) : null;
+      if (url) {
+        return (
+          <Link variant="inline" href={url} title={url}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </Link>
+        );
+      }
+      const follow = href ? latest.current.localLink?.(href) : null;
+      return follow ? (
+        <InPlaceLink title={href} onPress={follow}>
+          {children}
+        </InPlaceLink>
+      ) : (
+        // `<a name="install">` stays somewhere `#install` can land.
+        <span id={id ?? (node?.properties.name as string | undefined)}>{children}</span>
+      );
+    },
+    img: ({ src, alt, width, height }) => {
+      if (typeof src !== "string" || !src) return null;
+      const { baseUrl, renderImage, renderLocalImage } = latest.current;
+      const url = httpUrl(src, baseUrl);
+      const image = {
+        src: url ?? src,
+        alt,
+        width: width === undefined ? undefined : String(width),
+        height: height === undefined ? undefined : String(height),
+      };
+      return url ? renderImage(image) : (renderLocalImage?.(image) ?? null);
+    },
+  }));
 
   return (
-    <Markdown
-      {...gfmPipeline}
-      components={{
-        a: ({ href, children }) => {
-          if (href?.startsWith("#") && href.length > 1) {
-            return (
-              <Button
-                variant="link"
-                className={styles.anchor}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  jumpTo(e.currentTarget, href);
-                }}
-              >
-                {children}
-              </Button>
-            );
-          }
-          const url = href ? httpUrl(href, baseUrl) : null;
-          return url ? (
-            <Link variant="inline" href={url} title={url}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {children}
-            </Link>
-          ) : (
-            <span>{children}</span>
-          );
-        },
-        img: ({ src, alt, width, height }) => {
-          if (typeof src !== "string" || !src) return null;
-          const url = httpUrl(src, baseUrl);
-          if (!url) return null;
-          return renderImage({
-            src: url,
-            alt,
-            width: width === undefined ? undefined : String(width),
-            height: height === undefined ? undefined : String(height),
-          });
-        },
+    <Markdown {...gfmPipeline} components={components}>
+      {props.source}
+    </Markdown>
+  );
+}
+
+/** A link that acts in the app rather than opening a browser. */
+function InPlaceLink({
+  title,
+  onPress,
+  children,
+}: {
+  title?: string;
+  onPress: (e: MouseEvent<HTMLButtonElement>) => void;
+  children: ReactNode;
+}) {
+  return (
+    <Button
+      variant="link"
+      className={styles.anchor}
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPress(e);
       }}
     >
-      {source}
-    </Markdown>
+      {children}
+    </Button>
   );
 }
 
@@ -90,13 +124,15 @@ export function GfmMarkdown(props: GfmMarkdownProps) {
  * is an unprefixed href (see `gfmPipeline`); the target carries the
  * sanitiser's `user-content-` prefix.
  */
-function jumpTo(from: HTMLElement, hash: string) {
+export function jumpTo(from: Element, hash: string) {
   const id = decodeURIComponent(hash.slice(1));
   const selector = `[id="${CSS.escape(`user-content-${id}`)}"]`;
   for (let node = from.parentElement; node; node = node.parentElement) {
     const target = node.querySelector(selector);
     if (target) {
-      target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      // A heading goes to the top, to read on from; a footnote only into view.
+      const block = target.matches("h1, h2, h3, h4, h5, h6") ? "start" : "nearest";
+      target.scrollIntoView({ block, behavior: "smooth" });
       return;
     }
   }

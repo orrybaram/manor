@@ -240,6 +240,17 @@
   flex-direction: column;
 }
 
+/* The editor's wrapper, out of the stack's layout so the editor still fills it. */
+.source,
+.sourceHidden {
+  display: contents;
+}
+
+/* Laid out, so CodeMirror keeps measuring; unfocusable, so no key lands in it unseen. */
+.sourceHidden {
+  visibility: hidden;
+}
+
 .compare {
   position: absolute;
   inset: 0;

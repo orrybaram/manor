@@ -36,7 +36,7 @@ export function filePathFor(workspacePath: string, absolute: string): string {
 }
 
 /** `/a//b/./c/../d` as `/a/b/d`, with no filesystem to ask. */
-function tidyAbsolute(path: string): string {
+export function tidyAbsolute(path: string): string {
   const parts: string[] = [];
   for (const part of path.split("/")) {
     if (part === "" || part === ".") continue;

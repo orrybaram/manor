@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.27.1] - 2026-11-09
+
+### Features
+
+- **Rendered Markdown in the file pane**
+  - Markdown files can now show rendered. It's off by default, and your choice is remembered across files and relaunches.
+  - The rendered view follows the file. When an agent writes to it, it re-renders in place and keeps your scroll position and focus. Unsaved edits show in the rendered view, and ⌘S still saves.
+  - Opening a diff, a line from a terminal link, ⌘F or a change jump shows the source. Your remembered choice stays the same.
+  - Relative links open in the pane, `#heading` links scroll to the heading, and frontmatter shows as a code block.
+- **Images and PDFs in the file pane**
+  - Images and PDFs now open in the file pane instead of being refused as binary files. The pane updates when they change on disk.
+  - They also open on remote hosts and on a paired phone. Large files are sent in pieces, so opening one doesn't drop the connection.
+  - Scanned PDF pages display instead of showing up blank.
+
+### Fixes
+
+- Resuming an agent session whose worktree folder has been removed now runs in the tab's workspace. Before, the resume failed at `cd` and never ran.
+
+### Improvements
+
+- `#heading` links now also work in task bodies and PR comments.
+
 ## [0.27.0] - 2026-11-06
 
 ### Fixes

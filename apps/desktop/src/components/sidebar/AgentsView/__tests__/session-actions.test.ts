@@ -121,8 +121,8 @@ describe("placeLaunch", () => {
 });
 
 describe("inFolder", () => {
-  it("changes to a quoted folder first", () => {
-    expect(inFolder("claude --resume s", "/home/me/my repo")).toBe("cd '/home/me/my repo' && claude --resume s");
+  it("changes to a quoted folder first, and runs anyway when it's gone", () => {
+    expect(inFolder("claude --resume s", "/home/me/my repo")).toBe("cd '/home/me/my repo' 2>/dev/null; claude --resume s");
     expect(inFolder("claude --resume s", null)).toBe("claude --resume s");
   });
 
@@ -179,7 +179,7 @@ describe("runRowAction", () => {
       "resume",
     );
     expect(setActiveWorkspace).toHaveBeenCalledWith("/repo", "local");
-    expect(addTerminalTab).toHaveBeenCalledWith("cd /repo/pkg && claude --resume s1", {
+    expect(addTerminalTab).toHaveBeenCalledWith("cd /repo/pkg 2>/dev/null; claude --resume s1", {
       kind: "agent-startup",
       agentKind: "codex",
     });

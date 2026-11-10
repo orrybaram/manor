@@ -1,9 +1,9 @@
-/** `cd <one word, or a quoted path> && ` at the start of a line. */
-const LEADING_CD = /^\s*cd\s+(?:'(?:[^']|'"'"')*'|"(?:[^"\\]|\\.)*"|\S+)\s*&&\s*/;
+/** `cd <one word, or a quoted path> && ` (or `2>/dev/null; `) at the start of a line. */
+const LEADING_CD = /^\s*cd\s+(?:'(?:[^']|'"'"')*'|"(?:[^"\\]|\\.)*"|\S+)\s*(?:&&|(?:2>\/dev\/null\s*)?;)\s*/;
 
 /**
  * The command a line runs once its leading `cd <folder> &&`s are done: what
- * names the agent in `cd '/repo/api' && codex resume <id>`.
+ * names the agent in `cd '/repo/api' 2>/dev/null; codex resume <id>`.
  */
 export function commandAfterCd(line: string): string {
   let rest = line;

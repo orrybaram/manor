@@ -131,10 +131,14 @@ export function placeLaunch(
   return first ? { hostId, workspacePath: first.path, cdTo: cdFrom(first.path) } : null;
 }
 
-/** `command`, run after changing to `cdTo` when there is one. */
+/**
+ * `command`, run after changing to `cdTo` when there is one. A folder that
+ * is gone (a removed worktree's) leaves the command running in the tab's
+ * workspace: the CLI still finds the session by its id.
+ */
 export function inFolder(command: string, cdTo: string | null): string {
   if (cdTo && hasControlChars(cdTo)) throw new Error("refusing a folder with control characters");
-  return cdTo ? `cd ${shellQuote(cdTo)} && ${command}` : command;
+  return cdTo ? `cd ${shellQuote(cdTo)} 2>/dev/null; ${command}` : command;
 }
 
 const UNSAFE_MESSAGE = "This session's folder or id has characters Manor won't type.";

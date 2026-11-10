@@ -8,6 +8,7 @@ describe("commandAfterCd", () => {
     expect(commandAfterCd(`cd /a && cd "/b c" && pi --session x`)).toBe("pi --session x");
     expect(commandAfterCd(`cd '/it'"'"'s' && claude`)).toBe("claude");
     expect(commandAfterCd("claude --resume s")).toBe("claude --resume s");
+    expect(commandAfterCd("cd '/gone/wt' 2>/dev/null; claude --resume s")).toBe("claude --resume s");
   });
 });
 

@@ -46,6 +46,8 @@ import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import { pendingLines } from "./pending-line";
+import { useMarkdownPreview } from "./markdown-preview";
+import { requestUi } from "../../../utils/ui-request";
 import { readFileText } from "./file-text";
 import { createBlameFollower, useBlamePref, usePaneBlame, type BlameFollower } from "./file-blame";
 import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
@@ -64,7 +66,13 @@ import {
   type OpenFileState,
 } from "./open-file-state";
 import { useFileDrawerState, type DrawerState } from "./drawer-state";
-import { filePaneKey, filePaneKeyLabel, type FilePaneKey } from "./file-pane-keys";
+import {
+  filePaneKey,
+  filePaneKeyLabel,
+  openFileKey,
+  openFileKeyLabel,
+  type FilePaneKey,
+} from "./file-pane-keys";
 import styles from "./FilePane.module.css";
 
 // CodeMirror is its own chunk: nothing loads it until a file pane opens a file.
@@ -74,6 +82,10 @@ const CodeEditor = lazy(() =>
 // A deleted file's diff: its own small read-only view.
 const DeletedFileView = lazy(() =>
   import("./CodeEditor/DeletedFileView").then((m) => ({ default: m.DeletedFileView })),
+);
+// The markdown renderer loads only when a markdown file shows rendered.
+const MarkdownPreview = lazy(() =>
+  import("./MarkdownPreview/MarkdownPreview").then((m) => ({ default: m.MarkdownPreview })),
 );
 // The merge view loads only when Compare is pressed.
 const CompareView = lazy(() =>
@@ -165,10 +177,15 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   // leaves the file as it was shown.
   const [next, setNext] = useState<{ path: string; diff: DiffShown | null } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const focusEditor = () =>
-    rootRef.current
-      ?.querySelector<HTMLElement>('.cm-content, [data-testid="file-pane-media"]')
-      ?.focus({ preventScroll: true });
+  // The file's view: the rendered markdown while it shows, else the editor or
+  // the image or PDF (only one of those is ever mounted).
+  const focusEditor = () => {
+    const root = rootRef.current;
+    const target =
+      root?.querySelector<HTMLElement>('[data-testid="file-pane-markdown-preview"]') ??
+      root?.querySelector<HTMLElement>('.cm-content, [data-testid="file-pane-media"]');
+    target?.focus({ preventScroll: true });
+  };
   const focusDrawer = () => {
     const root = rootRef.current;
     const target =
@@ -500,6 +517,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             readOnly={readOnly}
             diff={diff && diff.path === filePath ? diffSource : null}
             onOpenPlain={() => setDiff(null)}
+            onOpenFile={(path) => {
+              // The link pressed goes with this file: the next one takes the keyboard.
+              pendingLines.request(paneId, { path: pathInFileRoot(path) });
+              pickFile(path);
+            }}
+            focusEditor={focusEditor}
           />
         ) : (
           <div className={styles.empty} data-testid="file-pane-empty">
@@ -619,12 +642,6 @@ function DeletedDiff({
   );
 }
 
-/** ⌘S on macOS, Ctrl+S elsewhere. */
-function isSaveKey(e: React.KeyboardEvent): boolean {
-  const mod = getPlatform() === "mac" ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-  return mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s";
-}
-
 /**
  * Who changed the open file on disk, for the conflict banner: the agent whose
  * hooks last wrote it. Null when none did; the banner then says "An agent".
@@ -665,6 +682,8 @@ function OpenFile({
   readOnly,
   diff,
   onOpenPlain,
+  onOpenFile,
+  focusEditor,
 }: {
   paneId: string;
   /** The root `path` is read from: the pane's workspace, or `/` for a file outside it. */
@@ -677,6 +696,10 @@ function OpenFile({
   diff: DiffSource | null;
   /** The diff's Open file: the plain editor, same file. */
   onOpenPlain: () => void;
+  /** A relative link in the rendered markdown was followed. */
+  onOpenFile: (path: string) => void;
+  /** Hand the keyboard to whichever of the editor and the rendered markdown shows. */
+  focusEditor: () => void;
 }) {
   const stored = useOpenFileStore((s) => s.byPane[paneId]);
   // Until this mount has opened `path`, the pane may still hold the last file.
@@ -714,6 +737,13 @@ function OpenFile({
   const actions = useRef<OpenFileActions | null>(null);
   const [comparison, setComparison] = useState<Comparison>(null);
 
+  const { canPreview, previewing, togglePreview, takeKeyboard, onEditorAsk } = useMarkdownPreview({
+    paneId,
+    path,
+    hasDiff: diff !== null,
+    focusFile: focusEditor,
+  });
+
   // The diff's old side, rebuilt only when the diff or the file on disk
   // changes, never per keystroke: the editor diffs your typing itself.
   const diffRaw = diff?.raw;
@@ -741,6 +771,16 @@ function OpenFile({
   const note = diff
     ? diffNote(diff, binary, (shownBase?.stale ?? false) && !state?.conflict)
     : null;
+
+  // What the preview shows. Unsaved edits can't change while it does, since the
+  // editor is hidden, so they are read once rather than on each render.
+  const ready = state?.status === "ready" ? state : null;
+  const dirty = ready?.dirty ?? false;
+  const draft = ready?.draft ?? null;
+  const previewSource = useMemo(
+    () => (previewing && dirty ? (editorRef.current?.content() ?? draft ?? working) : working),
+    [previewing, dirty, draft, working],
+  );
 
   useMountEffect(() => {
     let live = true;
@@ -910,14 +950,27 @@ function OpenFile({
   }
 
   const pendingOpen = state.pendingOpen;
+  const macKeys = getPlatform() === "mac";
   return (
     <div
       className={styles.openFile}
       onKeyDown={(e) => {
-        if (readOnly || !isSaveKey(e)) return;
+        const key = openFileKey(e, macKeys);
+        // ⌘F is the editor's own key, which a hidden editor can't hear: asked
+        // for here, it shows the source to open in.
+        if (
+          key === null ||
+          (key === "save" && readOnly) ||
+          (key === "find" && !previewing) ||
+          (key === "toggle-preview" && !canPreview)
+        ) {
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
-        void actions.current?.save();
+        if (key === "save") void actions.current?.save();
+        else if (key === "find") requestUi({ type: "pane-search", paneId });
+        else togglePreview();
       }}
     >
       {pendingOpen !== null && (
@@ -1039,6 +1092,21 @@ function OpenFile({
             {blameNote}
           </span>
         )}
+        {canPreview && (
+          <Tooltip
+            label={`${previewing ? "Show source" : "Preview markdown"} (${openFileKeyLabel("toggle-preview", macKeys)})`}
+          >
+            <Button
+              size="sm"
+              className={styles.openPlain}
+              aria-pressed={previewing}
+              data-testid="file-pane-markdown-toggle"
+              onClick={togglePreview}
+            >
+              {previewing ? "Source" : "Preview"}
+            </Button>
+          </Tooltip>
+        )}
         {diff && (
           <>
             <DiffTag source={diff} note={note} />
@@ -1054,24 +1122,38 @@ function OpenFile({
         )}
       </Breadcrumb>
       <div className={styles.editorStack}>
-        <Suspense fallback={<div className={styles.empty} />}>
-          <CodeEditor
-            ref={editorRef}
-            paneId={paneId}
-            path={path}
-            base={state.base}
-            draft={state.draft}
-            readOnly={readOnly}
-            onDirtyChange={(dirty) => dispatch({ type: "edited", dirty })}
-            onDispose={(content, dirty) => {
-              if (dirty) dispatch({ type: "stash-draft", draft: content });
-            }}
-            agentMarks={agentMarks}
-            blame={blame}
-            diffBase={diffBase}
-            reviewWorkspace={workspace.path}
-          />
-        </Suspense>
+        {/* Hidden, not unmounted: the editor holds the unsaved edits and its own place. */}
+        <div className={previewing ? styles.sourceHidden : styles.source}>
+          <Suspense fallback={<div className={styles.empty} />}>
+            <CodeEditor
+              ref={editorRef}
+              paneId={paneId}
+              path={path}
+              base={state.base}
+              draft={state.draft}
+              readOnly={readOnly}
+              onDirtyChange={(dirty) => dispatch({ type: "edited", dirty })}
+              onDispose={(content, dirty) => {
+                if (dirty) dispatch({ type: "stash-draft", draft: content });
+              }}
+              agentMarks={agentMarks}
+              blame={blame}
+              diffBase={diffBase}
+              reviewWorkspace={workspace.path}
+              onAsk={onEditorAsk}
+            />
+          </Suspense>
+        </div>
+        {previewing && previewSource !== null && (
+          <Suspense fallback={null}>
+            <MarkdownPreview
+              source={previewSource}
+              filePath={shownPath}
+              takeKeyboard={takeKeyboard}
+              onOpenFile={onOpenFile}
+            />
+          </Suspense>
+        )}
         {state.comparing && (
           <div className={styles.compare} data-testid="file-pane-compare">
             <div className={styles.compareHead}>

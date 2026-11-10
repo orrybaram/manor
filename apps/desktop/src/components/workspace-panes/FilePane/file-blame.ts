@@ -1,36 +1,15 @@
 import { create } from "zustand";
 import type { BlameResult, FileBlame } from "../../../electron.d";
+import { createStoredFlag } from "../../../lib/stored-flag";
 import { useOpenFileStore } from "../../../store/open-file-store";
 
-const PREF_KEY = "manor:fileBlame";
-
-function loadPref(): boolean {
-  try {
-    return localStorage.getItem(PREF_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
+const blamePref = createStoredFlag("manor:fileBlame");
 
 /** Whether file panes show blame: off until you turn it on, and then kept across relaunches. */
-export const useBlamePref = create<{ on: boolean }>(() => ({ on: loadPref() }));
-
-// Another window's toggle: each window has its own store, and they share the
-// remembered choice.
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (event.key === PREF_KEY) useBlamePref.setState({ on: event.newValue === "1" });
-  });
-}
+export const useBlamePref = blamePref.store;
 
 export function toggleBlame(): void {
-  const on = !useBlamePref.getState().on;
-  useBlamePref.setState({ on });
-  try {
-    localStorage.setItem(PREF_KEY, on ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
+  blamePref.set(!useBlamePref.getState().on);
 }
 
 /** Whether the open file can be blamed, and why a blame turned on isn't showing. */

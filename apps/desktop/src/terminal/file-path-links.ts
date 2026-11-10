@@ -67,7 +67,7 @@ export function matchFilePaths(line: string): FilePathMatch[] {
 }
 
 /** `/a/b/../c/./d` → `/a/c/d`; null when `..` climbs past the root. */
-function normalizeAbsolute(path: string): string | null {
+export function normalizeAbsolute(path: string): string | null {
   const out: string[] = [];
   for (const part of path.split("/")) {
     if (part === "" || part === ".") continue;

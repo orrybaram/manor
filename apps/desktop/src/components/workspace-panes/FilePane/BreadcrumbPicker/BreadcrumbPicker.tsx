@@ -1,4 +1,5 @@
-import { createElement, useMemo, useState } from "react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import { createElement, useMemo, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { useQuery } from "@tanstack/react-query";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
@@ -50,8 +51,11 @@ export function BreadcrumbSegment({
   const [open, setOpen] = useState(false);
   // Closed by a pick: focus goes where the pick sends it, not back here.
   const [picked, setPicked] = useState(false);
-  const close = () => {
-    setPicked(true);
+  // A file pick lets focus come back here: the open remounts the pane's
+  // breadcrumb and the editor takes the keyboard, and if the swap bar asks
+  // first (unsaved edits) the keyboard is still somewhere it can act from.
+  const close = (keepFocus: boolean) => {
+    setPicked(keepFocus);
     setOpen(false);
   };
   return (
@@ -92,11 +96,11 @@ export function BreadcrumbSegment({
             startFolder={folder}
             openFile={openFile}
             onOpenFile={(path) => {
-              close();
+              close(false);
               onOpenFile(path);
             }}
             onReveal={(at) => {
-              close();
+              close(true);
               onReveal(at);
             }}
           />
@@ -135,6 +139,10 @@ function PickerBody({
   // open file (or the folder just stepped out of).
   const [cursorPath, setCursorPath] = useState<string | null>(null);
   const [cursorFrom, setCursorFrom] = useState<string>(openFile);
+  // The cursor row scrolls into view only when the keyboard (or a new folder)
+  // put it there: following the pointer, a scroll would move the row under
+  // it, and the list would creep.
+  const scrollToCursor = useRef(true);
 
   const entries = useMemo(
     () => (paths ? folderEntries(paths, folder) : []),
@@ -151,6 +159,7 @@ function PickerBody({
         : startIndex(shown, cursorFrom);
 
   const goTo = (next: string, from: string) => {
+    scrollToCursor.current = true;
     setFolder(next);
     setQuery("");
     setCursorPath(null);
@@ -164,6 +173,7 @@ function PickerBody({
   };
 
   const move = (index: number) => {
+    scrollToCursor.current = true;
     const row = rows[Math.max(0, Math.min(index, rows.length - 1))];
     // "" stands for Reveal in Files, which has no path.
     setCursorPath(row.kind === "reveal" ? "" : row.path);
@@ -209,6 +219,7 @@ function PickerBody({
         spellCheck={false}
         autoFocus
         onChange={(e) => {
+          scrollToCursor.current = true;
           setQuery(e.target.value);
           setCursorPath(null);
         }}
@@ -242,17 +253,25 @@ function PickerBody({
               title={entry.path}
               ref={
                 i === cursor
-                  ? (el) => el?.scrollIntoView({ block: "nearest" })
+                  ? (el) => {
+                      if (!el || !scrollToCursor.current) return;
+                      scrollToCursor.current = false;
+                      el.scrollIntoView({ block: "nearest" });
+                    }
                   : undefined
               }
-              onMouseMove={() => i !== cursor && setCursorPath(entry.path)}
+              onMouseMove={() => {
+                if (i === cursor) return;
+                scrollToCursor.current = false;
+                setCursorPath(entry.path);
+              }}
               onClick={() => choose(entry)}
             >
               <span
                 className={entry.kind === "dir" ? styles.dirMark : styles.icon}
               >
                 {entry.kind === "dir"
-                  ? "▸"
+                  ? <ChevronRight size={12} aria-hidden />
                   : createElement(fileIconFor(entry.path), { size: 12 })}
               </span>
               <span className={styles.name}>{entry.name}</span>

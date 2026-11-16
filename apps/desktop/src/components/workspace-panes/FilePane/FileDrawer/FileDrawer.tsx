@@ -20,7 +20,13 @@ import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
 import { toast } from "../../../../toast";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
-import { cursorIndex, expandedForFiles, treeKey, visibleTreeRows } from "../drawer-tree";
+import {
+  cursorIndex,
+  expandedForFiles,
+  revealFolder,
+  treeKey,
+  visibleTreeRows,
+} from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
 import { changeBadge, foldersWithChanges, type FileChange } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
@@ -52,6 +58,12 @@ type FileDrawerProps = {
   /** The open file has unsaved edits: it can't be renamed from under them. */
   openFileDirty: boolean;
   onPick: (path: string) => void;
+  /**
+   * A folder to show in the tree (Reveal in Files), until `onRevealed`;
+   * `n` counts the asks, so asking for the same folder again shows it again.
+   */
+  reveal?: { folder: string | null; n: number };
+  onRevealed?: () => void;
   /** A file was renamed from the tree; the pane follows its open file. */
   onRenamed: (from: string, to: string) => void;
   onClose: () => void;
@@ -79,6 +91,8 @@ export function FileDrawer({
   autoFocus,
   openFileDirty,
   onPick,
+  reveal,
+  onRevealed,
   onRenamed,
   onClose,
   resizeHandle,
@@ -172,6 +186,10 @@ export function FileDrawer({
         scm
       ) : listing.data ? (
         <TreeList
+          // A reveal remounts the tree, which opens on it.
+          key={reveal?.n ?? 0}
+          reveal={reveal?.folder ?? null}
+          onRevealed={onRevealed}
           workspace={workspace}
           canWrite={canWrite}
           openFileDirty={openFileDirty}
@@ -207,7 +225,11 @@ function TreeList({
   changes,
   openFile,
   onPick,
+  reveal,
+  onRevealed,
 }: {
+  reveal: string | null;
+  onRevealed?: () => void;
   workspace: FilesWorkspace;
   canWrite: boolean;
   openFileDirty: boolean;
@@ -224,8 +246,18 @@ function TreeList({
     [paths],
   );
   // Null until the user toggles a folder: until then, the folders of the
-  // open file and of the changed files.
-  const [toggled, setToggled] = useState<Set<string> | null>(null);
+  // open file and of the changed files. A revealed folder opens along with them.
+  const [revealed] = useState(() =>
+    reveal === null ? null : revealFolder(tree, reveal),
+  );
+  const [toggled, setToggled] = useState<Set<string> | null>(() =>
+    revealed
+      ? new Set([
+          ...expandedForFiles(tree, openFile, changes?.keys() ?? []),
+          ...revealed.expanded,
+        ])
+      : null,
+  );
   const expanded = useMemo(
     () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
     [toggled, tree, openFile, changes],
@@ -235,8 +267,10 @@ function TreeList({
     [changes],
   );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
-  // The row the keyboard is on: the open file's, until it moves.
-  const [cursor, setCursor] = useState<string | null>(openFile);
+  // The row the keyboard is on: the open file's (or the revealed folder's), until it moves.
+  const [cursor, setCursor] = useState<string | null>(
+    revealed?.row ?? openFile,
+  );
   const cursorAt = cursorIndex(rows, cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
@@ -251,13 +285,16 @@ function TreeList({
   // a short tree has the browser clamp the scroll while the virtualizer keeps
   // the offset, and it leaves the rows above blank, the list floating mid-way.
   useMountEffect(() => {
-    const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
+    const shown = reveal !== null ? (revealed?.row ?? null) : openFile;
+    const index = shown ? rows.findIndex((r) => r.path === shown) : -1;
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
-    // Listed after the drawer opened and took the keyboard: the arrows are ours.
+    // Listed after the drawer opened and took the keyboard, or revealing a
+    // folder: the arrows are ours.
     const tree = scrollRef.current;
-    if (tree?.parentElement?.contains(document.activeElement)) {
-      tree.focus({ preventScroll: true });
+    if (reveal !== null || tree?.parentElement?.contains(document.activeElement)) {
+      tree?.focus({ preventScroll: true });
     }
+    if (reveal !== null) onRevealed?.();
   });
 
   // The row right-clicked, while its menu is open; the file being renamed in

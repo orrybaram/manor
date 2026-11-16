@@ -1,4 +1,13 @@
-import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import {
@@ -66,6 +75,8 @@ import {
   type OpenFileState,
 } from "./open-file-state";
 import { useFileDrawerState, type DrawerState } from "./drawer-state";
+import { BreadcrumbSegment } from "./BreadcrumbPicker/BreadcrumbPicker";
+import { crumbFolder } from "./breadcrumb-picker";
 import {
   filePaneKey,
   filePaneKeyLabel,
@@ -168,6 +179,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     useFileDrawerState.getState().set(paneId, state);
     if (to) setDrawerOpened(true);
   };
+  // A folder Reveal in Files asked the tree to show, until it has; `n`
+  // counts the asks, so the same folder asked again is shown again.
+  const [reveal, setReveal] = useState<{ folder: string | null; n: number }>({
+    folder: null,
+    n: 0,
+  });
   // Local or Branch: kept while the drawer closes and opens, not on the leaf.
   const [scmView, setScmView] = useState<ScmView>("local");
   // A Source Control row shows its file's diff; local state, as the drawer is.
@@ -332,6 +349,19 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
 
   // The tree opens the plain file.
   const pickFile = (path: string) => open(path, null);
+  // The breadcrumb's picker: a file opens as a terminal link's does, taking
+  // the keyboard; a folder is shown in the tree.
+  const crumbNav: CrumbNav | null = workspace && {
+    workspace,
+    openFile: (path) => {
+      pendingLines.request(paneId, { path });
+      pickFile(path);
+    },
+    reveal: (folder) => {
+      setReveal((r) => ({ folder, n: r.n + 1 }));
+      setDrawer("files");
+    },
+  };
   // A Source Control row opens its file's diff.
   const openChange = (change: FileChange, view: ScmView) =>
     open(change.path, {
@@ -459,6 +489,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           autoFocus={drawerOpened}
           openFileDirty={openFileDirty}
           onPick={pickFile}
+          reveal={reveal}
+          onRevealed={() => setReveal((r) => ({ ...r, folder: null }))}
           onRenamed={(from, to) => {
             if (from === filePath) setPaneFilePath(paneId, to);
           }}
@@ -490,45 +522,47 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           if (floating && drawer) setDrawer(null);
         }}
       >
-        {diff?.deleted && diffSource ? (
-          <DeletedDiff
-            path={diff.path}
-            source={diffSource}
-            onClose={() => closeDeleted(diff.returnTo)}
-          />
-        ) : filePath && workspace && media ? (
-          <div className={styles.openFile}>
-            <Breadcrumb path={filePath} />
-            <MediaFile
+        <CrumbNavContext.Provider value={crumbNav}>
+          {diff?.deleted && diffSource ? (
+            <DeletedDiff
+              path={diff.path}
+              source={diffSource}
+              onClose={() => closeDeleted(diff.returnTo)}
+            />
+          ) : filePath && workspace && media ? (
+            <div className={styles.openFile}>
+              <Breadcrumb path={filePath} />
+              <MediaFile
+                key={fileKey}
+                paneId={paneId}
+                workspace={fileRoot(workspace, filePath)}
+                path={pathInFileRoot(filePath)}
+                media={media}
+              />
+            </div>
+          ) : filePath && workspace ? (
+            <OpenFile
               key={fileKey}
               paneId={paneId}
               workspace={fileRoot(workspace, filePath)}
               path={pathInFileRoot(filePath)}
-              media={media}
+              shownPath={filePath}
+              readOnly={readOnly}
+              diff={diff && diff.path === filePath ? diffSource : null}
+              onOpenPlain={() => setDiff(null)}
+              onOpenFile={(path) => {
+                // The link pressed goes with this file: the next one takes the keyboard.
+                pendingLines.request(paneId, { path: pathInFileRoot(path) });
+                pickFile(path);
+              }}
+              focusEditor={focusEditor}
             />
-          </div>
-        ) : filePath && workspace ? (
-          <OpenFile
-            key={fileKey}
-            paneId={paneId}
-            workspace={fileRoot(workspace, filePath)}
-            path={pathInFileRoot(filePath)}
-            shownPath={filePath}
-            readOnly={readOnly}
-            diff={diff && diff.path === filePath ? diffSource : null}
-            onOpenPlain={() => setDiff(null)}
-            onOpenFile={(path) => {
-              // The link pressed goes with this file: the next one takes the keyboard.
-              pendingLines.request(paneId, { path: pathInFileRoot(path) });
-              pickFile(path);
-            }}
-            focusEditor={focusEditor}
-          />
-        ) : (
-          <div className={styles.empty} data-testid="file-pane-empty">
-            {drawer === "scm" ? "Pick a change to see its diff" : "Pick a file from the tree"}
-          </div>
-        )}
+          ) : (
+            <div className={styles.empty} data-testid="file-pane-empty">
+              {drawer === "scm" ? "Pick a change to see its diff" : "Pick a file from the tree"}
+            </div>
+          )}
+        </CrumbNavContext.Provider>
         {workspace && diff && (diff.deleted || (diff.path === filePath && !media)) && (
           <div className={styles.reviewFloat}>
             <ReviewBar
@@ -544,20 +578,50 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   );
 }
 
-/** The open file's path; `children` sit at the row's right end (the diff's tag and controls). */
+/** What the breadcrumb's segments open their pickers on, and what a pick does. */
+type CrumbNav = {
+  workspace: FilesWorkspace;
+  openFile: (path: string) => void;
+  reveal: (folder: string) => void;
+};
+
+/** The pane's, for its breadcrumbs; null without a workspace, where they stay text. */
+const CrumbNavContext = createContext<CrumbNav | null>(null);
+
+/**
+ * The open file's path; `children` sit at the row's right end (the diff's tag
+ * and controls). A workspace file's segments each open a picker of their
+ * folder; a file outside the workspace has no listing, so its stay text.
+ */
 function Breadcrumb({ path, children }: { path: string; children?: ReactNode }) {
+  const nav = useContext(CrumbNavContext);
   const parts = pathInFileRoot(path).split("/");
+  const walkable = nav && !isOutsideWorkspace(path);
   return (
     <div className={styles.crumbs}>
       <div className={styles.crumbPath} data-testid="file-pane-breadcrumb" title={path}>
-        {parts.map((part, i) => (
-          <span key={i} className={styles.crumbPart}>
-            {(i > 0 || isOutsideWorkspace(path)) && <span className={styles.crumbSep}>/</span>}
-            <span className={i === parts.length - 1 ? styles.crumbLast : styles.crumb}>
-              {part}
+        {parts.map((part, i) => {
+          const className = i === parts.length - 1 ? styles.crumbLast : styles.crumb;
+          return (
+            <span key={i} className={styles.crumbPart}>
+              {(i > 0 || isOutsideWorkspace(path)) && <span className={styles.crumbSep}>/</span>}
+              {walkable ? (
+                <BreadcrumbSegment
+                  workspace={nav.workspace}
+                  label={part}
+                  index={i}
+                  folder={crumbFolder(parts, i)}
+                  openFile={path}
+                  className={className}
+                  onOpenFile={nav.openFile}
+                  onReveal={nav.reveal}
+                />
+              ) : (
+                <span className={className}>{part}</span>
+              )}
             </span>
-          </span>
-        ))}
+          );
+        })}
       </div>
       {children}
     </div>

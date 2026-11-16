@@ -1,0 +1,124 @@
+/* A breadcrumb segment: looks as it did as text, and lifts on hover and while its picker is open. */
+.segment {
+  border: none;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.segment:hover,
+.segment[data-state="open"] {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.segment:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+  font-size: 12px;
+  z-index: 100;
+}
+
+.head {
+  padding: 2px 6px 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filter {
+  margin: 0 2px 4px;
+  padding: 3px 7px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--dim);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+
+.filter:focus {
+  border-color: var(--accent);
+}
+
+.filter::placeholder {
+  color: var(--text-dim);
+}
+
+.list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.itemCursor {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* The pane's open file. */
+.itemOpen {
+  color: var(--accent);
+}
+
+.icon,
+.dirMark {
+  flex: none;
+  width: 12px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.dirMark {
+  color: var(--accent);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.note {
+  padding: 4px 8px;
+  color: var(--text-dim);
+}
+
+.sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
+}

@@ -147,6 +147,7 @@ import {
   filesDelete,
   filesRename,
   filesList,
+  filesSearch,
   filesBlame,
   filesBlameRevision,
   filesRead,
@@ -700,6 +701,7 @@ const METHODS = flatten({
   // so they are audited.
   files: {
     list: method(filesList),
+    search: method(filesSearch),
     read: method(filesRead),
     readBytes: method(filesReadBytes),
     blameRevision: method(filesBlameRevision),

@@ -44,6 +44,30 @@ export function expandedForFiles<T extends FileTreeEntry>(
   return expanded;
 }
 
+/**
+ * What revealing `folder` opens: the folders on the way to it and the folder
+ * itself, and the row it shows as (a compressed chain it sits in is one row,
+ * known by its deepest path). Null for the root, which is always in view.
+ */
+export function revealFolder<T extends FileTreeEntry>(
+  nodes: FileTreeNode<T>[],
+  folder: string,
+): { expanded: Set<string>; row: string } | null {
+  const expanded = new Set<string>();
+  let level = nodes;
+  for (;;) {
+    const dir = level.find(
+      (n): n is Extract<FileTreeNode<T>, { kind: "dir" }> =>
+        n.kind === "dir" &&
+        (n.path === folder || folder.startsWith(`${n.path}/`) || n.path.startsWith(`${folder}/`)),
+    );
+    if (!dir) return null;
+    expanded.add(dir.path);
+    if (!folder.startsWith(`${dir.path}/`)) return { expanded, row: dir.path };
+    level = dir.children;
+  }
+}
+
 /** The rows a tree shows with `expanded` folders open, depth-first. */
 export function visibleTreeRows<T extends FileTreeEntry>(
   nodes: FileTreeNode<T>[],

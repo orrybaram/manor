@@ -102,6 +102,8 @@ export interface SharedCommandContext {
   togglePaneChat(paneId: string): void;
   /** Show or hide blame in file panes, if the focused pane's file can be blamed. */
   toggleFileBlame(): void;
+  /** Open the Search view of the active tab's file pane, or of a new one. */
+  searchInWorkspace(): void;
   copyToClipboard(text: string, label: string): void;
   startNewAgent(): void;
   /** Move the active panel's selected tab to the next panel, wrapping. */
@@ -653,6 +655,15 @@ export const COMMANDS: readonly CommandDef[] = [
       if (ctx.diffOpensInNewPanel()) ctx.app().openSourceControlInNewPanel();
       else ctx.app().openSourceControl();
     }),
+  },
+  {
+    // A focused file pane answers ⌘⇧F itself, with its selection.
+    id: "search-in-workspace",
+    label: "Search in Workspace",
+    category: "workspace",
+    defaultCombo: metaCombo("f", true), // Cmd+Shift+F
+    scope: "any",
+    run: unlessHome((ctx) => ctx.searchInWorkspace()),
   },
   {
     id: "split-panel-right",

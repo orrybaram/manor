@@ -517,6 +517,13 @@ export type {
   FileReadResult,
   FileWriteResult,
 } from "../electron/workspace-files";
+export type {
+  FileSearchFile,
+  FileSearchMatch,
+  FileSearchParams,
+  FileSearchResult,
+  SearchEngine,
+} from "../electron/workspace-search";
 export type { BlameCommit, BlameResult, FileBlame } from "../electron/backend/types";
 export type { FileAuthor } from "../electron/agent-file-authors";
 

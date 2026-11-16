@@ -162,6 +162,7 @@ export function buildMenuTemplate(
       SEPARATOR,
       cmd("go-to-file", "Go to File…", { enabled: canCreateTabs }),
       cmd("open-diff", "Open Source Control", { enabled: canCreateTabs }),
+      cmd("search-in-workspace", "Search in Workspace", { enabled: canCreateTabs }),
       cmd(
         "open-in-editor",
         editorName ? `Open in ${editorName}` : "Open in Editor",

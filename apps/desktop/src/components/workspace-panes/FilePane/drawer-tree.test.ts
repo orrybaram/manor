@@ -4,6 +4,7 @@ import {
   cursorIndex,
   expandedForFiles,
   expandedForOpenFile,
+  revealFolder,
   treeKey,
   visibleTreeRows,
 } from "./drawer-tree";
@@ -165,5 +166,30 @@ describe("cursorIndex", () => {
 
   it("starts on the first row with no cursor", () => {
     expect(cursorIndex(rows, null)).toBe(0);
+  });
+});
+
+describe("revealFolder", () => {
+  it("opens the folders on the way and the folder itself", () => {
+    expect(revealFolder(tree, "apps/desktop/src")).toEqual({
+      expanded: new Set(["apps", "apps/desktop", "apps/desktop/src"]),
+      row: "apps/desktop/src",
+    });
+  });
+  it("shows a folder in a compressed chain as the chain's row", () => {
+    expect(revealFolder(tree, "apps/desktop/src/components")).toEqual({
+      expanded: new Set([
+        "apps",
+        "apps/desktop",
+        "apps/desktop/src",
+        "apps/desktop/src/components/workspace-panes",
+      ]),
+      row: "apps/desktop/src/components/workspace-panes",
+    });
+    expect(revealFolder(tree, "apps/relay")?.row).toBe("apps/relay/src");
+  });
+  it("has nothing to open for the root or a folder it doesn't know", () => {
+    expect(revealFolder(tree, "")).toBeNull();
+    expect(revealFolder(tree, "apps/nope")).toBeNull();
   });
 });

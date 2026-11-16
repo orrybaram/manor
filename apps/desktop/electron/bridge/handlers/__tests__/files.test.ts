@@ -15,6 +15,7 @@ import {
   filesBlame,
   filesBlameRevision,
   filesRename,
+  filesSearch,
   filesWrite,
   type FilesDeps,
 } from "../files";
@@ -89,6 +90,28 @@ describe("files handlers", () => {
     expect(blame).toHaveBeenCalledTimes(1);
     expect(blameRevision).toHaveBeenCalledTimes(1);
     expect(DESKTOP_TABLE.mutating.has("files.blame")).toBe(false);
+  });
+
+  it("search on the workspace's host, and refuse malformed params before reaching it", async () => {
+    const which = vi.fn(async () => null);
+    const exec = vi.fn(async () => "a.ts\x001\x001\x00foo\n");
+    const get = vi.fn(() => ({ shell: { which, exec } }));
+    const ctx = { deps: { backendRegistry: { get } }, caller: {} } as never;
+    const ws = { path: "/w", hostId: "box" };
+    const params = { query: "foo", caseSensitive: false, wholeWord: false, regex: false, include: [], exclude: [] };
+    await expect(filesSearch(ctx, ws, { ...params, maxResults: null as unknown as number })).resolves.toMatchObject({
+      ok: true,
+      engine: "git-grep",
+      files: [{ path: "a.ts" }],
+    });
+    expect(get).toHaveBeenCalledWith("box");
+    expect(exec).toHaveBeenCalledWith("git", expect.any(Array), expect.objectContaining({ cwd: "/w" }));
+    get.mockClear();
+    for (const bad of [null, { ...params, query: 3 }, { ...params, regex: "yes" }, { ...params, include: "*.ts" }]) {
+      expect(() => filesSearch(ctx, ws, bad as never)).toThrow();
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(DESKTOP_TABLE.mutating.has("files.search")).toBe(false);
   });
 
   it("mark the writes mutating and the reads not", () => {

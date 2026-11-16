@@ -20,7 +20,13 @@ import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
 import { toast } from "../../../../toast";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
-import { cursorIndex, expandedForFiles, treeKey, visibleTreeRows } from "../drawer-tree";
+import {
+  cursorIndex,
+  expandedForFiles,
+  revealFolder,
+  treeKey,
+  visibleTreeRows,
+} from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
 import { changeBadge, foldersWithChanges, type FileChange } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
@@ -35,8 +41,8 @@ const PHONE_ROW_HEIGHT = 36;
 /** A Source Control row's main button, which opens its diff. */
 const SCM_ROW = '[data-testid="scm-row"] > button:first-child';
 
-/** The workspace's tree, or Source Control. */
-export type DrawerMode = "files" | "scm";
+/** The workspace's tree, Source Control, or Search. */
+export type DrawerMode = "files" | "scm" | "search";
 
 type FileDrawerProps = {
   workspace: FilesWorkspace;
@@ -52,6 +58,12 @@ type FileDrawerProps = {
   /** The open file has unsaved edits: it can't be renamed from under them. */
   openFileDirty: boolean;
   onPick: (path: string) => void;
+  /**
+   * A folder to show in the tree (Reveal in Files), until `onRevealed`;
+   * `n` counts the asks, so asking for the same folder again shows it again.
+   */
+  reveal?: { folder: string | null; n: number };
+  onRevealed?: () => void;
   /** A file was renamed from the tree; the pane follows its open file. */
   onRenamed: (from: string, to: string) => void;
   onClose: () => void;
@@ -61,14 +73,18 @@ type FileDrawerProps = {
   scmHead?: ReactNode;
   /** Source Control's list, shown in place of the tree. */
   scm?: ReactNode;
+  /** Search's head controls (Refresh, Clear). */
+  searchHead?: ReactNode;
+  /** The Search view, shown in place of the tree. */
+  search?: ReactNode;
 };
 
 /**
  * The drawer beside the editor (over it, on a phone). Files: the workspace's tree, listed each time
  * it opens (one `files.list`), starting with only the folders on the way to
  * the open file and to changed files expanded; changed files carry their
- * badge and their folders a dot. Source Control: whatever the pane renders
- * for it (`SourceControl`).
+ * badge and their folders a dot. Source Control and Search: whatever the
+ * pane renders for them (`SourceControl`, `SearchView`).
  */
 export function FileDrawer({
   workspace,
@@ -79,11 +95,15 @@ export function FileDrawer({
   autoFocus,
   openFileDirty,
   onPick,
+  reveal,
+  onRevealed,
   onRenamed,
   onClose,
   resizeHandle,
   scmHead,
   scm,
+  searchHead,
+  search,
 }: FileDrawerProps) {
   const width = useFileDrawerLayout((s) => s.width);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -97,11 +117,17 @@ export function FileDrawer({
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  // Opened, it takes the keyboard: the tree's arrows, if it is listed
-  // already, and Escape wherever focus was.
+  // Opened, it takes the keyboard: Search's query, selected; the tree's
+  // arrows, if it is listed already; and Escape wherever focus was.
   useMountEffect(() => {
     if (!autoFocus) return;
     const drawer = drawerRef.current;
+    const query = drawer?.querySelector<HTMLInputElement>('[data-testid="file-search-input"]');
+    if (query) {
+      query.focus({ preventScroll: true });
+      query.select();
+      return;
+    }
     const target =
       drawer?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
       drawer?.querySelector<HTMLElement>(`${SCM_ROW}[aria-current]`) ??
@@ -136,9 +162,10 @@ export function FileDrawer({
       }}
     >
       <div className={styles.head}>
-        <span>{mode === "scm" ? "Source Control" : "Files"}</span>
+        <span>{mode === "scm" ? "Source Control" : mode === "search" ? "Search" : "Files"}</span>
         <span className={styles.headSpacer} />
         {mode === "scm" && scmHead}
+        {mode === "search" && searchHead}
         {canWrite && mode === "files" && (
           <Tooltip label="New file">
             <button
@@ -170,8 +197,12 @@ export function FileDrawer({
       )}
       {mode === "scm" ? (
         scm
+      ) : mode === "search" ? (
+        search
       ) : listing.data ? (
         <TreeList
+          reveal={reveal?.folder != null ? { folder: reveal.folder, n: reveal.n } : null}
+          onRevealed={onRevealed}
           workspace={workspace}
           canWrite={canWrite}
           openFileDirty={openFileDirty}
@@ -207,7 +238,11 @@ function TreeList({
   changes,
   openFile,
   onPick,
+  reveal,
+  onRevealed,
 }: {
+  reveal: { folder: string; n: number } | null;
+  onRevealed?: () => void;
   workspace: FilesWorkspace;
   canWrite: boolean;
   openFileDirty: boolean;
@@ -226,17 +261,33 @@ function TreeList({
   // Null until the user toggles a folder: until then, the folders of the
   // open file and of the changed files.
   const [toggled, setToggled] = useState<Set<string> | null>(null);
-  const expanded = useMemo(
-    () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
-    [toggled, tree, openFile, changes],
-  );
+  // Folders Reveal in Files opened, on top of those, until the next toggle
+  // folds them into `toggled`.
+  const [revealedOpen, setRevealedOpen] = useState<ReadonlySet<string>>(EMPTY);
+  const expanded = useMemo(() => {
+    const base = toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []);
+    return revealedOpen.size === 0 ? base : new Set([...base, ...revealedOpen]);
+  }, [toggled, tree, openFile, changes, revealedOpen]);
   const dotted = useMemo(
     () => foldersWithChanges(changes?.keys() ?? []),
     [changes],
   );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
-  // The row the keyboard is on: the open file's, until it moves.
+  // The row the keyboard is on: the open file's (or the revealed folder's), until it moves.
   const [cursor, setCursor] = useState<string | null>(openFile);
+  // A reveal asked for (a new `n`) opens its folder in the tree as it stands,
+  // and puts the cursor on it; `RevealDone` then scrolls to it and focuses.
+  const [revealN, setRevealN] = useState<number | null>(null);
+  const [revealRow, setRevealRow] = useState<string | null>(null);
+  if (reveal && reveal.n !== revealN) {
+    const found = revealFolder(tree, reveal.folder);
+    setRevealN(reveal.n);
+    setRevealRow(found?.row ?? null);
+    if (found) {
+      setRevealedOpen((prev) => new Set([...prev, ...found.expanded]));
+      setCursor(found.row);
+    }
+  }
   const cursorAt = cursorIndex(rows, cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
@@ -250,7 +301,9 @@ function TreeList({
   // mounted rather than passed as `initialOffset`: an offset past the end of
   // a short tree has the browser clamp the scroll while the virtualizer keeps
   // the offset, and it leaves the rows above blank, the list floating mid-way.
+  // A reveal waiting at mount scrolls there itself (`RevealDone`).
   useMountEffect(() => {
+    if (reveal) return;
     const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
     // Listed after the drawer opened and took the keyboard: the arrows are ours.
@@ -259,6 +312,12 @@ function TreeList({
       tree.focus({ preventScroll: true });
     }
   });
+  const finishReveal = () => {
+    const index = revealRow ? rows.findIndex((r) => r.path === revealRow) : -1;
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+    scrollRef.current?.focus({ preventScroll: true });
+    onRevealed?.();
+  };
 
   // The row right-clicked, while its menu is open; the file being renamed in
   // its row; the file waiting on Delete's confirmation.
@@ -288,12 +347,12 @@ function TreeList({
 
   const toggle = (path: string) => {
     setCursor(path);
-    setToggled((prev) => {
-      const next = new Set(prev ?? expanded);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+    // From what shows, revealed folders included, which it now keeps.
+    const next = new Set(expanded);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setToggled(next);
+    setRevealedOpen(EMPTY);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -310,8 +369,17 @@ function TreeList({
     virtualizer.scrollToIndex(action.index);
   };
 
+  const revealDone = revealN !== null && (
+    <RevealDone key={revealN} onDone={finishReveal} />
+  );
+
   if (rows.length === 0) {
-    return <div className={styles.note}>No files</div>;
+    return (
+      <div className={styles.note}>
+        No files
+        {revealDone}
+      </div>
+    );
   }
 
   return (
@@ -346,6 +414,7 @@ function TreeList({
             setMenuTarget({ kind, path: row.dataset.path! });
           }}
         >
+          {revealDone}
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}
           >
@@ -456,6 +525,18 @@ function TreeList({
       </div>
     </ContextMenu.Root>
   );
+}
+
+const EMPTY: ReadonlySet<string> = new Set();
+
+/**
+ * Renders nothing; once mounted (the reveal's folders open in the same
+ * commit), scrolls to the revealed row and takes the keyboard. Keyed by the
+ * reveal, it runs once for each.
+ */
+function RevealDone({ onDone }: { onDone: () => void }) {
+  useMountEffect(onDone);
+  return null;
 }
 
 function FileRow({

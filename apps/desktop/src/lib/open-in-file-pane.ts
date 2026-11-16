@@ -1,9 +1,9 @@
 /**
  * Opening a file in a file pane from somewhere else: a path printed in a
- * terminal, Go to File, or the CLI.
+ * terminal, Go to File, or the CLI; and Search in Workspace.
  */
 
-import { hasUnsavedEdits, useOpenFileStore } from "../store/open-file-store";
+import { hasUnsavedEdits, openFileSelection, useOpenFileStore } from "../store/open-file-store";
 import {
   selectActiveWorkspaceKey,
   selectFocusedPaneOfActiveTab,
@@ -12,6 +12,10 @@ import {
   useAppStore,
 } from "../store/app-store";
 import { pendingLines } from "../components/workspace-panes/FilePane/pending-line";
+import {
+  requestSearch,
+  selectionQuery,
+} from "../components/workspace-panes/FilePane/search-state";
 import { isWebApp } from "./platform";
 import { pathInFileRoot } from "./file-location";
 import type { PaneNode, SplitDirection } from "./layout/pane-tree";
@@ -192,6 +196,31 @@ export function openFileInActiveWorkspace(path: string): void {
   }
   const opened = app.addFileTab(path);
   if (opened) requestLine(opened.paneId, path, {});
+}
+
+/**
+ * Search in Workspace (⌘⇧F from outside a file pane, the menu, the palette):
+ * the focused pane's Search view when it is a file pane, its one-line
+ * selection as the query; else that of a file pane in the active tab; else
+ * a new tab's.
+ */
+export function openSearchInActiveWorkspace(): void {
+  const app = useAppStore.getState();
+  const focused = selectFocusedPaneOfActiveTab(app);
+  if (focused) {
+    const target =
+      selectPaneContentType(app, focused) === "file"
+        ? focused
+        : filePaneInTabOf(app.workspaceLayouts, focused);
+    if (target) {
+      app.focusPane(target);
+      const query = selectionQuery(openFileSelection(target));
+      requestSearch(target, query === null ? null : { query });
+      return;
+    }
+  }
+  const opened = app.addFileTab();
+  if (opened) requestSearch(opened.paneId);
 }
 
 /**

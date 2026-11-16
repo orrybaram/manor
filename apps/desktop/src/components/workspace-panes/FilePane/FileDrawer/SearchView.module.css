@@ -1,0 +1,232 @@
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fields {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+
+/* An input with its toggles inside it, as the editor's find widget has them. */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 3px 0 0;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 7px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+.toggle {
+  flex: none;
+  height: 18px;
+  min-width: 20px;
+  padding: 0 3px;
+  font: 600 10px var(--font-mono);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.toggleOn,
+.toggleOn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.summary {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px 4px;
+  font-size: 11px;
+}
+
+.meta {
+  color: var(--text-dim);
+}
+
+.error {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.pill {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--control-border);
+  color: var(--fg);
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 4px 8px;
+  outline: none;
+}
+
+.results:focus-visible {
+  outline: none;
+}
+
+.fileRow,
+.matchRow {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.fileRow {
+  gap: 5px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--fg);
+}
+
+.matchRow {
+  display: block;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 4px 0 21px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.fileRow:hover,
+.matchRow:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+/* The row the keyboard is on, or the match last opened. */
+.cursor,
+.cursor:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.results:focus .cursor {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.chevron {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.fileName {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dir {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.count {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+/* The editor's own search match (`editor-theme.ts` `.cm-searchMatch`), so it reads in both themes. */
+.mark {
+  color: inherit;
+  background-color: color-mix(in srgb, var(--yellow) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--yellow) 45%, transparent);
+  border-radius: 2px;
+}
+
+.headBtn {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.headBtn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}

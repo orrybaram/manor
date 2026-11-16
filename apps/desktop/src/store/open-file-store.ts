@@ -94,6 +94,8 @@ export type OpenFileEditor = {
   markClean(written: string): boolean;
   /** A `files.changed` arrived while the save was in flight; judge it now. */
   diskChanged(hash: string | null): void;
+  /** The editor's selected text, for ⌘⇧F to search for; empty with none. */
+  selection?(): string;
 };
 
 const editors = new Map<string, OpenFileEditor>();
@@ -110,6 +112,11 @@ export function registerOpenFileEditor(paneId: string, editor: OpenFileEditor): 
   return () => {
     if (editors.get(paneId) === editor) editors.delete(paneId);
   };
+}
+
+/** The selected text in the pane's mounted editor; empty with none or no editor. */
+export function openFileSelection(paneId: string): string {
+  return editors.get(paneId)?.selection?.() ?? "";
 }
 
 /** `files.changed` for the pane's file while its save is in flight. */

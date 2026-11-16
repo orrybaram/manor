@@ -80,6 +80,8 @@ export type CodeEditorRef = {
   content(): string;
   /** `written` is now on disk. Returns whether the editor still differs from it. */
   markClean(written: string): boolean;
+  /** The main selection's text; empty when nothing is selected. */
+  selection(): string;
 };
 
 type CodeEditorProps = {
@@ -205,6 +207,12 @@ export function CodeEditor({
       file.markClean(written);
       view.dispatch({ effects: setCleanDoc.of(file.cleanDoc) });
       return settle(view);
+    },
+    selection() {
+      const view = viewRef.current;
+      if (!view) return "";
+      const { from, to } = view.state.selection.main;
+      return view.state.sliceDoc(from, to);
     },
   }));
 

@@ -10,6 +10,7 @@ import {
 } from "react";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import Search from "lucide-react/dist/esm/icons/search";
 import {
   useAppStore,
   usePaneFilePath,
@@ -22,6 +23,7 @@ import {
   useOpenFileStore,
   hasUnsavedEdits,
   noteDiskChangeDuringSave,
+  openFileSelection,
   registerOpenFileEditor,
   saveOpenFile,
 } from "../../../store/open-file-store";
@@ -43,6 +45,13 @@ import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
 import type { AgentMarks } from "./CodeEditor/change-marks";
 import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
+import { SearchHeadActions, SearchView } from "./FileDrawer/SearchView";
+import {
+  onSearchRequest,
+  selectionQuery,
+  takeSearchRequest,
+  useFileSearchState,
+} from "./search-state";
 import { MediaFile } from "./MediaFile/MediaFile";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
@@ -138,7 +147,7 @@ type DiffSource = {
  * A file pane: one file, usually of its workspace, with a strip on its left edge whose
  * Files button opens the workspace's tree in a drawer beside the editor, and
  * whose Source Control button opens the workspace's changes, to stage,
- * discard and open. The
+ * discard and open, and whose Search button searches the workspace's files. The
  * drawer resizes and collapses from its edge, as the app sidebar does; on a
  * phone it floats over the editor instead, and closes once it has done its
  * job. The
@@ -157,6 +166,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   // its tree, or on Source Control when it was made for that.
   const [drawerState, setDrawerState] = useState<DrawerState>(() => {
     if (takeSourceControlRequest(paneId)) return { open: true, mode: "scm" };
+    if (takeSearchRequest(paneId)) return { open: true, mode: "search" };
     const kept = useFileDrawerState.getState().byPane[paneId];
     if (kept) return kept;
     return { open: !filePath, mode: selectPaneStartsOn(useAppStore.getState(), paneId) ?? "files" };
@@ -210,6 +220,17 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       root?.querySelector<HTMLElement>('[data-testid="file-pane-drawer"]');
     target?.focus({ preventScroll: true });
   };
+  // Search, with its query focused and selected for typing over.
+  const showSearch = () => {
+    setDrawer("search");
+    requestAnimationFrame(() => {
+      const input = rootRef.current?.querySelector<HTMLInputElement>(
+        '[data-testid="file-search-input"]',
+      );
+      input?.focus({ preventScroll: true });
+      input?.select();
+    });
+  };
   const drawerHasFocus = () =>
     !!rootRef.current
       ?.querySelector('[data-testid="file-pane-drawer"]')
@@ -243,6 +264,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   useMountEffect(() =>
     onSourceControlRequest(paneId, () => {
       if (takeSourceControlRequest(paneId)) setDrawer("scm");
+    }),
+  );
+  // Asked for Search while mounted (Search in Workspace, Find Usages).
+  useMountEffect(() =>
+    onSearchRequest(paneId, () => {
+      if (takeSearchRequest(paneId)) showSearch();
     }),
   );
   // The same file sent again only moves the cursor; it still wants the
@@ -301,6 +328,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       if (!selectHasPane(app, paneId) || selectPaneContentType(app, paneId) !== "file") {
         useOpenFileStore.getState().drop(paneId);
         useFileDrawerState.getState().drop(paneId);
+        useFileSearchState.getState().drop(paneId);
       }
     };
   });
@@ -316,6 +344,14 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       const hadFocus = drawerHasFocus();
       setDrawer(null);
       if (hadFocus) focusEditor();
+      return;
+    }
+    // Always to the query, with the editor's one-line selection in it.
+    if (key === "search") {
+      if (!workspace) return;
+      const query = selectionQuery(openFileSelection(paneId));
+      if (query !== null) useFileSearchState.getState().request(paneId, { query });
+      showSearch();
       return;
     }
     const mode = key;
@@ -361,6 +397,11 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       setReveal((r) => ({ folder, n: r.n + 1 }));
       setDrawer("files");
     },
+  };
+  // A search result opens its file with the cursor on the match, as a terminal link's does.
+  const openMatch = (path: string, line: number, col: number) => {
+    pendingLines.request(paneId, { path, line, col });
+    pickFile(path);
   };
   // A Source Control row opens its file's diff.
   const openChange = (change: FileChange, view: ScmView) =>
@@ -476,6 +517,19 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             )}
           </button>
         </Tooltip>
+        <Tooltip label={`Search (${filePaneKeyLabel("search", mac)})`}>
+          <button
+            type="button"
+            className={`${styles.stripBtn} ${drawer === "search" ? styles.stripBtnOn : ""}`}
+            aria-label="Search"
+            aria-pressed={drawer === "search"}
+            data-testid="file-pane-search-button"
+            disabled={!workspace}
+            onClick={() => (drawer === "search" ? setDrawer(null) : showSearch())}
+          >
+            <Search size={14} />
+          </button>
+        </Tooltip>
         {!floating && !drawer && workspace && collapsedHandle}
       </div>
       {drawer && workspace && (
@@ -513,6 +567,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
               <ReviewSection workspacePath={workspace.path} hostId={hostId} onJump={jumpToComment} />
             </>
           }
+          searchHead={<SearchHeadActions paneId={paneId} workspace={workspace} />}
+          search={<SearchView paneId={paneId} workspace={workspace} onOpen={openMatch} />}
         />
       )}
       <div
@@ -559,7 +615,11 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             />
           ) : (
             <div className={styles.empty} data-testid="file-pane-empty">
-              {drawer === "scm" ? "Pick a change to see its diff" : "Pick a file from the tree"}
+              {drawer === "scm"
+                ? "Pick a change to see its diff"
+                : drawer === "search"
+                  ? "Pick a result to open it"
+                  : "Pick a file from the tree"}
             </div>
           )}
         </CrumbNavContext.Provider>
@@ -935,6 +995,7 @@ function OpenFile({
       path,
       content: () => editorRef.current?.content() ?? null,
       markClean: (written) => editorRef.current?.markClean(written) ?? false,
+      selection: () => editorRef.current?.selection() ?? "",
       diskChanged: (hash) => {
         if (live) onDiskChange(hash);
       },

@@ -41,8 +41,8 @@ const PHONE_ROW_HEIGHT = 36;
 /** A Source Control row's main button, which opens its diff. */
 const SCM_ROW = '[data-testid="scm-row"] > button:first-child';
 
-/** The workspace's tree, or Source Control. */
-export type DrawerMode = "files" | "scm";
+/** The workspace's tree, Source Control, or Search. */
+export type DrawerMode = "files" | "scm" | "search";
 
 type FileDrawerProps = {
   workspace: FilesWorkspace;
@@ -73,14 +73,18 @@ type FileDrawerProps = {
   scmHead?: ReactNode;
   /** Source Control's list, shown in place of the tree. */
   scm?: ReactNode;
+  /** Search's head controls (Refresh, Clear). */
+  searchHead?: ReactNode;
+  /** The Search view, shown in place of the tree. */
+  search?: ReactNode;
 };
 
 /**
  * The drawer beside the editor (over it, on a phone). Files: the workspace's tree, listed each time
  * it opens (one `files.list`), starting with only the folders on the way to
  * the open file and to changed files expanded; changed files carry their
- * badge and their folders a dot. Source Control: whatever the pane renders
- * for it (`SourceControl`).
+ * badge and their folders a dot. Source Control and Search: whatever the
+ * pane renders for them (`SourceControl`, `SearchView`).
  */
 export function FileDrawer({
   workspace,
@@ -98,6 +102,8 @@ export function FileDrawer({
   resizeHandle,
   scmHead,
   scm,
+  searchHead,
+  search,
 }: FileDrawerProps) {
   const width = useFileDrawerLayout((s) => s.width);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -111,11 +117,17 @@ export function FileDrawer({
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  // Opened, it takes the keyboard: the tree's arrows, if it is listed
-  // already, and Escape wherever focus was.
+  // Opened, it takes the keyboard: Search's query, selected; the tree's
+  // arrows, if it is listed already; and Escape wherever focus was.
   useMountEffect(() => {
     if (!autoFocus) return;
     const drawer = drawerRef.current;
+    const query = drawer?.querySelector<HTMLInputElement>('[data-testid="file-search-input"]');
+    if (query) {
+      query.focus({ preventScroll: true });
+      query.select();
+      return;
+    }
     const target =
       drawer?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
       drawer?.querySelector<HTMLElement>(`${SCM_ROW}[aria-current]`) ??
@@ -150,9 +162,10 @@ export function FileDrawer({
       }}
     >
       <div className={styles.head}>
-        <span>{mode === "scm" ? "Source Control" : "Files"}</span>
+        <span>{mode === "scm" ? "Source Control" : mode === "search" ? "Search" : "Files"}</span>
         <span className={styles.headSpacer} />
         {mode === "scm" && scmHead}
+        {mode === "search" && searchHead}
         {canWrite && mode === "files" && (
           <Tooltip label="New file">
             <button
@@ -184,6 +197,8 @@ export function FileDrawer({
       )}
       {mode === "scm" ? (
         scm
+      ) : mode === "search" ? (
+        search
       ) : listing.data ? (
         <TreeList
           // A reveal remounts the tree, which opens on it.

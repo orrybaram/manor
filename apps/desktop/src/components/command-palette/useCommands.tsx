@@ -16,6 +16,7 @@ import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import Copy from "lucide-react/dist/esm/icons/copy";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import FileCode from "lucide-react/dist/esm/icons/file-code";
+import Search from "lucide-react/dist/esm/icons/search";
 import EyeOff from "lucide-react/dist/esm/icons/eye-off";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
@@ -298,6 +299,12 @@ export function useCommands({
         command: "go-to-file",
         icon: <FileCode size={14} />,
         keywords: ["file", "go", "quick", "open", "find", "search"],
+        closeFirst: true,
+      },
+      {
+        command: "search-in-workspace",
+        icon: <Search size={14} />,
+        keywords: ["search", "find", "grep", "text", "files", "workspace"],
         closeFirst: true,
       },
       { command: "split-h", icon: <Columns2 size={14} /> },

@@ -17,6 +17,7 @@ import {
 } from "../search-state";
 import {
   highlightSegments,
+  matchCount,
   resultSummary,
   searchRows,
   stepSearchRow,
@@ -32,7 +33,10 @@ function searchKey(workspace: FilesWorkspace): unknown[] {
   return ["files.search", workspace.hostId, workspace.path];
 }
 
-/** The Search view's header buttons: run the search again, and clear it. */
+/**
+ * The Search view's header buttons: run the search again, and clear it.
+ * Results handed in (Go to Definition's) ran no search to run again.
+ */
 export function SearchHeadActions({
   paneId,
   workspace,
@@ -41,19 +45,22 @@ export function SearchHeadActions({
   workspace: FilesWorkspace;
 }) {
   const queryClient = useQueryClient();
+  const handed = useFileSearchState((s) => paneSearch(s.byPane, paneId).results !== null);
   return (
     <>
-      <Tooltip label="Refresh">
-        <button
-          type="button"
-          className={styles.headBtn}
-          aria-label="Refresh"
-          data-testid="file-search-refresh"
-          onClick={() => void queryClient.invalidateQueries({ queryKey: searchKey(workspace) })}
-        >
-          <RefreshCw size={12} />
-        </button>
-      </Tooltip>
+      {!handed && (
+        <Tooltip label="Refresh">
+          <button
+            type="button"
+            className={styles.headBtn}
+            aria-label="Refresh"
+            data-testid="file-search-refresh"
+            onClick={() => void queryClient.invalidateQueries({ queryKey: searchKey(workspace) })}
+          >
+            <RefreshCw size={12} />
+          </button>
+        </Tooltip>
+      )}
       <Tooltip label="Clear search results">
         <button
           type="button"
@@ -75,7 +82,8 @@ export function SearchHeadActions({
  * runs `files.search` once it settles; only the answer to the newest search
  * shows. What it holds lives in `useFileSearchState`, by pane, so it is the
  * same after switching views or a remount; a search asked from outside
- * (`requestSearch`) runs at once.
+ * (`requestSearch`) runs at once. Results handed in with the ask (Go to
+ * Definition's) show as they are, without a search, until the form is edited.
  */
 export function SearchView({
   paneId,
@@ -110,7 +118,8 @@ export function SearchView({
     else timer.current = setTimeout(settle, DEBOUNCE_MS);
   };
 
-  const enabled = ran.params.query !== "";
+  const handed = pane.results;
+  const enabled = ran.params.query !== "" && handed === null;
   const result = useQuery({
     // `asked`: the same search asked again runs again.
     queryKey: [...searchKey(workspace), ran.params, ran.asked],
@@ -121,7 +130,17 @@ export function SearchView({
     retry: false,
     placeholderData: keepPreviousData,
   });
-  const answer = enabled ? result.data : undefined;
+  const answer: FileSearchResult | undefined = handed
+    ? {
+        ok: true,
+        files: handed,
+        total: handed.reduce((n, f) => n + matchCount(f), 0),
+        truncated: false,
+        engine: null,
+      }
+    : enabled
+      ? result.data
+      : undefined;
   const files = answer?.ok ? answer.files : null;
 
   const collapsed = useMemo(() => new Set(pane.collapsed), [pane.collapsed]);
@@ -178,7 +197,11 @@ export function SearchView({
     }
   };
 
-  const status = summaryOf(enabled, result.isError ? result.error : null, answer);
+  const status = summaryOf(
+    enabled || handed !== null,
+    enabled && result.isError ? result.error : null,
+    answer,
+  );
 
   return (
     <div className={styles.view} data-testid="file-search-view">

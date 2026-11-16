@@ -52,8 +52,10 @@ import { createFindPanel } from "./search-panel";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
 import {
   definitionNav,
-  identifierAt,
   identifierAtCursor,
+  identifierUnder,
+  isCodeTarget,
+  navSource,
   type CodeNavHandler,
   type CodeNavKind,
 } from "./definition-nav";
@@ -328,7 +330,10 @@ export function CodeEditor({
           highlightSelectionMatches(),
           search({ top: true, createPanel: createFindPanel }),
           onNavigate
-            ? definitionNav((kind, word) => navigateRef.current?.(kind, word), getPlatform() === "mac")
+            ? definitionNav(
+                (kind, word, source) => navigateRef.current?.(kind, word, source),
+                getPlatform() === "mac",
+              )
             : [],
           // ⌥↑/⌥↓ move between the changes; with none, or unsaved edits, they move the line.
           Prec.high(
@@ -492,7 +497,8 @@ export function CodeEditor({
   const runMenu = (kind: CodeNavKind) => {
     if (!menuWord) return;
     menuChoseRef.current = true;
-    navigateRef.current?.(kind, menuWord);
+    const view = viewRef.current;
+    if (view) navigateRef.current?.(kind, menuWord, navSource(view));
   };
 
   return (
@@ -515,17 +521,20 @@ export function CodeEditor({
                 e.preventDefault();
                 return;
               }
+              // Off the code (the gutter, a comment card): nothing to look up, nothing moves.
+              if (!isCodeTarget(view, e.target)) {
+                setMenuWord(null);
+                return;
+              }
               // As in VS Code: a right-click off the selection moves the cursor there.
               const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
               const { from, to } = view.state.selection.main;
-              if (pos !== null && (pos < from || pos > to)) {
-                view.dispatch({ selection: { anchor: pos } });
+              if (pos === null || (pos >= from && pos <= to)) {
+                setMenuWord(identifierAtCursor(view.state));
+                return;
               }
-              setMenuWord(
-                pos !== null && (pos < from || pos > to)
-                  ? (identifierAt(view.state, pos)?.word ?? null)
-                  : identifierAtCursor(view.state),
-              );
+              view.dispatch({ selection: { anchor: pos } });
+              setMenuWord(identifierUnder(view, e.clientX, e.clientY)?.word ?? null);
             }}
           >
             {host}

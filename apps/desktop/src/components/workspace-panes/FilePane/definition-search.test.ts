@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FileSearchFile, FileSearchMatch } from "../../../electron.d";
 import {
+  definitionGroups,
   definitionPattern,
   definitionSearch,
   findDefinition,
@@ -8,6 +9,7 @@ import {
   isUnlikelyFile,
   pickDefinition,
   rankDefinitions,
+  topTier,
 } from "./definition-search";
 
 /** Whether `line` matches the definition pattern for `word`, read as a JS RegExp. */
@@ -78,6 +80,10 @@ describe("definitionPattern", () => {
     "export abstract class fooBar {",
     "export interface fooBar {}",
     "export type fooBar<T> = T;",
+    "type fooBar = { a: 1 };",
+    "type fooBar {",
+    "  fooBar(a) {\r",
+    "  fooBar(a): Promise<void> { }",
     "enum fooBar { A }",
     "namespace fooBar {",
     "  fooBar = async (x) => x;",
@@ -96,6 +102,7 @@ describe("definitionPattern", () => {
     "func fooBar() {}",
     "func (r *T) fooBar(x int) error {",
     "type fooBar struct {}",
+    "type fooBar interface {",
     // Rust
     "pub fn fooBar() {}",
     "pub(crate) fn fooBar<T>(x: T) -> T {",
@@ -128,6 +135,15 @@ describe("definitionPattern", () => {
     "  x.fooBar(a) {",
     "  fooBar(a); {",
     "const fooBar == 1",
+    // A call opening an object argument, at the start of a line.
+    "  fooBar({",
+    "  fooBar(e, {",
+    "fooBar(a, b, {\r",
+    // A multi-line import's names.
+    "  type fooBar,",
+    "  type fooBar }",
+    "  type fooBar",
+    "  type fooBar\r",
   ])("leaves %j", (line) => {
     expect(matches("fooBar", line)).toBe(false);
   });
@@ -166,32 +182,56 @@ describe("rankDefinitions", () => {
     expect(hits).toHaveLength(1);
   });
 
-  it("puts the open file first, then source over tests, vendored code and .d.ts, then declarations over method heads", () => {
+  it("puts the open file's declarations first, then source over tests, vendored code and .d.ts, then declarations over method heads", () => {
     const files = [
       file("node_modules/x/index.js", [1, "function fooBar() {}"]),
       file("src/types.d.ts", [1, "export declare function fooBar(): void;"]),
       file("src/a.test.ts", [1, "function fooBar() {}"]),
       file("src/cls.ts", [4, "  fooBar(a) {"]),
       file("src/b.ts", [2, "export const fooBar = () => 1;"]),
-      file("src/open.ts", [9, "  fooBar(a) {"]),
+      file("src/open.ts", [3, "const fooBar = 1;"], [9, "  fooBar(a) {"]),
     ];
     const hits = rankDefinitions("fooBar", files, "src/open.ts");
-    expect(hits.map((h) => h.path)).toEqual([
-      "src/open.ts",
-      "src/b.ts",
-      "src/cls.ts",
-      "node_modules/x/index.js",
-      "src/a.test.ts",
-      "src/types.d.ts",
+    expect(hits.map((h) => `${h.path}:${h.line}`)).toEqual([
+      "src/open.ts:3",
+      "src/b.ts:2",
+      "src/cls.ts:4",
+      "src/open.ts:9",
+      "node_modules/x/index.js:1",
+      "src/a.test.ts:1",
+      "src/types.d.ts:1",
     ]);
     expect(hits.map((h) => h.kind)).toEqual([
-      "method",
       "declaration",
+      "declaration",
+      "method",
       "method",
       "declaration",
       "declaration",
       "declaration",
     ]);
+  });
+
+  it("gives a method head in the open file no lead: it may be the file's own call", () => {
+    // `requestUi({` once matched as a head and beat the declaration from the open file.
+    const hits = rankDefinitions(
+      "fooBar",
+      [
+        file("src/open.ts", [43, "  fooBar(a) {"]),
+        file("src/lib.ts", [55, "export function fooBar(request: R): void {"]),
+      ],
+      "src/open.ts",
+    );
+    expect(pickDefinition(hits)).toMatchObject({ kind: "one", hit: { path: "src/lib.ts" } });
+  });
+
+  it("drops a multi-line import's `type X as Y,`", () => {
+    expect(rankDefinitions("fooBar", [file("src/a.ts", [3, "  type fooBar as Other,"])])).toEqual([]);
+  });
+
+  it("places the name in the shown text", () => {
+    const [h] = rankDefinitions("fooBar", [file("src/a.ts", [2, "    export async function fooBar() {"])]);
+    expect(h.text.slice(...h.name!)).toBe("fooBar");
   });
 
   it("places the column on the name, not where the match starts", () => {
@@ -227,6 +267,32 @@ describe("rankDefinitions", () => {
     for (const p of ["src/a.ts", "src/testing.ts", "src/contest/a.ts", "latest.ts"]) {
       expect(isUnlikelyFile(p), p).toBe(false);
     }
+  });
+});
+
+describe("definitionGroups", () => {
+  it("groups the hits by file in their order, each highlighting just the name", () => {
+    const hits = rankDefinitions("fooBar", [
+      file("src/b.ts", [1, "export function fooBar() {"]),
+      file("src/a.ts", [3, "  export const fooBar = () => 1;"], [7, "class fooBar {"]),
+    ]);
+    const groups = definitionGroups(hits);
+    expect(groups.map((g) => g.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(groups[0].matches.map((m) => m.line)).toEqual([3, 7]);
+    for (const g of groups) {
+      for (const m of g.matches) expect(m.text.slice(...m.ranges[0])).toBe("fooBar");
+    }
+    expect(groups[0].matches[0].col).toBe(16);
+  });
+
+  it("lists only the hits tied for the best score", () => {
+    const hits = rankDefinitions("fooBar", [
+      file("src/a.ts", [1, "function fooBar() {}"]),
+      file("src/b.ts", [1, "function fooBar() {}"]),
+      file("src/b.test.ts", [1, "function fooBar() {}"]),
+    ]);
+    expect(topTier(hits).map((h) => h.path)).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(topTier([])).toEqual([]);
   });
 });
 

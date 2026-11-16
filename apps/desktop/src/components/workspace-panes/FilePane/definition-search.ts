@@ -11,15 +11,19 @@ import type { FileSearchFile, FileSearchParams, FileSearchResult } from "../../.
  * groups, `|`, `?`, `*`, `+`, `^`, `$` and bracket classes of plain
  * characters. No `\b`, `\s`, `\w`, lookarounds or escapes: a literal
  * character is put in brackets (`[(]`, `[$]`), and blanks are `[ <tab>]`.
+ * Nor a carriage return, which `files.search` refuses in a query: where a
+ * line must end, anything but code may follow (a CRLF file's `\r`, a `}`).
  *
  * It finds, for an identifier X:
- * - declarations: `class|interface|enum|struct|trait|type|def|defp|fn|fun|
- *   module|mod|namespace X`, `function X` / `function* X`, `func X` and Go's
+ * - declarations: `class|interface|enum|struct|trait|def|defp|fn|fun|
+ *   module|mod|namespace X`, `type X` with something after it (`=`, `<`,
+ *   `{` or a word: not a multi-line import's `type X,`), `function X` / `function* X`, `func X` and Go's
  *   `func (r T) X`, and `const|let|var|val X =` (with a type, or Rust's `mut`).
  *   Whatever comes before (`export default`, `pub`, `async`) doesn't matter.
  * - assignments of a function: `X = (…) =>`, `X: function`, `this.X = async x =>`.
  * - method heads: a line that starts with X (after modifiers such as `static
- *   async` or a return type) and its parameters and ends with `{`.
+ *   async` or a return type) and its closed parameter list, and ends with
+ *   `{` (a call opening an object argument, `x({`, doesn't close its list).
  *
  * A method head can't be told from a call at the start of a line that opens
  * a block (`describe("x", () => {`), nor any line from one in a comment, so
@@ -48,7 +52,6 @@ const DECLARATION_KEYWORDS = [
   "enum",
   "struct",
   "trait",
-  "type",
   "def",
   "defp",
   "fn",
@@ -57,6 +60,9 @@ const DECLARATION_KEYWORDS = [
   "mod",
   "namespace",
 ];
+
+/** Where a line ends: nothing but blanks, a CR or punctuation, never a word or `;`. */
+const LINE_END = "[^A-Za-z0-9_$;]*$";
 
 /** `X` as a pattern: every character as itself (`$` in brackets). */
 function literal(word: string): string {
@@ -74,6 +80,10 @@ function shapes(word: string): { kind: DefinitionKind; source: string }[] {
       kind: "declaration",
       source: `${KEYWORD_START}(${DECLARATION_KEYWORDS.join("|")})${SP}+${x}${END}`,
     },
+    {
+      kind: "declaration",
+      source: `${KEYWORD_START}type${SP}+${x}(${SP}*[=<{]|${SP}+[A-Za-z_*(])`,
+    },
     { kind: "declaration", source: `${KEYWORD_START}function(${SP}*[*]${SP}*|${SP}+)${x}${END}` },
     { kind: "declaration", source: `${KEYWORD_START}func(${SP}+|${SP}*[(][^)]*[)]${SP}*)${x}${END}` },
     {
@@ -90,7 +100,7 @@ function shapes(word: string): { kind: DefinitionKind; source: string }[] {
       kind: "method",
       source:
         `^${SP}*([A-Za-z_$][A-Za-z0-9_$<>,.]*${SP}+)*[*]?${SP}*${x}${SP}*(<[^>]*>)?${SP}*` +
-        `[(][^;]*[{]${SP}*$`,
+        `[(][^;]*[)][^;(]*[{]${LINE_END}`,
     },
   ];
 }
@@ -127,6 +137,8 @@ export type DefinitionHit = {
   /** 1-based, on the identifier when it can be placed, else where the match starts. */
   col: number;
   text: string;
+  /** Where the identifier is in `text`, when it can be placed. */
+  name: [number, number] | null;
   kind: DefinitionKind;
   score: number;
 };
@@ -135,6 +147,8 @@ export type DefinitionHit = {
 const COMMENT = /^(\/\/|\/\*|\*|#|--|<!--|;)/;
 /** A line that brings a name in rather than defining it. */
 const IMPORT = /^(import|from|use|using|require|include|export\s*(\*|\{))(?![A-Za-z0-9_$])/;
+/** A multi-line import's `type X as Y,`. */
+const TYPE_AS = /^type\s+[A-Za-z0-9_$]+\s+as\s/;
 /** Words before a "method head" that make it a statement: a call, not a definition. */
 const STATEMENT =
   /(^|[^A-Za-z0-9_$])(return|await|yield|new|throw|else|if|while|for|switch|case|typeof|delete|do|in|of)\s/;
@@ -183,7 +197,7 @@ export function rankDefinitions(
       seen.add(key);
       const text = match.text.replace(/^…/, "");
       const trimmed = text.trimStart();
-      if (COMMENT.test(trimmed) || IMPORT.test(trimmed)) continue;
+      if (COMMENT.test(trimmed) || IMPORT.test(trimmed) || TYPE_AS.test(trimmed)) continue;
       const shape = compiled.find((s) => s.re.test(text));
       if (!shape) continue;
       const m = shape.re.exec(text)!;
@@ -191,14 +205,20 @@ export function rankDefinitions(
         const head = m[0].slice(0, Math.max(0, nameIndex(m[0], name)));
         if (/=>|function/.test(m[0]) || STATEMENT.test(` ${head}`)) continue;
       }
+      const at = nameIndex(m[0], name);
+      const start = at < 0 ? null : m.index + (match.text.startsWith("…") ? 1 : 0) + at;
+      // A method head in the open file may be its own call: only a sure
+      // definition there beats the rest of the workspace.
+      const here = currentPath !== null && file.path === currentPath && shape.kind !== "method";
       hits.push({
         path: file.path,
         line: match.line,
-        col: identifierCol(match, m, name),
+        col: identifierCol(match, start),
         text: match.text,
+        name: start === null ? null : [start, start + word.length],
         kind: shape.kind,
         score:
-          (currentPath !== null && file.path === currentPath ? 100 : 0) +
+          (here ? 100 : 0) +
           (isUnlikelyFile(file.path) ? 0 : 10) +
           KIND_WEIGHT[shape.kind],
       });
@@ -218,20 +238,46 @@ function nameIndex(s: string, name: RegExp): number {
 }
 
 /**
- * The file column of the identifier in `match`: `m` (the shape's match in
- * the shown text) holds it, and the first highlighted range ties the text's
- * offsets to the file's. Without a range, where the match starts.
+ * The file column of the identifier at `start` in `match.text`: the first
+ * highlighted range ties the text's offsets to the file's. Without a range,
+ * where the match starts.
  */
 function identifierCol(
-  match: { col: number; text: string; ranges: [number, number][] },
-  m: RegExpExecArray,
-  name: RegExp,
+  match: { col: number; ranges: [number, number][] },
+  start: number | null,
 ): number {
   const first = match.ranges[0];
-  const at = nameIndex(m[0], name);
-  if (!first || at < 0) return match.col;
-  const offset = match.text.startsWith("…") ? 1 : 0;
-  return Math.max(1, match.col + (m.index + offset + at - first[0]));
+  if (!first || start === null) return match.col;
+  return Math.max(1, match.col + (start - first[0]));
+}
+
+/** The hits that tie for the best score: the ones "Definitions of X" lists. */
+export function topTier(hits: DefinitionHit[]): DefinitionHit[] {
+  return hits.filter((h) => h.score === hits[0]?.score);
+}
+
+/**
+ * `hits` as the Search view's file groups, in their order, each line
+ * highlighting just the name (or nothing, where it couldn't be placed).
+ */
+export function definitionGroups(hits: DefinitionHit[]): FileSearchFile[] {
+  const groups: FileSearchFile[] = [];
+  const byPath = new Map<string, FileSearchFile>();
+  for (const hit of hits) {
+    let group = byPath.get(hit.path);
+    if (!group) {
+      group = { path: hit.path, matches: [] };
+      byPath.set(hit.path, group);
+      groups.push(group);
+    }
+    group.matches.push({
+      line: hit.line,
+      col: hit.col,
+      text: hit.text,
+      ranges: hit.name ? [hit.name] : [],
+    });
+  }
+  return groups;
 }
 
 /** What Go to Definition does with what it found. */

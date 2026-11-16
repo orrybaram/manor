@@ -9,7 +9,7 @@ import { openFileFromPalette, openFromTree, pane } from "./helpers/file-pane";
  * Go to Definition and Find Usages in the file pane's editor (#693): F12 or
  * ⌘-click (Ctrl-click off a Mac) on an identifier searches the workspace for
  * its definition. One opens at its line; several fill the Search view as
- * "Definitions of X"; none says so in a toast. ⇧F12 lists its whole-word
+ * "Definitions of X" (the ranked hits, the name lit); none says so in a toast. ⇧F12 lists its whole-word
  * usages as "Usages of X". Holding the modifier underlines the identifier
  * under the pointer, and both are in the editor's right-click menu.
  */
@@ -176,17 +176,45 @@ test("F12 and ⌘-click go to a definition, several list as Definitions of X, �
   ).toBeVisible();
   await expect(breadcrumb(window)).toContainText("util.ts");
 
-  // Two definitions fill the Search view, labelled.
+  // The blank past a line's end is no identifier: no underline, and a
+  // modifier-click there adds a cursor rather than going anywhere.
   await openFile(window, "src/main.ts", "export const total");
+  await clickWord(window, 5, "render");
+  const line5 = (await editor(window).locator(".cm-line").nth(4).boundingBox())!;
+  const blank = { x: line5.x + line5.width - 8, y: line5.y + line5.height / 2 };
+  await window.mouse.move(blank.x, blank.y);
+  await window.keyboard.down(MOD);
+  await window.mouse.move(blank.x - 1, blank.y);
+  await expect(link).toHaveCount(0);
+  await window.mouse.click(blank.x - 1, blank.y);
+  await window.keyboard.up(MOD);
+  await expect(breadcrumb(window)).toContainText("main.ts");
+  await expect(editor(window).locator(".cm-cursorLayer .cm-cursor")).toHaveCount(2);
+
+  // Two definitions fill the Search view, labelled, with the word in the
+  // query box and the name lit in each line: the ranked hits, not a search.
   await clickWord(window, 5, "render");
   await window.keyboard.press("F12");
   await expect(drawer(window)).toHaveAttribute("data-mode", "search");
   await expect(label(window)).toHaveText("Definitions of render");
   await expect(summary(window)).toHaveText("2 results in 2 files");
   await expect(fileGroups(window)).toHaveCount(2);
+  await expect(pane(window).locator('[data-testid="file-search-input"]')).toHaveValue("render");
+  const definitionLines = pane(window).locator('[data-testid="file-search-match"]');
+  await expect(definitionLines).toHaveCount(2);
+  await expect(definitionLines.locator("mark")).toHaveText(["render", "render"]);
+  await expect(pane(window).locator('[data-testid="file-search-refresh"]')).toHaveCount(0);
   await expect(breadcrumb(window)).toContainText("main.ts");
   await window.waitForTimeout(300);
   await window.screenshot({ path: testInfo.outputPath("definitions-dark.png") });
+  // A line opens its file with the cursor on the name.
+  await pane(window)
+    .locator('[data-testid="file-search-match"][data-path="src/legacy/view.ts"]')
+    .click();
+  await expect(breadcrumb(window)).toContainText("legacy");
+  await expect(editor(window)).toContainText("return String(x)");
+  await expect(activeLine(window)).toHaveText("1");
+  await openFile(window, "src/main.ts", "export const total");
 
   // ⇧F12 lists the whole-word usages.
   await clickWord(window, 4, "formatTotal");
@@ -239,6 +267,7 @@ test("F12 and ⌘-click go to a definition, several list as Definitions of X, �
   await window.keyboard.up(MOD);
   await expect(label(window)).toHaveText("Definitions of render");
   await expect(summary(window)).toHaveText("2 results in 2 files");
+  await expect(pane(window).locator('[data-testid="file-search-input"]')).toHaveValue("render");
   await window.waitForTimeout(300);
   await window.screenshot({ path: testInfo.outputPath("definitions-light.png") });
 });

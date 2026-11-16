@@ -37,8 +37,15 @@ const SAMPLES: Record<string, string> = {
     "  }",
     "}",
     "export const fooBarBaz = 1;",
+    "import {",
+    "  type fooBar,",
+    "} from './b';",
+    "  fooBar({",
+    "  fooBar(e, {",
     "",
   ].join("\n"),
+  // CRLF line endings: a method head still ends its line with `{`.
+  "src/e.ts": ["export class W {", "  fooBar(a: number): void {", "  }", "}", ""].join("\r\n"),
   "src/b.py": ["def fooBar(x):", "    return fooBar(x - 1)", "class fooBar:", "    pass", ""].join(
     "\n",
   ),
@@ -56,7 +63,7 @@ const SAMPLES: Record<string, string> = {
   ),
 };
 
-/** Every definition of fooBar in the samples, as path:line:col of the name. */
+/** Every definition of fooBar in the samples (no import, no call opening an object), as path:line:col of the name. */
 const EXPECTED = [
   "src/a.ts:3:17",
   "src/a.ts:7:23",
@@ -68,6 +75,7 @@ const EXPECTED = [
   "src/d.rs:1:8",
   "src/d.rs:2:9",
   "src/d.rs:3:5",
+  "src/e.ts:2:3",
 ];
 
 async function fixture(git: boolean): Promise<string> {

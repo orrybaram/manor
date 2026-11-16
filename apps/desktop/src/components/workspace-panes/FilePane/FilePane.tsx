@@ -43,7 +43,7 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { Button } from "../../ui/Button/Button";
 import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
 import type { CodeNavHandler } from "./CodeEditor/definition-nav";
-import { definitionPattern, findDefinition } from "./definition-search";
+import { definitionGroups, findDefinition, topTier } from "./definition-search";
 import { toast } from "../../../toast";
 import type { AgentMarks } from "./CodeEditor/change-marks";
 import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
@@ -417,11 +417,18 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     pendingLines.request(paneId, { path, line, col });
     pickFile(path);
   };
-  // Go to Definition and Find Usages, from the editor. Only the newest
-  // definition search lands: an older one answering late is dropped.
+  // Go to Definition and Find Usages, from the editor. Only the newest ask
+  // lands: a definition search answering after another ask, after the pane
+  // moved to another file, or after it closed is dropped, never jumping.
   const [definitionAsks] = useState(createLatestOnly);
-  const navigate: CodeNavHandler = (kind, word) => {
+  const filePathRef = useRef(filePath);
+  filePathRef.current = filePath;
+  useMountEffect(() => () => {
+    definitionAsks.begin();
+  });
+  const navigate: CodeNavHandler = (kind, word, source) => {
     if (!workspace) return;
+    const ticket = definitionAsks.begin();
     if (kind === "usages") {
       requestSearch(paneId, {
         query: word,
@@ -432,32 +439,39 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       });
       return;
     }
-    const ticket = definitionAsks.begin();
+    const askedIn = filePath;
     const current = filePath && !isOutsideWorkspace(filePath) ? filePath : null;
+    const landed = () => definitionAsks.isLatest(ticket) && filePathRef.current === askedIn;
+    // Asked from the menu, the keyboard was left nowhere: a toast hands it back.
+    const refocus = () => {
+      if (document.activeElement === document.body) focusEditor();
+    };
     findDefinition(word, (params) => window.electronAPI.files.search(workspace, params), current).then(
       (found) => {
-        if (!definitionAsks.isLatest(ticket)) return;
+        if (!landed()) return;
         if ("ok" in found) {
           toast.error(`Couldn't search for the definition of ${word}`, { detail: found.message });
+          refocus();
         } else if (found.kind === "none") {
           toast.info(`No definition found for ${word}`);
+          refocus();
         } else if (found.kind === "one") {
-          // The open file only moves its cursor; another opens there.
-          openMatch(found.hit.path, found.hit.line, found.hit.col);
+          // In the open file, the cursor moves where it is (a diff stays a
+          // diff); another file opens with it there.
+          if (found.hit.path === current) source.goTo(found.hit.line, found.hit.col);
+          else openMatch(found.hit.path, found.hit.line, found.hit.col);
         } else {
           requestSearch(paneId, {
-            query: definitionPattern(word),
-            regex: true,
-            caseSensitive: true,
-            wholeWord: false,
+            query: word,
             label: `Definitions of ${word}`,
+            results: definitionGroups(topTier(found.hits)),
           });
         }
       },
       (err: unknown) => {
-        if (definitionAsks.isLatest(ticket)) {
-          toast.error(`Couldn't search for the definition of ${word}`, { error: err });
-        }
+        if (!landed()) return;
+        toast.error(`Couldn't search for the definition of ${word}`, { error: err });
+        refocus();
       },
     );
   };

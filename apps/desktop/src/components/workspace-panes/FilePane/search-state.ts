@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FileSearchParams } from "../../../electron.d";
+import type { FileSearchFile, FileSearchParams } from "../../../electron.d";
 
 /** What the Search view's fields hold, as typed. */
 export type SearchForm = {
@@ -24,6 +24,12 @@ export type SearchRequest = {
   wholeWord?: boolean;
   regex?: boolean;
   label?: string | null;
+  /**
+   * Results found already (Go to Definition's ranked hits), shown as they
+   * are instead of searching: `query` (the word) fills the box, and the
+   * toggles stay as they were.
+   */
+  results?: FileSearchFile[] | null;
 };
 
 /** A file pane's Search view, kept by pane so it survives a view switch or a remount. */
@@ -31,6 +37,8 @@ export type PaneSearch = {
   form: SearchForm;
   /** The pill over the results; null for a search typed in the view. */
   label: string | null;
+  /** Results handed in with the request, shown instead of a search; null to search. */
+  results: FileSearchFile[] | null;
   /** Counts requests from outside: each new one runs at once. */
   asked: number;
   /** Files whose matches are folded away. */
@@ -46,11 +54,17 @@ export const EMPTY_FORM: SearchForm = {
   exclude: "",
 };
 
-const EMPTY: PaneSearch = { form: EMPTY_FORM, label: null, asked: 0, collapsed: [] };
+const EMPTY: PaneSearch = {
+  form: EMPTY_FORM,
+  label: null,
+  results: null,
+  asked: 0,
+  collapsed: [],
+};
 
 type Store = {
   byPane: Record<string, PaneSearch>;
-  /** The user changed fields: the label no longer describes the search. */
+  /** The user changed fields: the label (and results handed in) no longer describe the search. */
   edit: (paneId: string, patch: Partial<SearchForm>) => void;
   request: (paneId: string, request: SearchRequest) => void;
   setCollapsed: (paneId: string, collapsed: string[]) => void;
@@ -76,6 +90,7 @@ export const useFileSearchState = create<Store>((set) => ({
         ...p,
         form: { ...p.form, ...patch },
         label: null,
+        results: null,
         // A new search lists every file open again.
         collapsed: [],
       })),
@@ -90,6 +105,7 @@ export const useFileSearchState = create<Store>((set) => ({
         ...p,
         form: { ...p.form, query: "" },
         label: null,
+        results: null,
         asked: p.asked + 1,
         collapsed: [],
       })),
@@ -105,6 +121,15 @@ export const useFileSearchState = create<Store>((set) => ({
 /** `pane`'s search once `request` is applied to it. */
 export function applyRequest(pane: PaneSearch, request: SearchRequest): PaneSearch {
   const { form } = pane;
+  if (request.results) {
+    return {
+      form: { ...form, query: request.query },
+      label: request.label ?? null,
+      results: request.results,
+      asked: pane.asked + 1,
+      collapsed: [],
+    };
+  }
   return {
     form: {
       ...form,
@@ -114,6 +139,7 @@ export function applyRequest(pane: PaneSearch, request: SearchRequest): PaneSear
       regex: request.regex ?? form.regex,
     },
     label: request.label ?? null,
+    results: null,
     asked: pane.asked + 1,
     collapsed: [],
   };

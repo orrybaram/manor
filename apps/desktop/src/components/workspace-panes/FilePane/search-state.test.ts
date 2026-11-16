@@ -80,6 +80,31 @@ describe("useFileSearchState", () => {
     });
   });
 
+  it("a request with results shows them under the word, toggles and globs as they were, until an edit or clear", () => {
+    const s = useFileSearchState.getState();
+    s.edit("p", { caseSensitive: false, regex: true, include: "src" });
+    const results = [
+      {
+        path: "a.ts",
+        matches: [{ line: 1, col: 7, text: "class X {", ranges: [[6, 7]] as [number, number][] }],
+      },
+    ];
+    s.request("p", { query: "X", results, label: "Definitions of X" });
+    expect(pane("p")).toMatchObject({
+      form: { query: "X", caseSensitive: false, regex: true, include: "src" },
+      label: "Definitions of X",
+      results,
+    });
+    s.edit("p", { query: "Xy" });
+    expect(pane("p")).toMatchObject({ label: null, results: null });
+    s.request("p", { query: "X", results, label: "Definitions of X" });
+    s.clear("p");
+    expect(pane("p").results).toBeNull();
+    s.request("p", { query: "X", results, label: "Definitions of X" });
+    s.request("p", { query: "X", label: "Usages of X" });
+    expect(pane("p").results).toBeNull();
+  });
+
   it("drop forgets the pane", () => {
     useFileSearchState.getState().edit("p", { query: "x" });
     useFileSearchState.getState().drop("p");

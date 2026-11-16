@@ -217,6 +217,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   };
   const focusDrawer = () => {
     const root = rootRef.current;
+    const query = root?.querySelector<HTMLInputElement>('[data-testid="file-search-input"]');
+    if (query) {
+      query.focus({ preventScroll: true });
+      query.select();
+      return;
+    }
     const target =
       root?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
       root?.querySelector<HTMLElement>('[data-testid="file-pane-drawer"]');
@@ -351,7 +357,9 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     // Always to the query, with the editor's one-line selection in it.
     if (key === "search") {
       if (!workspace) return;
-      const query = selectionQuery(openFileSelection(paneId));
+      // From inside the drawer it only goes back to the query: what was
+      // typed there stays, not the editor's (unfocused) selection.
+      const query = drawerHasFocus() ? null : selectionQuery(openFileSelection(paneId));
       if (query !== null) useFileSearchState.getState().request(paneId, { query });
       showSearch();
       return;

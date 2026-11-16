@@ -72,7 +72,13 @@ export const useFileSearchState = create<Store>((set) => ({
   byPane: {},
   edit: (paneId, patch) =>
     set((s) => ({
-      byPane: update(s.byPane, paneId, (p) => ({ ...p, form: { ...p.form, ...patch }, label: null })),
+      byPane: update(s.byPane, paneId, (p) => ({
+        ...p,
+        form: { ...p.form, ...patch },
+        label: null,
+        // A new search lists every file open again.
+        collapsed: [],
+      })),
     })),
   request: (paneId, request) =>
     set((s) => ({ byPane: update(s.byPane, paneId, (p) => applyRequest(p, request)) })),

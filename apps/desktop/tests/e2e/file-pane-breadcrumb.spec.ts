@@ -118,7 +118,7 @@ test("breadcrumb segments open a folder picker that filters, drills in, opens fi
   // ← steps out to the workspace's root, and no further.
   await window.keyboard.press("ArrowLeft");
   await expect(pickerPath(window)).toHaveText("./");
-  await expect(entries(window)).toHaveText(["src", "README.md"]);
+  await expect(entries(window)).toHaveText(["src", ".gitkeep", "README.md"]);
   await window.keyboard.press("ArrowLeft");
   await expect(pickerPath(window)).toHaveText("./");
   // A click on a folder steps in; a click on a file opens it.

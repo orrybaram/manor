@@ -117,6 +117,8 @@ export function SearchView({
     queryFn: () => window.electronAPI.files.search(workspace, ran.params),
     enabled,
     staleTime: 0,
+    // A lost host throws; say so at once rather than after the retries.
+    retry: false,
     placeholderData: keepPreviousData,
   });
   const answer = enabled ? result.data : undefined;

@@ -1,4 +1,7 @@
 import { useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import * as ContextMenu from "@radix-ui/react-context-menu";
+import ArrowRightToLine from "lucide-react/dist/esm/icons/arrow-right-to-line";
+import TextSearch from "lucide-react/dist/esm/icons/text-search";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
@@ -22,6 +25,7 @@ import {
   searchKeymap,
 } from "@codemirror/search";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
+import { formatCombo, getPlatform } from "../../../../lib/keybindings";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
 import type { EditorAsk } from "../markdown-preview";
@@ -46,6 +50,13 @@ import { blameGutter, setBlame } from "./blame-gutter";
 import { unfoldAt, unifiedDiff } from "./diff-view";
 import { createFindPanel } from "./search-panel";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
+import {
+  definitionNav,
+  identifierAt,
+  identifierAtCursor,
+  type CodeNavHandler,
+  type CodeNavKind,
+} from "./definition-nav";
 import styles from "./CodeEditor.module.css";
 
 // ⇧⌘G is the app's Open Source Control, so it is not the editor's Find Previous (⇧F3 still is).
@@ -119,6 +130,11 @@ type CodeEditorProps = {
    * (a line, Find, a change jump), for a view that may be hiding it.
    */
   onAsk?: (ask: EditorAsk) => void;
+  /**
+   * Go to Definition (F12, ⌘-click) or Find Usages (⇧F12) on an identifier,
+   * also in the right-click menu; none leaves them out.
+   */
+  onNavigate?: CodeNavHandler;
   ref?: Ref<CodeEditorRef>;
 };
 
@@ -139,6 +155,9 @@ type CodeEditorProps = {
  * editable, and the change marks step aside: the diff marks every change.
  * There, selected lines take a review comment (with a `reviewWorkspace`),
  * and the file's comments show as cards under their lines.
+ *
+ * With `onNavigate`, F12 and ⌘-click go to an identifier's definition and
+ * ⇧F12 finds its usages; its right-click menu offers both.
  */
 export function CodeEditor({
   paneId,
@@ -153,6 +172,7 @@ export function CodeEditor({
   diffBase = null,
   reviewWorkspace,
   onAsk,
+  onNavigate,
   ref,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -167,6 +187,13 @@ export function CodeEditor({
   const dirtyRef = useRef(false);
   /** Switch between the plain editor and the diff; set on mount. */
   const showDiffRef = useRef<((base: string | null) => void) | null>(null);
+  // The latest handler: the pane's, which may close over newer state than the mount's.
+  const navigateRef = useRef(onNavigate);
+  navigateRef.current = onNavigate;
+  /** The identifier the right-click menu is for; null off one. */
+  const [menuWord, setMenuWord] = useState<string | null>(null);
+  /** A menu item ran: it says where the keyboard goes, not the menu's close. */
+  const menuChoseRef = useRef(false);
 
   const isDirty = (view: EditorView) => fileRef.current?.isDirty(view.state.doc) ?? false;
   const settle = (view: EditorView) => {
@@ -300,6 +327,9 @@ export function CodeEditor({
           bracketMatching(),
           highlightSelectionMatches(),
           search({ top: true, createPanel: createFindPanel }),
+          onNavigate
+            ? definitionNav((kind, word) => navigateRef.current?.(kind, word), getPlatform() === "mac")
+            : [],
           // ⌥↑/⌥↓ move between the changes; with none, or unsaved edits, they move the line.
           Prec.high(
             keymap.of([
@@ -458,13 +488,94 @@ export function CodeEditor({
     };
   });
 
+  const host = <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />;
+  const runMenu = (kind: CodeNavKind) => {
+    if (!menuWord) return;
+    menuChoseRef.current = true;
+    navigateRef.current?.(kind, menuWord);
+  };
+
   return (
     <div className={styles.frame}>
-      <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />
+      {onNavigate ? (
+        <ContextMenu.Root
+          onOpenChange={(open) => {
+            if (open) menuChoseRef.current = false;
+          }}
+        >
+          <ContextMenu.Trigger
+            asChild
+            // The phone only reads, and a long press there selects.
+            disabled={readOnly}
+            onContextMenu={(e) => {
+              const view = viewRef.current;
+              // A field in the editor (Find's, a comment's) holds no code: no menu there.
+              const target = e.target as HTMLElement;
+              if (!view || target.closest("input, textarea")) {
+                e.preventDefault();
+                return;
+              }
+              // As in VS Code: a right-click off the selection moves the cursor there.
+              const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+              const { from, to } = view.state.selection.main;
+              if (pos !== null && (pos < from || pos > to)) {
+                view.dispatch({ selection: { anchor: pos } });
+              }
+              setMenuWord(
+                pos !== null && (pos < from || pos > to)
+                  ? (identifierAt(view.state, pos)?.word ?? null)
+                  : identifierAtCursor(view.state),
+              );
+            }}
+          >
+            {host}
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content
+              className={styles.contextMenu}
+              data-testid="file-pane-editor-menu"
+              onCloseAutoFocus={(e) => {
+                // A run item hands the keyboard on itself (the file it opens, the Search view).
+                e.preventDefault();
+                if (!menuChoseRef.current) viewRef.current?.focus();
+              }}
+            >
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                data-testid="file-pane-editor-go-to-definition"
+                disabled={menuWord === null}
+                onSelect={() => runMenu("definition")}
+              >
+                <ArrowRightToLine size={14} />
+                Go to Definition
+                <span className={styles.contextMenuHint}>{NAV_KEYS.definition}</span>
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                data-testid="file-pane-editor-find-usages"
+                disabled={menuWord === null}
+                onSelect={() => runMenu("usages")}
+              >
+                <TextSearch size={14} />
+                Find Usages
+                <span className={styles.contextMenuHint}>{NAV_KEYS.usages}</span>
+              </ContextMenu.Item>
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
+      ) : (
+        host
+      )}
       <MarkLane lane={lane} onPick={(mark) => markClickedRef.current?.(mark)} />
     </div>
   );
 }
+
+/** The menu items' keys: F12 and ⇧F12 (Shift+F12 off a Mac). */
+const NAV_KEYS: Record<CodeNavKind, string> = {
+  definition: formatCombo({ key: "F12", meta: false, ctrl: false, shift: false, alt: false }),
+  usages: formatCombo({ key: "F12", meta: false, ctrl: false, shift: true, alt: false }),
+};
 
 function sameMarks(a: readonly LaneMark[], b: readonly LaneMark[]): boolean {
   return (

@@ -42,12 +42,16 @@ import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { Button } from "../../ui/Button/Button";
 import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
+import type { CodeNavHandler } from "./CodeEditor/definition-nav";
+import { definitionPattern, findDefinition } from "./definition-search";
+import { toast } from "../../../toast";
 import type { AgentMarks } from "./CodeEditor/change-marks";
 import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
 import { SearchHeadActions, SearchView } from "./FileDrawer/SearchView";
 import {
   onSearchRequest,
+  requestSearch,
   selectionQuery,
   takeSearchRequest,
   useFileSearchState,
@@ -413,6 +417,50 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     pendingLines.request(paneId, { path, line, col });
     pickFile(path);
   };
+  // Go to Definition and Find Usages, from the editor. Only the newest
+  // definition search lands: an older one answering late is dropped.
+  const [definitionAsks] = useState(createLatestOnly);
+  const navigate: CodeNavHandler = (kind, word) => {
+    if (!workspace) return;
+    if (kind === "usages") {
+      requestSearch(paneId, {
+        query: word,
+        wholeWord: true,
+        caseSensitive: true,
+        regex: false,
+        label: `Usages of ${word}`,
+      });
+      return;
+    }
+    const ticket = definitionAsks.begin();
+    const current = filePath && !isOutsideWorkspace(filePath) ? filePath : null;
+    findDefinition(word, (params) => window.electronAPI.files.search(workspace, params), current).then(
+      (found) => {
+        if (!definitionAsks.isLatest(ticket)) return;
+        if ("ok" in found) {
+          toast.error(`Couldn't search for the definition of ${word}`, { detail: found.message });
+        } else if (found.kind === "none") {
+          toast.info(`No definition found for ${word}`);
+        } else if (found.kind === "one") {
+          // The open file only moves its cursor; another opens there.
+          openMatch(found.hit.path, found.hit.line, found.hit.col);
+        } else {
+          requestSearch(paneId, {
+            query: definitionPattern(word),
+            regex: true,
+            caseSensitive: true,
+            wholeWord: false,
+            label: `Definitions of ${word}`,
+          });
+        }
+      },
+      (err: unknown) => {
+        if (definitionAsks.isLatest(ticket)) {
+          toast.error(`Couldn't search for the definition of ${word}`, { error: err });
+        }
+      },
+    );
+  };
   // A Source Control row opens its file's diff.
   const openChange = (change: FileChange, view: ScmView) =>
     open(change.path, {
@@ -622,6 +670,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
                 pickFile(path);
               }}
               focusEditor={focusEditor}
+              onNavigate={navigate}
             />
           ) : (
             <div className={styles.empty} data-testid="file-pane-empty">
@@ -818,6 +867,7 @@ function OpenFile({
   onOpenPlain,
   onOpenFile,
   focusEditor,
+  onNavigate,
 }: {
   paneId: string;
   /** The root `path` is read from: the pane's workspace, or `/` for a file outside it. */
@@ -834,6 +884,8 @@ function OpenFile({
   onOpenFile: (path: string) => void;
   /** Hand the keyboard to whichever of the editor and the rendered markdown shows. */
   focusEditor: () => void;
+  /** Go to Definition / Find Usages for an identifier in the editor. */
+  onNavigate: CodeNavHandler;
 }) {
   const stored = useOpenFileStore((s) => s.byPane[paneId]);
   // Until this mount has opened `path`, the pane may still hold the last file.
@@ -1276,6 +1328,7 @@ function OpenFile({
               diffBase={diffBase}
               reviewWorkspace={workspace.path}
               onAsk={onEditorAsk}
+              onNavigate={onNavigate}
             />
           </Suspense>
         </div>

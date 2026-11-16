@@ -40,6 +40,7 @@ import {
   type FileReadResult,
   type FileWriteResult,
 } from "../../workspace-files";
+import { searchWorkspace, type FileSearchParams, type FileSearchResult } from "../../workspace-search";
 import { method, type HandlerCtx } from "../method";
 
 export type FilesDeps = Pick<ServerDeps, "backendRegistry">;
@@ -65,6 +66,37 @@ function backendFor(ctx: HandlerCtx<FilesDeps>, workspace: HostPath) {
 export function filesList(ctx: HandlerCtx<FilesDeps>, workspace: HostPath): Promise<FileListResult> {
   assertWorkspace(workspace, "workspace");
   return listWorkspaceFiles(backendFor(ctx, workspace), workspace.path);
+}
+
+/** What `files.search` is asked, checked: a malformed one is refused before reaching any host. */
+function assertSearchParams(value: unknown, name: string): asserts value is FileSearchParams {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${name}: expected object, got ${value === null ? "null" : typeof value}`);
+  }
+  const p = value as Record<string, unknown>;
+  assertString(p.query, `${name}.query`);
+  for (const flag of ["caseSensitive", "wholeWord", "regex"] as const) {
+    if (typeof p[flag] !== "boolean") throw new Error(`${name}.${flag}: expected boolean`);
+  }
+  assertStringArray(p.include, `${name}.include`);
+  assertStringArray(p.exclude, `${name}.exclude`);
+  if (p.maxResults !== undefined && p.maxResults !== null && typeof p.maxResults !== "number") {
+    throw new Error(`${name}.maxResults: expected number`);
+  }
+}
+
+/** Search the workspace's files for text, on its host (`../../workspace-search.ts`). */
+export function filesSearch(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  params: FileSearchParams,
+): Promise<FileSearchResult> {
+  assertWorkspace(workspace, "workspace");
+  assertSearchParams(params, "params");
+  return searchWorkspace(backendFor(ctx, workspace), workspace.path, {
+    ...params,
+    maxResults: params.maxResults ?? undefined,
+  });
 }
 
 export function filesRead(
@@ -192,6 +224,7 @@ export function filesUnwatch(ctx: HandlerCtx<FileWatchDeps>): void {
 // reached through its backend, as the diff reads are.
 export const files = {
   list: method(filesList),
+  search: method(filesSearch),
   read: method(filesRead),
   readBytes: method(filesReadBytes),
   blameRevision: method(filesBlameRevision),

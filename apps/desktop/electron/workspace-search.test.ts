@@ -163,7 +163,7 @@ describe("argument building", () => {
     const args = grepArgs(
       params({ query: "--help", exclude: ["*.log", "a/b"] }),
     );
-    expect(args.slice(0, 3)).toEqual(["-rnI", "--null", "-F"]);
+    expect(args.slice(0, 5)).toEqual(["-rnI", "--null", "-m", "200", "-F"]);
     expect(args).toContain("--exclude-dir=.?*");
     expect(args).toContain("--exclude-dir=node_modules");
     expect(args).toContain("--exclude=*.log");
@@ -313,6 +313,34 @@ describe("parsing", () => {
     expect(parsed.total).toBe(1);
   });
 
+  it("git grep and grep: a capped output drops its last record, as a remote daemon's `…[truncated]` follows it", () => {
+    const out = "a.ts\x001\x001\x00foo\nb.ts\x001\x001\x00fo\n…[truncated]";
+    expect(
+      parseGitGrep(out, queryRegExp(base), 10, true).files.has("b.ts"),
+    ).toBe(false);
+    expect(parseGitGrep(out, queryRegExp(base), 10, true).total).toBe(1);
+    const g = "./a.ts\x001:foo\n./b.ts\x001:fo\n…[truncated]";
+    expect([
+      ...parseGrep(g, queryRegExp(base), 10, () => true, true).files.keys(),
+    ]).toEqual(["a.ts"]);
+  });
+
+  it("rg --json: a line that is not UTF-8 maps offsets over the bytes rg read", () => {
+    // 0xff is no UTF-8; it decodes to one U+FFFD, which re-encodes as three bytes.
+    const raw = Buffer.concat([Buffer.from([0xff]), Buffer.from(" foo\n")]);
+    const msg = JSON.stringify({
+      type: "match",
+      data: {
+        path: { text: "./bin.txt" },
+        lines: { bytes: raw.toString("base64") },
+        line_number: 1,
+        submatches: [{ start: 2, end: 5 }],
+      },
+    });
+    const m = parseRgJson(`${msg}\n`, 10).files.get("bin.txt")![0];
+    expect(m.text.slice(...m.ranges[0])).toBe("foo");
+  });
+
   it("git grep: a cut-off last line is dropped", () => {
     expect(
       parseGitGrep(
@@ -456,10 +484,19 @@ describe("searchWorkspace", () => {
     });
   });
 
-  it("keeps what it found before a timeout or maxBuffer, as truncated", async () => {
-    for (const code of [null, "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"]) {
+  it("keeps what it found before a timeout or maxBuffer, here or on a remote host, as truncated", async () => {
+    const stops = [
+      { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" },
+      { code: null, killed: true },
+      { code: null, stderr: "\n[timed out after 15000ms]" },
+      { code: 143, stderr: "\n[timed out after 15000ms]" },
+    ];
+    for (const stop of stops) {
       const b = fakeBackend("/usr/bin/rg", () =>
-        execError("stopped", { code, stdout: RG_FIXTURE }),
+        Object.assign(
+          execError("stopped", { code: stop.code, stdout: RG_FIXTURE }),
+          stop,
+        ),
       );
       expect(await searchWorkspace(b, "/w", base)).toMatchObject({
         ok: true,
@@ -467,6 +504,141 @@ describe("searchWorkspace", () => {
         truncated: true,
       });
     }
+  });
+
+  it("throws on a lost connection rather than answering no results", async () => {
+    const lost = Object.assign(
+      execError("Command failed", { code: null, stderr: "connection closed" }),
+      {
+        cause: new Error("connection closed"),
+      },
+    );
+    const b = fakeBackend("/usr/bin/rg", () => lost);
+    await expect(searchWorkspace(b, "/w", base)).rejects.toBe(lost);
+  });
+
+  it("falls back to grep when the host cannot start git (a remote spawn failure), and throws when grep cannot start either", async () => {
+    const spawnFailed = () =>
+      execError("Command failed", { code: null, stderr: "spawn git ENOENT" });
+    const b = fakeBackend(null, (cmd) =>
+      cmd === "git" ? spawnFailed() : "./a.ts\x001:foo\n",
+    );
+    expect(await searchWorkspace(b, "/w", base)).toMatchObject({
+      ok: true,
+      engine: "grep",
+      total: 1,
+    });
+    const gone = fakeBackend(null, () => spawnFailed());
+    await expect(searchWorkspace(gone, "/gone", base)).rejects.toThrow();
+  });
+
+  it("falls back to grep on any git refusal but a bad pattern: a localised not-a-repo, dubious ownership, an old git", async () => {
+    for (const [code, stderr] of [
+      [
+        128,
+        "fatal: kein Git-Repository (oder irgendeines der Elternverzeichnisse): .git",
+      ],
+      [128, "fatal: detected dubious ownership in repository at '/w'"],
+      [129, "error: unknown option `column'"],
+    ] as const) {
+      const b = fakeBackend(null, (cmd) =>
+        cmd === "git"
+          ? execError("Command failed", { code, stderr })
+          : "./a.ts\x001:foo\n",
+      );
+      expect(await searchWorkspace(b, "/w", base)).toMatchObject({
+        ok: true,
+        engine: "grep",
+      });
+    }
+    const badRe = fakeBackend(null, (cmd) =>
+      cmd === "git"
+        ? execError("Command failed", {
+            code: 128,
+            stderr: "fatal: command line, '(': Unmatched ( or \\(",
+          })
+        : "",
+    );
+    expect(
+      await searchWorkspace(badRe, "/w", params({ query: "(", regex: true })),
+    ).toMatchObject({
+      ok: false,
+      reason: "invalid-query",
+    });
+  });
+
+  it("answers what it found past files it could not read, and fails on any other refusal", async () => {
+    const unreadable = fakeBackend(null, (cmd) =>
+      cmd === "git"
+        ? execError("x", { code: 128, stderr: "fatal: not a git repository" })
+        : execError("x", {
+            code: 2,
+            stderr: "grep: ./secret: Permission denied\n",
+          }),
+    );
+    expect(
+      await searchWorkspace(unreadable, "/w", params({ regex: true })),
+    ).toMatchObject({ ok: true, total: 0 });
+    const badGlob = fakeBackend("/usr/bin/rg", () =>
+      execError("x", {
+        code: 2,
+        stderr: "rg: error parsing glob '{': unclosed alternate group",
+      }),
+    );
+    expect(
+      await searchWorkspace(badGlob, "/w", params({ include: ["{"] })),
+    ).toMatchObject({
+      ok: false,
+      reason: "failed",
+    });
+  });
+
+  it("refuses a query with a line break, and a glob that leaves the workspace, before running anything", async () => {
+    const b = fakeBackend("/usr/bin/rg", () => "");
+    expect(
+      await searchWorkspace(b, "/w", params({ query: "a\nb" })),
+    ).toMatchObject({ ok: false, reason: "invalid-query" });
+    for (const glob of ["../**", "src/../../x", " ../ "]) {
+      expect(
+        await searchWorkspace(b, "/w", params({ include: [glob] })),
+      ).toMatchObject({ ok: false, reason: "invalid-query" });
+      expect(
+        await searchWorkspace(b, "/w", params({ exclude: [glob] })),
+      ).toMatchObject({ ok: false, reason: "invalid-query" });
+    }
+    expect(b.exec).not.toHaveBeenCalled();
+  });
+
+  it("re-asks for rg after a while when it was not found, but never once it was", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const missing = fakeBackend(null, () => "");
+      await searchWorkspace(missing, "/w", base);
+      await searchWorkspace(missing, "/w", base);
+      expect(missing.which).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(1_000_000 + 61_000);
+      await searchWorkspace(missing, "/w", base);
+      expect(missing.which).toHaveBeenCalledTimes(2);
+
+      const found = fakeBackend("/usr/bin/rg", () => "");
+      await searchWorkspace(found, "/w", base);
+      now.mockReturnValue(9_000_000);
+      await searchWorkspace(found, "/w", base);
+      expect(found.which).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("marks truncated when a file reaches the per-file cap", async () => {
+    const many = Array.from({ length: 200 }, (_, i) =>
+      rgMatch("./a.ts", i + 1, "foo", [[0, 3]]),
+    ).join("\n");
+    const b = fakeBackend("/usr/bin/rg", () => many);
+    expect(await searchWorkspace(b, "/w", base)).toMatchObject({
+      total: 200,
+      truncated: true,
+    });
   });
 
   it("holds to maxResults, never past the cap", async () => {

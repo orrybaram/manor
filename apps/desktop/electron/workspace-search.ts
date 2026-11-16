@@ -31,10 +31,21 @@
  * is anchored at the workspace (`src/**`, `apps/desktop`). A folder matches
  * everything in it.
  *
- * **Caps.** At most `MAX_SEARCH_MATCHES` matches, each line cut to about
+ * **Caps.** At most `MAX_SEARCH_MATCHES` matches, and (`rg` and `grep`) at
+ * most `MAX_LINES_PER_FILE` matching lines per file; each line cut to about
  * `PREVIEW_CHARS` characters around its first match, `SEARCH_TIMEOUT_MS` and
- * `MAX_SEARCH_OUTPUT_BYTES` of output; whatever was found before a cap hit is
- * answered, with `truncated: true`.
+ * `MAX_SEARCH_OUTPUT_BYTES` of output. Whatever was found before a cap hit is
+ * answered, with `truncated: true`. `rg --json` ignores `--max-columns`, so a
+ * very long line is bounded only by the output cap, and then by the preview.
+ *
+ * **Refusals.** A query with a line break, or a glob with a `..` segment, is
+ * refused before anything runs. A pattern an engine cannot read is
+ * `invalid-query`, told apart by the engine's own (English) words for it; a
+ * search that skipped files it could not read still answers the rest. Any
+ * other refusal from `git grep` (not a repo, in whatever language; a repo it
+ * calls dubious; a git too old for `--column`), or no git at all, falls back
+ * to `grep`. A lost connection to the host, or a workspace folder that is
+ * gone, throws.
  */
 
 import type { ShellBackend } from "./backend/types";
@@ -55,6 +66,13 @@ const MAX_SEARCH_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 /** How much of a preview comes before its first match, when the line is cut. */
 const PREVIEW_LEAD = 40;
+
+/**
+ * `rg` and `grep` stop at this many matching lines in one file, so one huge
+ * file (a minified bundle, a lockfile) cannot fill the output on its own.
+ * `git grep -m` is too new (2.38) to count on, so it has no such cap.
+ */
+export const MAX_LINES_PER_FILE = 200;
 
 /** At most this many ranges are highlighted in one line. */
 const MAX_RANGES_PER_LINE = 100;
@@ -231,6 +249,7 @@ export function rgArgs(p: FileSearchParams): string[] {
     "--glob",
     "!.git",
     `--max-filesize=${MAX_FILE_BYTES}`,
+    `--max-count=${MAX_LINES_PER_FILE}`,
     p.caseSensitive ? "--case-sensitive" : "--ignore-case",
   ];
   if (!p.regex) args.push("--fixed-strings");
@@ -273,7 +292,13 @@ export function gitGrepArgs(p: FileSearchParams): string[] {
 
 /** `grep`'s arguments, run in the workspace; globs are filtered after (see the header). */
 export function grepArgs(p: FileSearchParams): string[] {
-  const args = ["-rnI", "--null", p.regex ? "-E" : "-F"];
+  const args = [
+    "-rnI",
+    "--null",
+    "-m",
+    String(MAX_LINES_PER_FILE),
+    p.regex ? "-E" : "-F",
+  ];
   if (!p.caseSensitive) args.push("-i");
   if (p.wholeWord) args.push("-w");
   // `.?*` rather than `.*`, which would skip the `.` searched.
@@ -411,14 +436,24 @@ function chomp(line: string): string {
 type RgText = { text?: string; bytes?: string };
 
 function rgText(value: RgText | undefined): string | null {
+  return rgLine(value)?.text ?? null;
+}
+
+/** A path or line rg reported, and the bytes it came from: `bytes` (base64) when not UTF-8. */
+function rgLine(
+  value: RgText | undefined,
+): { text: string; raw: Buffer } | null {
   if (!value) return null;
-  if (typeof value.text === "string") return value.text;
-  if (typeof value.bytes === "string")
-    return Buffer.from(value.bytes, "base64").toString("utf-8");
+  if (typeof value.text === "string")
+    return { text: value.text, raw: Buffer.from(value.text, "utf-8") };
+  if (typeof value.bytes === "string") {
+    const raw = Buffer.from(value.bytes, "base64");
+    return { text: raw.toString("utf-8"), raw };
+  }
   return null;
 }
 
-/** A UTF-8 byte offset into `text` as a character offset. */
+/** A byte offset into `bytes`, which decode to `text`, as a character offset of `text`. */
 function charOffset(text: string, bytes: Buffer, byteOffset: number): number {
   return bytes.length === text.length
     ? byteOffset
@@ -448,16 +483,18 @@ export function parseRgJson(output: string, cap: number): Parsed {
     }
     const data = msg.data;
     const path = rgText(data?.path);
-    const text = rgText(data?.lines);
+    const reported = rgLine(data?.lines);
     if (
       !data ||
       path === null ||
-      text === null ||
+      reported === null ||
       typeof data.line_number !== "number"
     )
       continue;
-    const line = chomp(text);
-    const bytes = Buffer.from(line, "utf-8");
+    const line = chomp(reported.text);
+    // Offsets are into the bytes rg read: a line that is not UTF-8 maps over
+    // those, not over its decoded text re-encoded.
+    const bytes = reported.raw;
     const ranges = (data.submatches ?? [])
       .slice(0, MAX_RANGES_PER_LINE)
       .map(({ start, end }): [number, number] => [
@@ -470,10 +507,16 @@ export function parseRgJson(output: string, cap: number): Parsed {
   return out;
 }
 
-/** Complete `\n`-ended lines of `output`: a cut-off last one is dropped. */
-function lines(output: string): string[] {
+/**
+ * Complete `\n`-ended lines of `output`: a cut-off last one is dropped. When
+ * the output was cut short, so is the last complete-looking one: a remote
+ * host's daemon ends a capped output with `\n…[truncated]`, after a record
+ * it may have cut.
+ */
+function lines(output: string, cutShort: boolean): string[] {
   const parts = output.split("\n");
   parts.pop();
+  if (cutShort) parts.pop();
   return parts;
 }
 
@@ -485,9 +528,10 @@ export function parseGitGrep(
   output: string,
   re: RegExp | null,
   cap: number,
+  cutShort = false,
 ): Parsed {
   const out = newParsed();
-  for (const raw of lines(output)) {
+  for (const raw of lines(output, cutShort)) {
     const a = raw.indexOf("\0");
     const b = raw.indexOf("\0", a + 1);
     const c = raw.indexOf("\0", b + 1);
@@ -520,9 +564,10 @@ export function parseGrep(
   re: RegExp | null,
   cap: number,
   keep: (path: string) => boolean,
+  cutShort = false,
 ): Parsed {
   const out = newParsed();
-  for (const raw of lines(output)) {
+  for (const raw of lines(output, cutShort)) {
     const a = raw.indexOf("\0");
     const colon = raw.indexOf(":", a + 1);
     if (a <= 0 || colon < 0) continue;
@@ -538,34 +583,61 @@ export function parseGrep(
 
 // ── Running ──
 
-/** Whether each backend's host has `rg`, asked once. */
-const hasRg = new WeakMap<object, Promise<boolean>>();
+/** How long a host found without `rg` is believed: a `which` during a reconnect answers null too. */
+const RG_RECHECK_MS = 60_000;
 
-function rgOn(backend: SearchBackend): Promise<boolean> {
-  let known = hasRg.get(backend.shell);
-  if (!known) {
-    known = backend.shell.which("rg").then(
-      (path) => path !== null,
-      () => false,
-    );
-    hasRg.set(backend.shell, known);
-  }
-  return known;
+/** Whether each backend's host has `rg`: a yes is kept, a no re-asked after `RG_RECHECK_MS`. */
+const rgProbes = new WeakMap<object, { has: Promise<boolean>; at: number }>();
+
+async function rgOn(backend: SearchBackend): Promise<boolean> {
+  const known = rgProbes.get(backend.shell);
+  if (known && ((await known.has) || Date.now() - known.at < RG_RECHECK_MS))
+    return known.has;
+  const has = backend.shell.which("rg").then(
+    (path) => path !== null,
+    () => false,
+  );
+  rgProbes.set(backend.shell, { has, at: Date.now() });
+  return has;
 }
 
-/** What a finished (or stopped) command left: its output, and whether it was cut short. */
-type Ran = { stdout: string; cutShort: boolean } | { failed: unknown };
-
 /**
- * Run `cmd`. Exit 1 is "no matches"; a timeout or `maxBuffer` is the output
- * so far, cut short; any other failure with output (a file it could not read)
- * is still its output. A failure without output is `failed`.
+ * How a command ended.
+ * - `output`: what it printed. Exit 1 (no matches) is empty output; a timeout
+ *   or `maxBuffer` is the output so far, `cutShort`; an exit 2 over files it
+ *   could not read is what it found in the rest.
+ * - `refused`: it ran and said no — a bad pattern, a bad glob, an old version.
+ * - `unrunnable`: it could not be started: no such command on the host, or
+ *   no such folder to start it in.
+ * A lost connection to the host throws.
  */
+type Ran =
+  | { kind: "output"; stdout: string; cutShort: boolean }
+  | { kind: "refused"; failure: FileSearchFailure }
+  | { kind: "unrunnable"; err: unknown };
+
+/** The remote runner's mark on a command it stopped at its timeout (`exec-runner.ts`). */
+const TIMED_OUT = /\[timed out after \d+ms\]/;
+
+/** Each engine's words for a pattern it cannot read (rg, GNU and BSD grep, git's `command line, '…'`). */
+const PATTERN_ERROR =
+  /regex parse error|error parsing regex|regular expression|unmatched|not balanced|unbalanced|trailing backslash|repetition-operator|invalid (preceding|range|back ?reference|character class|content|regex)|command line, '/i;
+
+/** A complaint about one file, which the search went past. */
+const FILE_ERROR =
+  /permission denied|no such file or directory|is a directory|input\/output error|operation not permitted|too many levels of symbolic links|recursive directory loop/i;
+
+function onlyFileErrors(stderr: string): boolean {
+  const complaints = stderr.split("\n").filter((l) => l.trim() !== "");
+  return complaints.length > 0 && complaints.every((l) => FILE_ERROR.test(l));
+}
+
 async function run(
   backend: SearchBackend,
   cmd: string,
   args: string[],
   cwd: string,
+  p: FileSearchParams,
 ): Promise<Ran> {
   try {
     const stdout = await backend.shell.exec(cmd, args, {
@@ -574,16 +646,53 @@ async function run(
       maxBuffer: MAX_SEARCH_OUTPUT_BYTES,
     });
     // A remote host's daemon cuts output off at `maxBuffer` rather than failing.
-    return { stdout, cutShort: stdout.length >= MAX_SEARCH_OUTPUT_BYTES };
+    return {
+      kind: "output",
+      stdout,
+      cutShort: stdout.length >= MAX_SEARCH_OUTPUT_BYTES,
+    };
   } catch (err) {
-    const e = err as { code?: unknown; stdout?: unknown } | null;
-    const stdout = typeof e?.stdout === "string" ? e.stdout : "";
-    if (e?.code === 1 && stdout === "") return { stdout: "", cutShort: false };
+    const e = (err ?? {}) as {
+      code?: unknown;
+      stdout?: unknown;
+      stderr?: unknown;
+      killed?: unknown;
+      cause?: unknown;
+    };
+    const stdout = typeof e.stdout === "string" ? e.stdout : "";
+    const stderr = typeof e.stderr === "string" ? e.stderr : "";
     const stopped =
-      e?.code === null || e?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
-    if (stopped) return { stdout, cutShort: true };
-    if (stdout !== "") return { stdout, cutShort: false };
-    return { failed: err };
+      e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ||
+      // This machine's timeout: execFile killed it.
+      (e.code === null && e.killed === true) ||
+      // A remote host's: its runner says so.
+      TIMED_OUT.test(stderr);
+    if (stopped) return { kind: "output", stdout, cutShort: true };
+    if (typeof e.code === "number") {
+      if (e.code === 1) return { kind: "output", stdout, cutShort: false };
+      const message = (stderr.trim() || errorMessage(err)).trim();
+      if (p.regex && PATTERN_ERROR.test(stderr)) {
+        return {
+          kind: "refused",
+          failure: { ok: false, reason: "invalid-query", message },
+        };
+      }
+      if (stdout !== "" || onlyFileErrors(stderr))
+        return { kind: "output", stdout, cutShort: false };
+      return {
+        kind: "refused",
+        failure: { ok: false, reason: "failed", message },
+      };
+    }
+    // Could not be started: `ENOENT` here; on a remote host, a null code with
+    // the spawn error as stderr and no `cause` (which a lost connection has).
+    if (
+      e.code === "ENOENT" ||
+      (e.code === null && e.cause === undefined && stderr !== "")
+    ) {
+      return { kind: "unrunnable", err };
+    }
+    throw err;
   }
 }
 
@@ -596,11 +705,15 @@ function answer(
     path,
     matches: matches.sort((a, b) => a.line - b.line),
   })).sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  // A file at the per-file cap may have had more (`rg` and `grep` only).
+  const fileCapped =
+    engine !== "git-grep" &&
+    files.some((f) => f.matches.length >= MAX_LINES_PER_FILE);
   return {
     ok: true,
     files,
     total: parsed.total,
-    truncated: parsed.capped || cutShort,
+    truncated: parsed.capped || cutShort || fileCapped,
     engine,
   };
 }
@@ -613,11 +726,34 @@ function capOf(p: FileSearchParams): number {
     : MAX_SEARCH_MATCHES;
 }
 
+/** A query or glob refused before anything runs. */
+function badParams(p: FileSearchParams): FileSearchFailure | null {
+  if (/[\r\n]/.test(p.query)) {
+    return {
+      ok: false,
+      reason: "invalid-query",
+      message:
+        "Search looks within one line: the query cannot hold a line break",
+    };
+  }
+  const leaving = [...p.include, ...p.exclude].find((g) =>
+    cleanGlob(g).split("/").includes(".."),
+  );
+  if (leaving !== undefined) {
+    return {
+      ok: false,
+      reason: "invalid-query",
+      message: `${leaving.trim()} leaves the workspace`,
+    };
+  }
+  return null;
+}
+
 /**
  * Search `workspace` on its host for `params.query`. An empty query answers
- * nothing without running anything; a pattern the engine refuses answers
- * `invalid-query`. A workspace folder that is gone, or a host that is away,
- * throws.
+ * nothing without running anything; a pattern the engine refuses, a query
+ * with a line break or a glob with `..` answers `invalid-query`. A workspace
+ * folder that is gone, or a host that is away, throws.
  */
 export async function searchWorkspace(
   backend: SearchBackend,
@@ -626,42 +762,43 @@ export async function searchWorkspace(
 ): Promise<FileSearchResult> {
   if (params.query === "")
     return { ok: true, files: [], total: 0, truncated: false, engine: null };
+  const bad = badParams(params);
+  if (bad) return bad;
   const cap = capOf(params);
 
   if (await rgOn(backend)) {
-    const ran = await run(backend, "rg", rgArgs(params), workspace);
-    if ("failed" in ran) return failedOrThrow(ran.failed, params);
+    const ran = await run(backend, "rg", rgArgs(params), workspace, params);
+    if (ran.kind === "unrunnable") throw ran.err;
+    if (ran.kind === "refused") return ran.failure;
     return answer(parseRgJson(ran.stdout, cap), ran.cutShort, "rg");
   }
 
   const re = queryRegExp(params);
-  const git = await run(backend, "git", gitGrepArgs(params), workspace);
-  if (!("failed" in git))
-    return answer(parseGitGrep(git.stdout, re, cap), git.cutShort, "git-grep");
-  const why =
-    errorMessage(git.failed) +
-    String((git.failed as { stderr?: unknown } | null)?.stderr ?? "");
-  const noGit = (git.failed as { code?: unknown } | null)?.code === "ENOENT";
-  if (!noGit && !/not a git repository/i.test(why))
-    return failedOrThrow(git.failed, params);
+  // Any other refusal — not a repo, in any language; a repo git calls
+  // dubious; a git too old for `--column` — and no git at all, go to grep.
+  const git = await run(backend, "git", gitGrepArgs(params), workspace, params);
+  if (git.kind === "output") {
+    return answer(
+      parseGitGrep(git.stdout, re, cap, git.cutShort),
+      git.cutShort,
+      "git-grep",
+    );
+  }
+  if (git.kind === "refused" && git.failure.reason === "invalid-query")
+    return git.failure;
 
-  const ran = await run(backend, "grep", grepArgs(params), workspace);
-  if ("failed" in ran) return failedOrThrow(ran.failed, params);
+  const ran = await run(backend, "grep", grepArgs(params), workspace, params);
+  if (ran.kind === "unrunnable") throw ran.err;
+  if (ran.kind === "refused") return ran.failure;
   return answer(
-    parseGrep(ran.stdout, re, cap, pathFilter(params.include, params.exclude)),
+    parseGrep(
+      ran.stdout,
+      re,
+      cap,
+      pathFilter(params.include, params.exclude),
+      ran.cutShort,
+    ),
     ran.cutShort,
     "grep",
   );
-}
-
-/** A command that ran and refused is an answer; one that could not run (no workspace) throws. */
-function failedOrThrow(err: unknown, p: FileSearchParams): FileSearchFailure {
-  const { code, stderr } = (err ?? {}) as { code?: unknown; stderr?: unknown };
-  if (typeof code !== "number") throw err;
-  const message = (
-    (typeof stderr === "string" && stderr.trim()) ||
-    errorMessage(err)
-  ).trim();
-  // Each engine exits 2 (git, 128) on a pattern it cannot read; a literal one it always can.
-  return { ok: false, reason: p.regex ? "invalid-query" : "failed", message };
 }

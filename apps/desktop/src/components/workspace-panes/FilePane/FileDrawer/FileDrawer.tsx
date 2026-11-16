@@ -201,9 +201,7 @@ export function FileDrawer({
         search
       ) : listing.data ? (
         <TreeList
-          // A reveal remounts the tree, which opens on it.
-          key={reveal?.n ?? 0}
-          reveal={reveal?.folder ?? null}
+          reveal={reveal?.folder != null ? { folder: reveal.folder, n: reveal.n } : null}
           onRevealed={onRevealed}
           workspace={workspace}
           canWrite={canWrite}
@@ -243,7 +241,7 @@ function TreeList({
   reveal,
   onRevealed,
 }: {
-  reveal: string | null;
+  reveal: { folder: string; n: number } | null;
   onRevealed?: () => void;
   workspace: FilesWorkspace;
   canWrite: boolean;
@@ -261,31 +259,35 @@ function TreeList({
     [paths],
   );
   // Null until the user toggles a folder: until then, the folders of the
-  // open file and of the changed files. A revealed folder opens along with them.
-  const [revealed] = useState(() =>
-    reveal === null ? null : revealFolder(tree, reveal),
-  );
-  const [toggled, setToggled] = useState<Set<string> | null>(() =>
-    revealed
-      ? new Set([
-          ...expandedForFiles(tree, openFile, changes?.keys() ?? []),
-          ...revealed.expanded,
-        ])
-      : null,
-  );
-  const expanded = useMemo(
-    () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
-    [toggled, tree, openFile, changes],
-  );
+  // open file and of the changed files.
+  const [toggled, setToggled] = useState<Set<string> | null>(null);
+  // Folders Reveal in Files opened, on top of those, until the next toggle
+  // folds them into `toggled`.
+  const [revealedOpen, setRevealedOpen] = useState<ReadonlySet<string>>(EMPTY);
+  const expanded = useMemo(() => {
+    const base = toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []);
+    return revealedOpen.size === 0 ? base : new Set([...base, ...revealedOpen]);
+  }, [toggled, tree, openFile, changes, revealedOpen]);
   const dotted = useMemo(
     () => foldersWithChanges(changes?.keys() ?? []),
     [changes],
   );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   // The row the keyboard is on: the open file's (or the revealed folder's), until it moves.
-  const [cursor, setCursor] = useState<string | null>(
-    revealed?.row ?? openFile,
-  );
+  const [cursor, setCursor] = useState<string | null>(openFile);
+  // A reveal asked for (a new `n`) opens its folder in the tree as it stands,
+  // and puts the cursor on it; `RevealDone` then scrolls to it and focuses.
+  const [revealN, setRevealN] = useState<number | null>(null);
+  const [revealRow, setRevealRow] = useState<string | null>(null);
+  if (reveal && reveal.n !== revealN) {
+    const found = revealFolder(tree, reveal.folder);
+    setRevealN(reveal.n);
+    setRevealRow(found?.row ?? null);
+    if (found) {
+      setRevealedOpen((prev) => new Set([...prev, ...found.expanded]));
+      setCursor(found.row);
+    }
+  }
   const cursorAt = cursorIndex(rows, cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
@@ -299,18 +301,23 @@ function TreeList({
   // mounted rather than passed as `initialOffset`: an offset past the end of
   // a short tree has the browser clamp the scroll while the virtualizer keeps
   // the offset, and it leaves the rows above blank, the list floating mid-way.
+  // A reveal waiting at mount scrolls there itself (`RevealDone`).
   useMountEffect(() => {
-    const shown = reveal !== null ? (revealed?.row ?? null) : openFile;
-    const index = shown ? rows.findIndex((r) => r.path === shown) : -1;
+    if (reveal) return;
+    const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
-    // Listed after the drawer opened and took the keyboard, or revealing a
-    // folder: the arrows are ours.
+    // Listed after the drawer opened and took the keyboard: the arrows are ours.
     const tree = scrollRef.current;
-    if (reveal !== null || tree?.parentElement?.contains(document.activeElement)) {
-      tree?.focus({ preventScroll: true });
+    if (tree?.parentElement?.contains(document.activeElement)) {
+      tree.focus({ preventScroll: true });
     }
-    if (reveal !== null) onRevealed?.();
   });
+  const finishReveal = () => {
+    const index = revealRow ? rows.findIndex((r) => r.path === revealRow) : -1;
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+    scrollRef.current?.focus({ preventScroll: true });
+    onRevealed?.();
+  };
 
   // The row right-clicked, while its menu is open; the file being renamed in
   // its row; the file waiting on Delete's confirmation.
@@ -340,12 +347,12 @@ function TreeList({
 
   const toggle = (path: string) => {
     setCursor(path);
-    setToggled((prev) => {
-      const next = new Set(prev ?? expanded);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+    // From what shows, revealed folders included, which it now keeps.
+    const next = new Set(expanded);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setToggled(next);
+    setRevealedOpen(EMPTY);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -362,8 +369,17 @@ function TreeList({
     virtualizer.scrollToIndex(action.index);
   };
 
+  const revealDone = revealN !== null && (
+    <RevealDone key={revealN} onDone={finishReveal} />
+  );
+
   if (rows.length === 0) {
-    return <div className={styles.note}>No files</div>;
+    return (
+      <div className={styles.note}>
+        No files
+        {revealDone}
+      </div>
+    );
   }
 
   return (
@@ -398,6 +414,7 @@ function TreeList({
             setMenuTarget({ kind, path: row.dataset.path! });
           }}
         >
+          {revealDone}
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}
           >
@@ -508,6 +525,18 @@ function TreeList({
       </div>
     </ContextMenu.Root>
   );
+}
+
+const EMPTY: ReadonlySet<string> = new Set();
+
+/**
+ * Renders nothing; once mounted (the reveal's folders open in the same
+ * commit), scrolls to the revealed row and takes the keyboard. Keyed by the
+ * reveal, it runs once for each.
+ */
+function RevealDone({ onDone }: { onDone: () => void }) {
+  useMountEffect(onDone);
+  return null;
 }
 
 function FileRow({

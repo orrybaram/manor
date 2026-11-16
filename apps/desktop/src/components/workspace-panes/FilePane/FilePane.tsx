@@ -180,6 +180,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const [drawerOpened, setDrawerOpened] = useState(
     () => !(paneId in useFileDrawerState.getState().byPane),
   );
+  // A folder Reveal in Files asked the tree to show, until it has; `n`
+  // counts the asks, so the same folder asked again is shown again.
+  const [reveal, setReveal] = useState<{ folder: string | null; n: number }>({
+    folder: null,
+    n: 0,
+  });
   const setDrawer = (to: Drawer) => {
     const state: DrawerState = to
       ? { open: true, mode: to }
@@ -188,13 +194,9 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     setDrawerState(state);
     useFileDrawerState.getState().set(paneId, state);
     if (to) setDrawerOpened(true);
+    // A reveal is for the Files view it opened: closed or left, it lapses.
+    if (to !== "files") setReveal((r) => (r.folder === null ? r : { ...r, folder: null }));
   };
-  // A folder Reveal in Files asked the tree to show, until it has; `n`
-  // counts the asks, so the same folder asked again is shown again.
-  const [reveal, setReveal] = useState<{ folder: string | null; n: number }>({
-    folder: null,
-    n: 0,
-  });
   // Local or Branch: kept while the drawer closes and opens, not on the leaf.
   const [scmView, setScmView] = useState<ScmView>("local");
   // A Source Control row shows its file's diff; local state, as the drawer is.

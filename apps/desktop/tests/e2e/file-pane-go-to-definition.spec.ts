@@ -137,6 +137,8 @@ test("F12 and âŒ˜-click go to a definition, several list as Definitions of X, â‡
     ].join("\n"),
   );
   write("src/view.ts", "export function render(x: unknown) {\n  console.log(x);\n}\n");
+  // A decoy: "renderer" is neither a definition nor a whole-word use of render.
+  write("src/renderer.ts", "export const renderer = 1; // renderer\n");
   write("src/legacy/view.ts", "export function render(x: unknown) {\n  return String(x);\n}\n");
 
   await openFileFromPalette(window);

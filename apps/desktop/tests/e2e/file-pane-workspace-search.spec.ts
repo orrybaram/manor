@@ -159,7 +159,11 @@ test("⌘⇧F opens the Search view; results group by file, toggles and globs na
   // The view keeps its search across a switch to Files and back.
   await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   await expect(drawer(window)).toHaveAttribute("data-mode", "files");
-  await pane(window).locator('[data-testid="file-pane-search-button"]').click();
+  // ⌘⇧F from the editor, with the drawer on Files, goes back to Search's query.
+  await editor(window).locator(".cm-content").click();
+  await window.keyboard.press("ControlOrMeta+Shift+F");
+  await expect(drawer(window)).toHaveAttribute("data-mode", "search");
+  await expect(input(window)).toBeFocused();
   await expect(input(window)).toHaveValue("export const needle = 1;");
   await expect(summary(window)).toHaveText("1 result in 1 file");
 

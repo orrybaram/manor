@@ -232,7 +232,6 @@ export function definitionNav(onNavigate: CodeNavHandler, mac: boolean): Extensi
     navLink,
     navLinkTheme,
     hoverLink(mac),
-    EditorView.clickAddsSelectionRange.of((e) => e.altKey || navModifier(e, mac)),
     Prec.high(
       keymap.of([
         { key: "F12", run: byKey("definition"), stopPropagation: true },

@@ -177,7 +177,8 @@ test("F12 and âŒ˜-click go to a definition, several list as Definitions of X, â‡
   await expect(breadcrumb(window)).toContainText("util.ts");
 
   // The blank past a line's end is no identifier: no underline, and a
-  // modifier-click there adds a cursor rather than going anywhere.
+  // modifier-click there is a plain click (this editor keeps one selection),
+  // which goes nowhere.
   await openFile(window, "src/main.ts", "export const total");
   await clickWord(window, 5, "render");
   const line5 = (await editor(window).locator(".cm-line").nth(4).boundingBox())!;
@@ -189,7 +190,8 @@ test("F12 and âŒ˜-click go to a definition, several list as Definitions of X, â‡
   await window.mouse.click(blank.x - 1, blank.y);
   await window.keyboard.up(MOD);
   await expect(breadcrumb(window)).toContainText("main.ts");
-  await expect(editor(window).locator(".cm-cursorLayer .cm-cursor")).toHaveCount(2);
+  await expect(editor(window).locator(".cm-cursorLayer .cm-cursor")).toHaveCount(1);
+  await expect(activeLine(window)).toHaveText("5");
 
   // Two definitions fill the Search view, labelled, with the word in the
   // query box and the name lit in each line: the ranked hits, not a search.

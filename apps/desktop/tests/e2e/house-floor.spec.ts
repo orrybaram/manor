@@ -114,18 +114,19 @@ async function shoot(target: Locator, file: string): Promise<void> {
 
 /**
  * Hover the mouse across the floor in row bands, top to bottom, over the
- * part of the canvas between `from` and `to` (fractions of its height).
- * Every band is a fresh pass for the dots under it.
+ * part of the canvas between `from` and `to` (fractions of its height) and
+ * `leftFrom` and `leftTo` (fractions of its width). Every band is a fresh
+ * pass for the dots under it.
  */
-async function sweep(w: Page, from = 0, to = 1): Promise<void> {
+async function sweep(w: Page, from = 0, to = 1, leftFrom = 0, leftTo = 1): Promise<void> {
   const c = canvas(w);
   await c.scrollIntoViewIfNeeded();
   const box = await c.boundingBox();
   if (!box) throw new Error("house floor canvas has no box");
   const top = box.y + box.height * from;
   const bottom = box.y + box.height * to;
-  const left = box.x + 4;
-  const right = box.x + box.width - 4;
+  const left = box.x + Math.max(4, box.width * leftFrom);
+  const right = box.x + Math.min(box.width - 4, box.width * leftTo);
   for (let y = top + 6, row = 0; y <= bottom - 4; y += 20, row++) {
     const [x0, x1] = row % 2 === 0 ? [left, right] : [right, left];
     await w.mouse.move(x0, y);
@@ -147,8 +148,18 @@ async function feedOneMeal(w: Page, theme: "dark" | "light", meals: number): Pro
   await w.waitForTimeout(2_000);
   await shoot(floor(w), `awake-${theme}.png`);
 
-  // Mid-feed: the top half swept (dots take up to three passes).
-  for (let i = 0; i < 3; i++) await sweep(w, 0, 0.5);
+  // Mid-feed: the left half swept clean (dots take up to three passes), the
+  // right half untouched. `data-left` counts the dots still on the floor
+  // (`data-dots` is the floor's fill, which stays full until it's eaten).
+  await expect(canvas(w)).toHaveAttribute("data-left", String(size));
+  const left = async () => Number(await canvas(w).getAttribute("data-left"));
+  await expect(async () => {
+    await sweep(w, 0, 1, 0, 0.42);
+    expect(await left()).toBeLessThanOrEqual(Math.ceil(size * 0.6));
+  }).toPass({ timeout: 30_000 });
+  const midway = await left();
+  expect(midway).toBeLessThan(size);
+  expect(midway).toBeGreaterThanOrEqual(Math.floor(size * 0.3));
   await expect(canvas(w)).toHaveAttribute("data-state", "awake");
   await shoot(floor(w), `mid-feed-${theme}.png`);
 
@@ -162,14 +173,15 @@ async function feedOneMeal(w: Page, theme: "dark" | "light", meals: number): Pro
   await w.waitForTimeout(1_400);
   await shoot(floor(w), `settle-${theme}.png`);
 
-  // The meal is eaten: one floor of points gone, one more meal, a new seed.
-  await expect.poll(async () => (await storedFloor(w))?.meals, { timeout: 10_000 }).toBe(meals + 1);
+  // The meal was eaten as Settle began: one floor of points gone, one more
+  // meal, a new seed.
   const after = (await storedFloor(w))!;
+  expect(after.meals).toBe(meals + 1);
   expect(after.progress).toBe(0);
   expect(after.seed).not.toBe(SEED);
-  // With nothing carried over and no live agents, the empty floor hides
-  // with the section; feeding touched no stats.
-  await expect(floor(w)).toHaveCount(0, { timeout: 5_000 });
+  // Once the house has answered, with nothing carried over and no live
+  // agents, the empty floor hides with the section; feeding touched no stats.
+  await expect(floor(w)).toHaveCount(0, { timeout: 8_000 });
   const today = await w.evaluate(() => window.electronAPI.stats.getSummary());
   expect(today.today.agentsKilled).toBe(TODAY_POINTS / 2);
 }

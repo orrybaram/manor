@@ -661,6 +661,8 @@ describe("WebviewServer project/workspace routes", () => {
       true,
       // No progress callback over HTTP; the op forwards the slot.
       undefined,
+      // Nor the agents a move is ending (#529): a plain removal ends none.
+      undefined,
     );
   });
 });
@@ -1081,7 +1083,9 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(
         layoutStore.pendingCommands.take(result.paneId),
       ).toEqual({
-        text: 'claude --dangerously-skip-permissions "do the thing"',
+        // The prompt goes through a file, not the launch line.
+        text: "claude --dangerously-skip-permissions",
+        prompt: "do the thing",
         kind: "agent-startup",
         submit: true,
       });

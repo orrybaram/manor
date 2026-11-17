@@ -1,4 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
+
+// The route table's handlers import main-process modules that read `app` as
+// they load; this suite only reads the table, so a bare `app` is enough.
+vi.mock("electron", () => ({
+  app: { isPackaged: false },
+  BrowserWindow: { getAllWindows: () => [] },
+  ipcMain: { on: () => {}, handle: () => {} },
+  webContents: { fromId: () => null },
+}));
+
 import { matchPath, dispatch } from "./router";
 import { routes } from "./index";
 import type { HostDeps, Route, RouteContext } from "./types";

@@ -179,7 +179,7 @@ describe("usePageNotes", () => {
     act(() => picked("2"));
     await act(() => latestNotes().send({ kind: "new" }));
     const [, prompt] = sendPromptToAgent.mock.calls[0] as [string, string];
-    expect(prompt).toContain("I left a note");
+    expect(prompt).toContain("I left 1 note");
     expect(prompt).not.toContain("nth-child(2)");
     expect(latestNotes().notes).toEqual([]);
     expect(latestNotes().openId).toBeNull();

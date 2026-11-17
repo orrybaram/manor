@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { ensureHookScript } from "../terminal-host/bootstrap-host";
 
 // ── Helpers ──
@@ -40,8 +40,28 @@ function startCaptureServer(): Promise<{
   });
 }
 
-function waitMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Run the hook with `payload` on stdin. Asynchronously: the hook waits for
+ * the capture server's reply, which a blocked event loop could never send.
+ *
+ * Starts from an env with no `MANOR_*` in it: run from a Manor pane, the
+ * suite would otherwise inherit that pane's `MANOR_HOOK_PORT_FILE`, which the
+ * hook prefers over $HOME's — and report to the real Manor, not this server.
+ */
+function runHook(payload: string, env: Record<string, string>): Promise<void> {
+  const base = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith("MANOR_")),
+  );
+  return new Promise((resolve, reject) => {
+    const child = spawn("bash", [hookScript()], {
+      env: { ...base, ...env },
+      stdio: ["pipe", "ignore", "inherit"],
+      timeout: 5000,
+    });
+    child.on("error", reject);
+    child.on("exit", () => resolve());
+    child.stdin.end(payload);
+  });
 }
 
 // ── Suite ──
@@ -86,19 +106,11 @@ describe("hook script (notify.sh) — toolUseId forwarding", () => {
       tool_use_id: "tool-xyz",
     });
 
-    spawnSync("bash", [hookScript()], {
-      input: payload,
-      env: {
-        ...process.env,
+    await runHook(payload, {
         HOME: tmpDir,
         MANOR_PANE_ID: "pane-1",
         MANOR_HOOK_PORT: String(port),
-      },
-      timeout: 5000,
     });
-
-    // Give curl a moment to complete
-    await waitMs(200);
     close();
 
     expect(requests.length).toBeGreaterThan(0);
@@ -120,18 +132,11 @@ describe("hook script (notify.sh) — toolUseId forwarding", () => {
       session_id: "sess-123",
     });
 
-    spawnSync("bash", [hookScript()], {
-      input: payload,
-      env: {
-        ...process.env,
+    await runHook(payload, {
         HOME: tmpDir,
         MANOR_PANE_ID: "pane-2",
         MANOR_HOOK_PORT: String(port),
-      },
-      timeout: 5000,
     });
-
-    await waitMs(200);
     close();
 
     expect(requests.length).toBeGreaterThan(0);

@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // The keybindings store reads `navigator`/`window` at module load; this suite
-// runs in the node environment, so stub them before the imports evaluate.
+// runs in the node environment, so stub them before the imports evaluate. The
+// suite presses ⌘ combos, so it is a Mac whatever runs it: Node 21+ has its
+// own read-only `navigator` reporting the real platform, so define over it.
 vi.hoisted(() => {
   const g = globalThis as Record<string, unknown>;
-  if (typeof g.navigator === "undefined")
-    g.navigator = { platform: "MacIntel" };
+  Object.defineProperty(g, "navigator", {
+    value: { platform: "MacIntel" },
+    configurable: true,
+    writable: true,
+  });
   if (typeof g.window === "undefined") g.window = g;
 });
 import {

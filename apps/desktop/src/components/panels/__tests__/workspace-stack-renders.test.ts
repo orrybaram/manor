@@ -56,8 +56,11 @@ describe("WorkspaceStack render isolation", () => {
 
   beforeEach(() => {
     for (const k of Object.keys(renders)) delete renders[k];
+    // Only an opened workspace renders: the stack takes its keys from
+    // `mountedWorkspaces`, among those with a layout.
     useAppStore.setState({
       workspaceLayouts: { [A]: layout("pa"), [B]: layout("pb"), [C]: layout("pc") },
+      mountedWorkspaces: { [A]: true, [B]: true, [C]: true },
     });
     root = createRoot(document.createElement("div"));
     render(A);
@@ -95,6 +98,7 @@ describe("WorkspaceStack render isolation", () => {
     act(() =>
       useAppStore.setState((s) => ({
         workspaceLayouts: { ...s.workspaceLayouts, [D]: layout("pd") },
+        mountedWorkspaces: { ...s.mountedWorkspaces, [D]: true },
       })),
     );
     expect(renders).toEqual({ [A]: 1, [B]: 1, [C]: 1, [D]: 1 });

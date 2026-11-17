@@ -7,6 +7,7 @@ import ReactDOM from "react-dom/client";
 import { createQueryClient, AppRoot } from "./app-root";
 import { terminalFontsReady } from "./lib/terminal-font";
 import { hasTrafficLights } from "./lib/platform";
+import { watchPopoversForDragRegions } from "./lib/drag-regions";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import "./App.css";
 
@@ -52,6 +53,9 @@ if (!bridgeInstalled) {
   if (!hasTrafficLights()) {
     document.documentElement.style.setProperty("--traffic-light-inset", "0px");
   }
+
+  // Title-bar clicks dismiss open popovers and menus (App.css).
+  watchPopoversForDragRegions();
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>

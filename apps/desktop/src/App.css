@@ -128,14 +128,9 @@ body,
 
 /* A drag region swallows mouse-downs before the DOM sees them, so clicking the
    title bar could never dismiss an open popover or menu. While one is open,
-   every drag region stands down. Tooltips are poppers too but carry neither
-   role, so hovering one leaves the window draggable. */
-html:has(
-    [data-radix-popper-content-wrapper] [role="dialog"],
-    [data-radix-popper-content-wrapper] [role="menu"],
-    [data-radix-popper-content-wrapper] [role="listbox"]
-  )
-  * {
+   every drag region stands down. lib/drag-regions.ts sets the class: an
+   `html:has()` here made every DOM change restyle the whole window. */
+html.popover-open * {
   -webkit-app-region: no-drag !important;
 }
 

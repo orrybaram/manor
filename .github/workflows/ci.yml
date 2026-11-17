@@ -45,21 +45,11 @@ jobs:
       - name: Unit tests (packages)
         run: pnpm --filter @manor/protocol --filter @manor/cobwebs test
 
-      # These six files already fail on main. Skipping them keeps the check
-      # meaningful for everything else; delete a line once its file passes.
-      # Some other tests fail now and then when the whole suite runs at once
+      # Some tests fail now and then when the whole suite runs at once
       # (paste-image-upload, bridge-process), hence the retries.
       - name: Unit tests (desktop)
         working-directory: apps/desktop
-        run: >-
-          pnpm exec vitest run
-          --retry=2
-          --exclude electron/__tests__/hook-script.test.ts
-          --exclude electron/__tests__/mcp-webview-server.test.ts
-          --exclude electron/routes/router.test.ts
-          --exclude src/components/panels/__tests__/workspace-stack-renders.test.ts
-          --exclude src/components/workspace-panes/BrowserPane/usePageNotes.test.ts
-          --exclude src/lib/__tests__/keybinding-commands.test.ts
+        run: pnpm exec vitest run --retry=2
 
       - name: Build
         working-directory: apps/desktop

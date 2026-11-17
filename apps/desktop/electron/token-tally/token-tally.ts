@@ -5,6 +5,7 @@ import path from "node:path";
 import type { AgentKind } from "../terminal-host/types";
 import { claudeUsageReader } from "./claude-usage";
 import { codexUsageReader } from "./codex-usage";
+import { createOpencodeUsageReader } from "./opencode-usage";
 import { piUsageReader } from "./pi-usage";
 import type { UsageMarker, UsageReader } from "./usage-reader";
 
@@ -95,7 +96,12 @@ export class TokenTally {
     this.file = path.join(opts.dataDir, FILE_NAME);
     this.record = opts.record;
     this.liveAgents = opts.liveAgents ?? (() => []);
-    this.readers = opts.readers ?? { claude: claudeUsageReader, codex: codexUsageReader, pi: piUsageReader };
+    this.readers = opts.readers ?? {
+      claude: claudeUsageReader,
+      codex: codexUsageReader,
+      pi: piUsageReader,
+      opencode: createOpencodeUsageReader(),
+    };
     this.now = opts.now ?? Date.now;
     const loaded = this.load();
     this.markers = loaded?.markers ?? {};

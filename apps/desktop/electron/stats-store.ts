@@ -28,6 +28,7 @@ import type { Effect } from "./agent-status/types";
 export type StatCounter =
   | "prompts"
   | "toolCalls"
+  | "tokens"
   | "agentSessions"
   | "subagents"
   | "agentsResponded"
@@ -51,6 +52,7 @@ export type StatGauge = "maxConcurrentAgents";
 export const STAT_COUNTERS: readonly StatCounter[] = [
   "prompts",
   "toolCalls",
+  "tokens",
   "agentSessions",
   "subagents",
   "agentsResponded",

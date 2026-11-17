@@ -11,6 +11,7 @@ import {
   formatUnblockLatency,
   humanCounterLabel,
 } from "../../../store/stats-store";
+import { formatCompact } from "../../../lib/format-compact";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import {
   buildContributionGrid,
@@ -44,6 +45,7 @@ const STAT_GROUPS: readonly StatGroup[] = [
     rows: [
       { kind: "counter", counter: "prompts" },
       { kind: "counter", counter: "toolCalls" },
+      { kind: "counter", counter: "tokens" },
       { kind: "counter", counter: "agentSessions" },
       { kind: "counter", counter: "subagents" },
       { kind: "counter", counter: "agentsResponded" },
@@ -105,7 +107,17 @@ function rowValue(row: StatRow, bucket: DayBucket): string {
   }
   const key = row.kind === "counter" ? row.counter : row.gauge;
   const value = bucket[key] ?? 0;
-  return value === 0 ? EMPTY_CELL : value.toLocaleString();
+  if (value === 0) return EMPTY_CELL;
+  return COMPACT_COUNTERS.has(key) ? formatCompact(value) : value.toLocaleString();
+}
+
+/** Counters too big to read in full; their cells show 22.7M with the exact count on hover. */
+const COMPACT_COUNTERS: ReadonlySet<StatCounter | StatGauge> = new Set(["tokens"]);
+
+function rowExact(row: StatRow, bucket: DayBucket): string | undefined {
+  if (row.kind !== "counter" || !COMPACT_COUNTERS.has(row.counter)) return undefined;
+  const value = bucket[row.counter] ?? 0;
+  return value === 0 ? undefined : value.toLocaleString();
 }
 
 /** Weekday rows that get a label, matching GitHub's Mon/Wed/Fri gutter. */
@@ -321,6 +333,7 @@ export function StatsTab(props: StatsTabProps) {
                   return (
                     <td
                       key={col.key}
+                      title={rowExact(row, col.bucket)}
                       className={`${styles.statsCell} ${value === EMPTY_CELL ? styles.statsCellEmpty : ""}`}
                     >
                       {value}

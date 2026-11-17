@@ -61,6 +61,12 @@
   padding: 0 8px;
 }
 
+/* The house floor follows the rows and takes any room they leave. */
+.agentGroupsWithFloor {
+  display: flex;
+  flex-direction: column;
+}
+
 .agentGroup {
   display: flex;
   flex-direction: column;
@@ -139,4 +145,14 @@
 .agentClose:focus-visible {
   color: var(--text-selected);
   background: var(--surface);
+}
+
+/* Folded with dots on the house floor: a faint dot after the label. */
+.floorMarker {
+  width: 4px;
+  height: 4px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  opacity: 0.5;
 }

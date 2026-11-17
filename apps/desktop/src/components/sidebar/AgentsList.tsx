@@ -25,6 +25,9 @@ import styles from "./AgentsList.module.css";
 import menuStyles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
 import { ResizeHandle } from "../ui/ResizeHandle/ResizeHandle";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { useHouseFloor } from "../../store/house-floor-store";
+import { HouseFloor } from "./HouseFloor/HouseFloor";
 
 function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   agent: AgentInfo;
@@ -211,7 +214,15 @@ export function AgentsList(props: AgentsListProps) {
     return map;
   }, [visibleAgents]);
 
-  if (visibleAgents.length === 0) return null;
+  // The house floor ends the full sidebar's list; the rail's popover and
+  // the phone leave it out.
+  const houseFloor = useHouseFloor();
+  const isPhone = useLayoutMode() === "phone";
+  const showFloor = !fitContent && !isPhone;
+  // With no live agents the section stays while the floor has dots on it.
+  const floorHasDots = showFloor && houseFloor.dots > 0;
+
+  if (visibleAgents.length === 0 && !floorHasDots) return null;
 
   return (
     <div className={styles.agentsSection}>
@@ -255,6 +266,14 @@ export function AgentsList(props: AgentsListProps) {
           )}
           <Bot size={12} />
           Agents
+          {collapsed && floorHasDots && (
+            <span
+              className={styles.floorMarker}
+              data-testid="house-floor-marker"
+              data-state={houseFloor.awake ? "awake" : "filling"}
+              aria-hidden="true"
+            />
+          )}
         </span>
         {onShowAll && (
           <Button
@@ -274,7 +293,10 @@ export function AgentsList(props: AgentsListProps) {
         )}
       </div>
       <Collapse open={fitContent || showBody} animate={!isResizing}>
-        <div className={styles.agentGroups} style={fitContent ? undefined : { height: bodyHeight }}>
+        <div
+          className={`${styles.agentGroups} ${showFloor ? styles.agentGroupsWithFloor : ""}`}
+          style={fitContent ? undefined : { height: bodyHeight }}
+        >
           {Array.from(groups.entries()).map(([projectName, groupAgents]) => (
             <div key={projectName} className={styles.agentGroup}>
               <div className={styles.agentGroupHeader}>{projectName}</div>
@@ -300,6 +322,7 @@ export function AgentsList(props: AgentsListProps) {
               ))}
             </div>
           ))}
+          {showFloor && <HouseFloor floor={houseFloor} />}
         </div>
       </Collapse>
     </div>

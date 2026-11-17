@@ -488,15 +488,18 @@ export class StatsStore {
    * last-read days, summed per day (gauges take the max).
    */
   getSummary(): StatsSummary {
+    // One clock read for the whole summary: across midnight, `today` and the
+    // days it's labelled with must be the same day.
+    const now = this.now();
     const days = this.mergedDays();
-    const today = this.todayKey();
+    const today = dayKey(now);
     return {
       today: { ...(days[today] ?? {}) },
-      last7Days: aggregate(this.windowBuckets(days, WINDOW_DAYS)),
+      last7Days: aggregate(this.windowBuckets(days, WINDOW_DAYS, now)),
       allTime: aggregate(Object.values(days)),
-      streakWeeks: this.streakWeeks(days),
+      streakWeeks: this.streakWeeks(days, now),
       dailyPrompts: dailyPrompts(days),
-      dailyPrsMerged: this.dailyPrsMerged(days),
+      dailyPrsMerged: this.dailyPrsMerged(days, now),
       badges: this.getBadges(),
       ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
       enabled: this.isEnabled(),
@@ -579,20 +582,20 @@ export class StatsStore {
   }
 
   /** Merged-PR counts for the last 7 local days, oldest first, zeros included. */
-  private dailyPrsMerged(days: Record<string, DayBucket>): { day: string; count: number }[] {
+  private dailyPrsMerged(days: Record<string, DayBucket>, now: number): { day: string; count: number }[] {
     const out: { day: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const day = dayKeyOffset(this.now(), -i);
+      const day = dayKeyOffset(now, -i);
       out.push({ day, count: days[day]?.prsMerged ?? 0 });
     }
     return out;
   }
 
   /** Buckets for today and the previous `count - 1` local days. */
-  private windowBuckets(days: Record<string, DayBucket>, count: number): DayBucket[] {
+  private windowBuckets(days: Record<string, DayBucket>, count: number, now: number): DayBucket[] {
     const buckets: DayBucket[] = [];
     for (let i = 0; i < count; i++) {
-      const bucket = days[dayKeyOffset(this.now(), -i)];
+      const bucket = days[dayKeyOffset(now, -i)];
       if (bucket) buckets.push(bucket);
     }
     return buckets;
@@ -604,13 +607,13 @@ export class StatsStore {
    * prompts yet, so an unstarted week does not read as a broken streak. Zero
    * when neither week has prompts. One active day is enough to keep a week.
    */
-  private streakWeeks(days: Record<string, DayBucket>): number {
+  private streakWeeks(days: Record<string, DayBucket>, now: number): number {
     const activeWeeks = new Set<string>();
     for (const [day, bucket] of Object.entries(days)) {
       if ((bucket.prompts ?? 0) >= 1) activeWeeks.add(weekKeyOfDay(day));
     }
     const hasPrompts = (offset: number): boolean =>
-      activeWeeks.has(weekKeyOffset(this.now(), offset));
+      activeWeeks.has(weekKeyOffset(now, offset));
 
     let offset: number;
     if (hasPrompts(0)) offset = 0;

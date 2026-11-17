@@ -1,0 +1,21 @@
+/* After the last agent row, across the list's full width (out past
+   `.agentGroups`' 8px side inset). It grows into any room the rows leave,
+   and is never shorter than its rows (`minHeight`, set inline). */
+.floor {
+  position: relative;
+  flex: 1 0 auto;
+  margin: 0 -8px;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Awake on a touch screen, a drag feeds rather than scrolls the list. */
+.canvas[data-state="awake"] {
+  touch-action: none;
+}

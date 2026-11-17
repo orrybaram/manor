@@ -61,10 +61,13 @@
   padding: 0 8px;
 }
 
-/* The house floor follows the rows and takes any room they leave. */
+/* The house floor follows the rows and takes any room they leave. Its
+   columns follow its width, so the scrollbar's room is always kept: the
+   floor doesn't reshuffle as the list starts or stops overflowing. */
 .agentGroupsWithFloor {
   display: flex;
   flex-direction: column;
+  scrollbar-gutter: stable;
 }
 
 .agentGroup {

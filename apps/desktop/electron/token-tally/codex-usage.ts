@@ -48,7 +48,7 @@ function countTotals(
   state.fresh += usage.total >= previous ? usage.total - previous : usage.total;
 }
 
-export const codexUsageReader: UsageReader = {
+export const codexUsageReader = {
   async sources(transcriptPath) {
     return [transcriptPath];
   },
@@ -68,4 +68,4 @@ export const codexUsageReader: UsageReader = {
     const next: UsageMarker = { ...marker, offset, ...(state.total !== undefined ? { total: state.total } : {}) };
     return { fresh: state.fresh, next };
   },
-};
+} satisfies UsageReader;

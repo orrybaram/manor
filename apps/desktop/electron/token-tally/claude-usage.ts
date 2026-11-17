@@ -84,7 +84,7 @@ function countLine(state: CountState, line: string, floor: number | undefined): 
   else countMessage(state, usage.id, usage.fresh, RECENT_IDS);
 }
 
-export const claudeUsageReader: UsageReader = {
+export const claudeUsageReader = {
   async sources(transcriptPath) {
     const sessionDir = path.join(path.dirname(transcriptPath), path.basename(transcriptPath, ".jsonl"));
     const subagentDir = path.join(sessionDir, "subagents");
@@ -119,4 +119,4 @@ export const claudeUsageReader: UsageReader = {
     };
     return { fresh: state.fresh, next };
   },
-};
+} satisfies UsageReader;

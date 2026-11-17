@@ -46,6 +46,12 @@ function hasTable(db: DatabaseSync, name: string): boolean {
   return db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
 }
 
+function hasColumns(db: DatabaseSync, table: string, columns: string[]): boolean {
+  if (!hasTable(db, table)) return false;
+  const names = new Set((db.prepare(`PRAGMA table_info("${table}")`).all() as Row[]).map((c) => String(c.name)));
+  return columns.every((c) => names.has(c));
+}
+
 /** Which schema holds the session: v2 when `session_message` has its rows. */
 function schemaOf(db: DatabaseSync, sessionId: string): "v1" | "v2" | "none" {
   if (
@@ -85,8 +91,17 @@ function usageRows(db: DatabaseSync, sessionId: string, cursor: number): Row[] {
   return [];
 }
 
-/** When the session's first row was written, or null before it has one. */
+/**
+ * When the session was created: its `session` row's `time_created` (a fork's
+ * copied messages keep the original's times), else its first message's;
+ * null when neither is there yet.
+ */
 function sessionCreatedAt(db: DatabaseSync, sessionId: string): number | null {
+  for (const table of ["session_v2", "session"]) {
+    if (!hasColumns(db, table, ["id", "time_created"])) continue;
+    const row = db.prepare(`SELECT time_created FROM "${table}" WHERE id = ?`).get(sessionId) as Row | undefined;
+    if (row && row.time_created !== null && row.time_created !== undefined) return num(row.time_created);
+  }
   const schema = schemaOf(db, sessionId);
   const table = schema === "v2" ? "session_message" : schema === "v1" && hasTable(db, "message") ? "message" : null;
   if (!table) return null;
@@ -149,13 +164,14 @@ export function createOpencodeUsageReader(opts: { sqlite?: SqliteModule | null }
     );
   }
 
-  async function scan(marker: UsageMarker, locator: string, counting: boolean): Promise<UsageRead> {
+  /** Null when the source can't be read now (`UsageReader.read`). */
+  async function scan(marker: UsageMarker, locator: string, counting: boolean): Promise<UsageRead | null> {
     const read = await withSession(locator, (db, sessionId) => {
       const state = countState(marker.seen);
       const offset = countRows(state, usageRows(db, sessionId, marker.offset), marker.offset, marker.floor, counting);
       return { state, offset };
     });
-    if (!read) return { fresh: 0, next: marker };
+    if (!read) return null;
     const { state, offset } = read;
     const next: UsageMarker = { ...marker, offset, ...(state.seen.length > 0 ? { seen: state.seen } : {}) };
     return { fresh: state.fresh, next };
@@ -171,7 +187,7 @@ export function createOpencodeUsageReader(opts: { sqlite?: SqliteModule | null }
     },
 
     async markerAtEnd(locator) {
-      return (await scan({ offset: 0 }, locator, false)).next;
+      return (await scan({ offset: 0 }, locator, false))?.next ?? null;
     },
 
     read(marker, locator) {

@@ -40,7 +40,7 @@ function countLine(state: CountState, line: string, floor: number | undefined): 
   else countMessage(state, usage.id, usage.fresh, RECENT_IDS);
 }
 
-export const piUsageReader: UsageReader = {
+export const piUsageReader = {
   async sources(transcriptPath) {
     return [transcriptPath];
   },
@@ -57,4 +57,4 @@ export const piUsageReader: UsageReader = {
     const next: UsageMarker = { ...marker, offset, ...(state.seen.length > 0 ? { seen: state.seen } : {}) };
     return { fresh: state.fresh, next };
   },
-};
+} satisfies UsageReader;

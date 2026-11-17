@@ -48,8 +48,16 @@ export interface UsageReader {
   sources(transcriptPath: string): Promise<string[]>;
   /** When the source was created, in epoch ms; null when unknown or gone. */
   createdAt(source: string): Promise<number | null>;
-  /** A marker at the source's current end: nothing already there counts. */
-  markerAtEnd(source: string): Promise<UsageMarker>;
-  /** The fresh tokens after `marker`, and where the next read starts. */
-  read(marker: UsageMarker, source: string): Promise<UsageRead>;
+  /**
+   * A marker at the source's current end: nothing already there counts.
+   * Null when the source can't be read now (opencode without `node:sqlite`,
+   * or its database not there): nothing is kept, and the source is first
+   * seen again on a later tally.
+   */
+  markerAtEnd(source: string): Promise<UsageMarker | null>;
+  /**
+   * The fresh tokens after `marker`, and where the next read starts. Null
+   * when the source can't be read now: the marker stays as it was.
+   */
+  read(marker: UsageMarker, source: string): Promise<UsageRead | null>;
 }

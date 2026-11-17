@@ -187,7 +187,10 @@ export class TokenTally {
       const key = sourceKey(source);
       const stored = this.markers[key];
       const marker = stored ?? (await this.firstMarker(reader, source));
+      // Unreadable now: no marker is kept, so the next tally decides afresh.
+      if (!marker) continue;
       const read = await reader.read(marker, source);
+      if (!read) continue;
       const now = this.now();
       if (!stored || !sameMarker(stored, read.next) || now - stored.at >= TOUCH_MS) {
         moved[key] = { ...read.next, at: now };
@@ -213,7 +216,7 @@ export class TokenTally {
    * session opens with the original's history, dated before it, and a
    * birth time can be later than a file's first line.
    */
-  private async firstMarker(reader: UsageReader, source: string): Promise<UsageMarker> {
+  private async firstMarker(reader: UsageReader, source: string): Promise<UsageMarker | null> {
     const createdAt = await reader.createdAt(source);
     if (createdAt === null) return reader.markerAtEnd(source);
     if (createdAt >= this.since && this.now() - createdAt < PRUNE_AFTER_MS) {

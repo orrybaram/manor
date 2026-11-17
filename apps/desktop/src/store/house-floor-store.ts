@@ -5,6 +5,7 @@ import {
   consumeMeal,
   floorDots,
   floorGrid,
+  HOUSE_SETTLE_MS,
   summaryDay,
   parseFloorState,
   randomSeed,
@@ -47,10 +48,11 @@ interface HouseFloorStore {
   grid: FloorGrid;
   /**
    * Settle is playing: the floor is already eaten (and may be empty), but
-   * the Agents section stays up until the house has answered. Not persisted.
+   * the Agents section stays up until the house has answered. Set in the
+   * same update as the meal and cleared by the store's own timer, so no
+   * render in between can drop the floor. Not persisted.
    */
   settling: boolean;
-  setSettling: (settling: boolean) => void;
   /** The floor's canvas reports its width; columns follow it. */
   setWidth: (width: number) => void;
   /**
@@ -58,18 +60,19 @@ interface HouseFloorStore {
    * starts an empty floor at today's points; drops are ignored.
    */
   sync: (day: string, todayPoints: number, last7DaysPoints: number) => void;
-  /** Feed the house a full floor; no-op unless the floor is full. */
+  /**
+   * Feed the house a full floor and start Settle (`HOUSE_SETTLE_MS`); no-op
+   * unless the floor is full.
+   */
   eat: (last7DaysPoints: number) => void;
 }
+
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
   floor: loadHouseFloor(),
   grid: floorGrid(DEFAULT_FLOOR_WIDTH),
   settling: false,
-
-  setSettling: (settling) => {
-    if (get().settling !== settling) set({ settling });
-  },
 
   setWidth: (width) => {
     const grid = floorGrid(width);
@@ -91,7 +94,12 @@ export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
     if (!floor || floorDots(floor, grid.size) < grid.size) return;
     const next = consumeMeal(floor, last7DaysPoints, randomSeed());
     saveHouseFloor(next);
-    set({ floor: next });
+    set({ floor: next, settling: true });
+    if (settleTimer !== null) clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => {
+      settleTimer = null;
+      set({ settling: false });
+    }, HOUSE_SETTLE_MS);
   },
 }));
 

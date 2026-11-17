@@ -1,3 +1,4 @@
+import { HOUSE_SETTLE_MS } from "../../../lib/house-floor";
 import { P } from "./floor-layout";
 
 /**
@@ -114,7 +115,7 @@ export function ringWake(x: number, y: number, drops: readonly Drop[]): [number,
 }
 
 /** Settle's length, seconds. */
-export const SETTLE_SECONDS = 3.6;
+export const SETTLE_SECONDS = HOUSE_SETTLE_MS / 1000;
 
 const SETTLE_MODES: readonly (readonly [number, number])[] = [
   [1, 2],

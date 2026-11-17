@@ -192,6 +192,9 @@ export function consumeMeal(
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
+/** How long the house answers a meal (Settle), ms. */
+export const HOUSE_SETTLE_MS = 3600;
+
 /** A stored value, or `null` when it's missing or not a floor. */
 export function parseFloorState(raw: unknown): HouseFloorState | null {
   if (!raw || typeof raw !== "object") return null;

@@ -41,10 +41,7 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const renderer = new FloorRenderer(canvas, {
-      onPhase: (next) => {
-        setPhase(next);
-        useHouseFloorStore.getState().setSettling(next === "settle");
-      },
+      onPhase: setPhase,
       onFed: () => eatRef.current(),
     });
     const loop = frameLoop(renderer, () => visibleRef.current);
@@ -52,7 +49,6 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
     loopRef.current = loop;
     return () => {
       loop.stop();
-      useHouseFloorStore.getState().setSettling(false);
       rendererRef.current = null;
       loopRef.current = null;
     };

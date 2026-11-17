@@ -11,7 +11,7 @@ vi.stubGlobal("localStorage", {
 const { HOUSE_FLOOR_KEY, loadHouseFloor, useHouseFloorStore } = await import(
   "../house-floor-store"
 );
-const { floorDots, floorGrid } = await import("../../lib/house-floor");
+const { floorDots, floorGrid, HOUSE_SETTLE_MS } = await import("../../lib/house-floor");
 const { useStatsStore } = await import("../stats-store");
 
 function summary(day: string, today: Record<string, number>, last7 = today): StatsSummary {
@@ -68,6 +68,29 @@ describe("house floor store", () => {
     expect(floor).toMatchObject({ progress: 30, meals: 1 });
     expect(floorDots(floor, 204)).toBe(30);
     expect(loadHouseFloor()).toEqual(floor);
+  });
+
+  it("keeps Settle up from the very update that eats the floor until it's played", () => {
+    vi.useFakeTimers();
+    try {
+      useHouseFloorStore.setState({ settling: false });
+      useHouseFloorStore.getState().sync(DAY, 0, 1400);
+      useHouseFloorStore.getState().sync(DAY, 200, 1400);
+      // Every update anyone sees: an empty floor is never seen without Settle.
+      const seen: { dots: number; settling: boolean }[] = [];
+      const unsubscribe = useHouseFloorStore.subscribe((state) => {
+        seen.push({ dots: floorDots(state.floor!, 204), settling: state.settling });
+      });
+      useHouseFloorStore.getState().eat(1400);
+      expect(seen).toEqual([{ dots: 0, settling: true }]);
+      vi.advanceTimersByTime(HOUSE_SETTLE_MS - 1);
+      expect(useHouseFloorStore.getState().settling).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(useHouseFloorStore.getState().settling).toBe(false);
+      unsubscribe();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores a stored value that isn't a floor", () => {

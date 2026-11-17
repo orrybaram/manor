@@ -75,8 +75,8 @@ async function shootStats(window: Page, file: string): Promise<void> {
   await expect(tokens).toBeVisible({ timeout: 10_000 });
   // Today, 7 Days and All Time: compact, with the exact count on hover.
   const cells = tokens.getByRole("cell");
-  await expect(cells.first()).toHaveText("1.3k");
-  await expect(cells.first()).toHaveAttribute("title", /^1[,.\u202f\u00a0]?310$/);
+  await expect(cells).toHaveText(["1.3k", "1.3k", "1.3k"]);
+  for (let i = 0; i < 3; i++) await expect(cells.nth(i)).toHaveAttribute("title", /^1[,.\u202f\u00a0]?310$/);
   const table = window.locator("table").filter({ has: tokens });
   await table.scrollIntoViewIfNeeded();
   await table.screenshot({ path: path.join(SHOTS, file), animations: "disabled" });
@@ -123,7 +123,8 @@ test.describe("token count", () => {
     // A typed line: the agent answers it and ends the turn with Stop.
     await runInTerminal(window, "count my tokens");
     await expect
-      .poll(async () => (await summary(window)).today.tokens ?? 0, { timeout: 30_000 })
+      // Well inside the 60s sweep, so it's the turn's Stop that counted it.
+      .poll(async () => (await summary(window)).today.tokens ?? 0, { timeout: 10_000 })
       .toBe(HAND_SUM);
 
     await useTheme(window, "Catppuccin Mocha");
@@ -131,7 +132,8 @@ test.describe("token count", () => {
     await useTheme(window, "Catppuccin Latte");
     await shootStats(window, "stats-light.png");
 
-    // Nothing counts twice: the 60s sweep has nothing new.
+    // Nothing counts twice: after a full 60s sweep there is still nothing new.
+    await window.waitForTimeout(65_000);
     expect((await summary(window)).today.tokens).toBe(HAND_SUM);
   });
 });

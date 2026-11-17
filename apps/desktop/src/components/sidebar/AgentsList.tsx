@@ -219,10 +219,13 @@ export function AgentsList(props: AgentsListProps) {
   const houseFloor = useHouseFloor();
   const isPhone = useLayoutMode() === "phone";
   const showFloor = !fitContent && !isPhone;
-  // With no live agents the section stays while the floor has dots on it.
+  // With no live agents the section stays while the floor has dots on it,
+  // and while Settle plays over a floor just eaten.
   const floorHasDots = showFloor && houseFloor.dots > 0;
 
-  if (visibleAgents.length === 0 && !floorHasDots) return null;
+  if (visibleAgents.length === 0 && !floorHasDots && !(showFloor && houseFloor.settling)) {
+    return null;
+  }
 
   return (
     <div className={styles.agentsSection}>

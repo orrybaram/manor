@@ -17,8 +17,11 @@ import { useStatsStore } from "./stats-store";
 
 /** Per desktop: the renderer's own storage, never synced to hosts. */
 export const HOUSE_FLOOR_KEY = "manor:houseFloor";
-/** The full sidebar's default width, until the floor measures itself. */
-const DEFAULT_FLOOR_WIDTH = 220;
+/**
+ * The full sidebar's default width (220) less the floor's scrollbar
+ * allowance, until the floor measures itself.
+ */
+const DEFAULT_FLOOR_WIDTH = 208;
 
 export function loadHouseFloor(): HouseFloorState | null {
   try {
@@ -42,6 +45,12 @@ interface HouseFloorStore {
   floor: HouseFloorState | null;
   /** The grid at the floor's last measured width. */
   grid: FloorGrid;
+  /**
+   * Settle is playing: the floor is already eaten (and may be empty), but
+   * the Agents section stays up until the house has answered. Not persisted.
+   */
+  settling: boolean;
+  setSettling: (settling: boolean) => void;
   /** The floor's canvas reports its width; columns follow it. */
   setWidth: (width: number) => void;
   /**
@@ -56,6 +65,11 @@ interface HouseFloorStore {
 export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
   floor: loadHouseFloor(),
   grid: floorGrid(DEFAULT_FLOOR_WIDTH),
+  settling: false,
+
+  setSettling: (settling) => {
+    if (get().settling !== settling) set({ settling });
+  },
 
   setWidth: (width) => {
     const grid = floorGrid(width);
@@ -101,8 +115,10 @@ export function startHouseFloorBanking(): () => void {
   });
 }
 
-// Started once, when the renderer loads this module.
-startHouseFloorBanking();
+// Started once, when the renderer loads this module (and again after a hot
+// reload replaces it, so the old subscription goes with the old module).
+const stopBanking = startHouseFloorBanking();
+import.meta.hot?.dispose(stopBanking);
 
 export interface HouseFloor {
   /** Dots on the floor now, 0 to `floorSize`. */
@@ -112,6 +128,8 @@ export interface HouseFloor {
   rows: number;
   /** Full: it wakes and can be fed. */
   awake: boolean;
+  /** Settle is playing over a floor already eaten. */
+  settling: boolean;
   meals: number;
   /** This floor's fill order and dot looks; changes with every new floor. */
   seed: number;
@@ -127,6 +145,7 @@ export function useHouseFloor(): HouseFloor {
   const last7Days = useStatsStore((s) => (s.summary ? bucketPoints(s.summary.last7Days) : 0));
   const floor = useHouseFloorStore((s) => s.floor);
   const grid = useHouseFloorStore((s) => s.grid);
+  const settling = useHouseFloorStore((s) => s.settling);
 
   const eat = useCallback(() => {
     useHouseFloorStore.getState().eat(last7Days);
@@ -139,6 +158,7 @@ export function useHouseFloor(): HouseFloor {
     cols: grid.cols,
     rows: grid.rows,
     awake: dots >= grid.size,
+    settling,
     meals: floor?.meals ?? 0,
     seed: floor?.seed ?? 0,
     eat,

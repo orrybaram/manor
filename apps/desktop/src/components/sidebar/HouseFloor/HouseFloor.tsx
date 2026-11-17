@@ -1,20 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { HouseFloor as HouseFloorModel } from "../../../store/house-floor-store";
 import { useHouseFloorStore } from "../../../store/house-floor-store";
-import { useThemeStore, type Theme } from "../../../store/theme-store";
-import { floorHeight, floorLabel, type FloorPhase } from "./floor-layout";
-import { FloorRenderer, frameLoop, type FloorColors, type FrameLoop } from "./floor-renderer";
+import { floorGridWidth, floorHeight, floorLabel, type FloorPhase } from "./floor-layout";
+import { floorColors, FloorRenderer, frameLoop, type FrameLoop } from "./floor-renderer";
 import styles from "./HouseFloor.module.css";
-
-function floorColors(theme: Theme | null): FloorColors {
-  if (theme) return { dot: theme.foreground, gold: theme.yellow };
-  // Before the theme loads: whatever the CSS variables hold.
-  const css = getComputedStyle(document.documentElement);
-  return {
-    dot: css.getPropertyValue("--fg").trim() || "#e9e3d3",
-    gold: css.getPropertyValue("--yellow").trim() || "#ffe800",
-  };
-}
 
 /**
  * The house floor at the end of the sidebar's Agents list: a whole-rows grid
@@ -38,7 +27,6 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
   useLayoutEffect(() => {
     eatRef.current = eat;
   }, [eat]);
-  const theme = useThemeStore((s) => s.theme);
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<FloorRenderer | null>(null);
@@ -53,7 +41,10 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const renderer = new FloorRenderer(canvas, {
-      onPhase: setPhase,
+      onPhase: (next) => {
+        setPhase(next);
+        useHouseFloorStore.getState().setSettling(next === "settle");
+      },
       onFed: () => eatRef.current(),
     });
     const loop = frameLoop(renderer, () => visibleRef.current);
@@ -61,15 +52,30 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
     loopRef.current = loop;
     return () => {
       loop.stop();
+      useHouseFloorStore.getState().setSettling(false);
       rendererRef.current = null;
       loopRef.current = null;
     };
   }, []);
 
+  // Colours: what the app is painted with right now (`--fg`, `--yellow` on
+  // the root, which every theme change rewrites), followed as they change.
   useLayoutEffect(() => {
-    rendererRef.current?.setColors(floorColors(theme));
-    requestDraw();
-  }, [theme, requestDraw]);
+    const root = document.documentElement;
+    let last = "";
+    const apply = () => {
+      const colors = floorColors(getComputedStyle(root));
+      const key = `${colors.dot} ${colors.gold}`;
+      if (key === last) return;
+      last = key;
+      rendererRef.current?.setColors(colors);
+      requestDraw();
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { attributes: true, attributeFilter: ["style", "class", "data-theme"] });
+    return () => observer.disconnect();
+  }, [requestDraw]);
 
   useLayoutEffect(() => {
     rendererRef.current?.setModel({ dots, cols, rows, seed, awake, meals }, performance.now());
@@ -93,6 +99,8 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Touch or pen held down (a mouse feeds by hovering, so its button is
+    // never tracked: an up outside the canvas would leave it stuck).
     let down = false;
     const at = (e: PointerEvent): [number, number] => {
       const rect = canvas.getBoundingClientRect();
@@ -102,8 +110,8 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
       if (needed) requestDraw();
     };
     const onDown = (e: PointerEvent) => {
-      down = true;
       if (e.pointerType === "mouse") return;
+      down = true;
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch {
@@ -116,12 +124,13 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
       draw(rendererRef.current?.pointerMove(...at(e), active) ?? false);
     };
     const onUp = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") return;
       down = false;
       rendererRef.current?.pointerUp();
-      if (e.pointerType !== "mouse") draw(rendererRef.current?.pointerLeave() ?? false);
+      draw(rendererRef.current?.pointerLeave() ?? false);
     };
     const onLeave = (e: PointerEvent) => {
-      if (e.pointerType === "mouse" && !down) draw(rendererRef.current?.pointerLeave() ?? false);
+      if (e.pointerType === "mouse" || !down) draw(rendererRef.current?.pointerLeave() ?? false);
     };
     const onCancel = () => {
       down = false;
@@ -146,9 +155,13 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      useHouseFloorStore.getState().setWidth(width);
+    const body = wrap.parentElement;
+    const observer = new ResizeObserver(() => {
+      // Columns come from the list's own width less a fixed scrollbar
+      // allowance, so they never change as the list starts or stops
+      // overflowing; the grid then centres in the canvas as it is.
+      if (body) useHouseFloorStore.getState().setWidth(floorGridWidth(body.offsetWidth));
+      const { width, height } = wrap.getBoundingClientRect();
       const renderer = rendererRef.current;
       if (!renderer) return;
       renderer.setSize(width, height, window.devicePixelRatio || 1);
@@ -156,6 +169,7 @@ export function HouseFloor({ floor }: { floor: HouseFloorModel }) {
       renderer.draw(performance.now());
     });
     observer.observe(wrap);
+    if (body) observer.observe(body);
     return () => observer.disconnect();
   }, []);
 

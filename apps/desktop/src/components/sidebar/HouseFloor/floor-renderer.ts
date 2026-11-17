@@ -45,13 +45,27 @@ export interface FloorModel {
   meals: number;
 }
 
-/** The renderer's own phases: `fed` is Settle done, waiting for the next floor. */
-type Phase = FloorPhase | "fed";
+const FALLBACK_COLORS: FloorColors = { dot: "#e9e3d3", gold: "#ffe800" };
+
+/**
+ * The floor's colours from the app's CSS variables: dots in the theme's
+ * foreground (`--fg`), the house's reply in its terminal yellow (`--yellow`).
+ */
+export function floorColors(style: Pick<CSSStyleDeclaration, "getPropertyValue">): FloorColors {
+  return {
+    dot: style.getPropertyValue("--fg").trim() || FALLBACK_COLORS.dot,
+    gold: style.getPropertyValue("--yellow").trim() || FALLBACK_COLORS.gold,
+  };
+}
+
 
 export interface FloorRendererOptions {
   /** The phase changed (for the canvas's label and test hooks). */
   onPhase?: (phase: FloorPhase) => void;
-  /** Settle has played: the house ate the floor; start the next one. */
+  /**
+   * The floor is cleared: the house eats it now, as Settle starts (so a
+   * fold or quit mid-Settle keeps the meal). Settle is only a picture.
+   */
   onFed?: () => void;
 }
 
@@ -70,7 +84,7 @@ export class FloorRenderer {
   private readonly ctx: CanvasRenderingContext2D | null;
   private layout: FloorLayout = { cols: 1, rows: 1, width: 0, height: 0 };
   private dpr = 1;
-  private colors: FloorColors = { dot: "#e9e3d3", gold: "#ffe800" };
+  private colors: FloorColors = FALLBACK_COLORS;
   private reducedMotion = false;
   private model: FloorModel | null = null;
   private order: number[] = [];
@@ -78,7 +92,9 @@ export class FloorRenderer {
   /** When each dot (by fill index) arrived, for its fade-in; seconds. */
   private arrivals = new Map<number, number>();
 
-  private phase: Phase = "filling";
+  private phase: FloorPhase = "filling";
+  /** The meal count Settle's mode was picked from (the model moves on under it). */
+  private settleMeals = 0;
   /** Seconds: last frame, the wake, Settle's start, sockets fading back. */
   private lastT = 0;
   private wakeAt = 0;
@@ -138,10 +154,8 @@ export class FloorRenderer {
       this.order = fillOrder(model.seed, size);
       this.looks = dotLooks(model.seed, size);
       this.arrivals.clear();
-      if (this.phase === "fed" && prev !== null && prev.seed !== model.seed) {
-        this.socketsFrom = now;
-        this.setPhase("filling");
-      } else if (this.phase === "awake") {
+      // Mid-Settle, the next floor waits hidden under it.
+      if (this.phase === "awake") {
         // The grid changed under an awake floor: it wakes again, unfed.
         this.setPhase("filling");
       }
@@ -211,6 +225,7 @@ export class FloorRenderer {
           // It fades where it lies; its place stays empty.
           this.goneAt[i] = now;
           this.fed++;
+          this.canvas.dataset.left = String(count - this.fed);
           if (!this.reducedMotion) this.drops.push({ x, y, t0: now });
         }
       }
@@ -223,12 +238,11 @@ export class FloorRenderer {
     return Math.min(this.model?.dots ?? 0, size);
   }
 
-  private setPhase(phase: Phase): void {
+  private setPhase(phase: FloorPhase): void {
     if (phase === this.phase) return;
-    const shown = (p: Phase): FloorPhase => (p === "fed" ? "settle" : p);
-    const changed = shown(phase) !== shown(this.phase);
     this.phase = phase;
-    if (changed) this.options.onPhase?.(shown(phase));
+    if (phase !== "awake") delete this.canvas.dataset.left;
+    this.options.onPhase?.(phase);
   }
 
   private wake(now: number): void {
@@ -240,6 +254,8 @@ export class FloorRenderer {
     this.fed = 0;
     this.drops = [];
     this.wakeAt = now;
+    // Dots still on the awake floor, for tests (React doesn't own it).
+    this.canvas.dataset.left = String(count);
     this.setPhase("awake");
   }
 
@@ -254,7 +270,7 @@ export class FloorRenderer {
     ctx.clearRect(0, 0, layout.width, layout.height);
 
     const size = layout.cols * layout.rows;
-    const count = this.dotCount();
+    let count = this.dotCount();
     const reduced = this.reducedMotion;
 
     // Full, and every dot has faded in: the floor wakes.
@@ -266,27 +282,32 @@ export class FloorRenderer {
       const popping = !reduced && this.goneAt.some((g) => now - g < POP_SECONDS);
       if (!popping) {
         this.settleAt = now;
+        this.settleMeals = model.meals;
         this.drops = [];
         this.setPhase("settle");
+        this.options.onFed?.();
       }
     }
-    if (this.phase === "settle" && now - this.settleAt >= SETTLE_SECONDS) {
-      this.setPhase("fed");
-      this.options.onFed?.();
-    }
-
     if (this.phase === "settle") {
-      this.drawSettle(now - this.settleAt);
-      ctx.globalAlpha = 1;
-      return true;
+      if (now - this.settleAt < SETTLE_SECONDS) {
+        this.drawSettle(now - this.settleAt);
+        ctx.globalAlpha = 1;
+        return true;
+      }
+      // Settle is over: the next floor shows, its sockets and any carried
+      // dots fading in.
+      this.setPhase("filling");
+      this.socketsFrom = now;
+      this.arrivals.clear();
+      count = this.dotCount();
+      for (let i = 0; i < count; i++) this.arrivals.set(i, now);
     }
-    if (this.phase === "fed") return false;
 
     const awake = this.phase === "awake";
     let moving = false;
 
     // The ring a fed dot leaves, through the empty sockets.
-    this.drops = this.drops.filter((d) => now - d.t0 < DROP_LIFE);
+    this.drops = reduced ? [] : this.drops.filter((d) => now - d.t0 < DROP_LIFE);
     if (awake && this.drops.length > 0) {
       moving = true;
       const drops = this.drops.map((d) => ({ x: d.x, y: d.y, t: now - d.t0 }));
@@ -360,9 +381,9 @@ export class FloorRenderer {
       }
       anyHere = true;
       const pulse = (this.pulse[i] = Math.max(0, this.pulse[i] - dt * 4));
-      if (pulse > 0) moving = true;
+      if (pulse > 0 && !reduced) moving = true;
       const grow = reduced ? 0 : pulse * 0.8;
-      this.dot(x, y, r + grow, this.colors.dot, Math.min(1, alpha + pulse * 0.3));
+      this.dot(x, y, r + grow, this.colors.dot, Math.min(1, alpha + (reduced ? 0 : pulse * 0.3)));
     }
 
     // The brush: a faint circle while over a floor that has something on it.
@@ -383,7 +404,7 @@ export class FloorRenderer {
   /** Settle over the full grid: nothing moves; the quiet lines go gold, hold, fade. */
   private drawSettle(t: number): void {
     const { layout } = this;
-    const mode = settleMode(this.model?.meals ?? 0);
+    const mode = settleMode(this.settleMeals);
     const [x0, y0] = gridPoint(layout, 0, 0);
     const [x1, y1] = gridPoint(layout, layout.cols - 1, layout.rows - 1);
     const box = { x0, x1, y0, y1 };

@@ -3,6 +3,7 @@ import {
   dotAlpha,
   dotLooks,
   fillOrder,
+  floorGridWidth,
   floorHeight,
   floorLabel,
   FLOOR_BOTTOM,
@@ -16,6 +17,13 @@ describe("floorHeight", () => {
   it("holds every row with room above and below", () => {
     expect(floorHeight(12)).toBe(FLOOR_TOP + FLOOR_BOTTOM + 11 * P);
     expect(floorHeight(1)).toBe(FLOOR_TOP + FLOOR_BOTTOM);
+  });
+});
+
+describe("floorGridWidth", () => {
+  it("always keeps a scrollbar's room, so columns don't follow overflow", () => {
+    expect(floorGridWidth(220)).toBe(208);
+    expect(floorGridWidth(5)).toBe(0);
   });
 });
 

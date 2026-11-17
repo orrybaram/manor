@@ -10,6 +10,18 @@ export const P = FLOOR_PITCH;
 export const FLOOR_TOP = 14;
 export const FLOOR_BOTTOM = 22;
 
+/** Room always kept for the list's scrollbar, whether or not it shows. */
+export const FLOOR_SCROLLBAR_ALLOWANCE = 12;
+
+/**
+ * The width the grid's columns come from: the scroll body's full width (its
+ * scrollbar included) less the allowance, so the floor never reshuffles as
+ * the list starts or stops overflowing.
+ */
+export function floorGridWidth(bodyWidth: number): number {
+  return Math.max(0, bodyWidth - FLOOR_SCROLLBAR_ALLOWANCE);
+}
+
 /** The least height that holds every row: the floor never clips. */
 export function floorHeight(rows: number): number {
   return FLOOR_TOP + FLOOR_BOTTOM + (Math.max(1, rows) - 1) * P;

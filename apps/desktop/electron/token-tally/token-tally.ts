@@ -34,9 +34,17 @@ const FILE_NAME = "token-tally.json";
 
 /** What the tally needs of an agent. */
 export interface TallyAgent {
+  /** The agent's id; with `paneId`, what its last transcript is remembered by. */
+  id?: string;
+  paneId?: string | null;
   agentKind: AgentKind;
   transcriptPath: string | null;
 }
+
+/** Panes (or agents) whose last transcript is remembered, oldest dropped first. */
+const MAX_LAST_TRANSCRIPTS = 1000;
+/** How far before a new source's creation its usage counts: clocks differ. */
+const FLOOR_SLACK_MS = 2000;
 
 interface StoredMarker extends UsageMarker {
   /** Epoch ms the marker was last tallied. */
@@ -71,6 +79,12 @@ export class TokenTally {
   private markers: Record<string, StoredMarker>;
   /** Per transcript: the run in flight, and whether another is wanted after it. */
   private readonly running = new Map<string, { again: boolean; done: Promise<void> }>();
+  /**
+   * Each pane's (or agent's) last transcript tallied, so a switch to a new one
+   * (`/clear`, a resume) gives the old one a last read: its final line may
+   * have landed after the turn's tally.
+   */
+  private readonly lastTranscript = new Map<string, { agentKind: AgentKind; transcriptPath: string }>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
@@ -109,6 +123,33 @@ export class TokenTally {
     const reader = this.readers[agent.agentKind];
     const transcriptPath = agent.transcriptPath;
     if (!reader || !transcriptPath || this.disposed) return Promise.resolve();
+    const previous = this.rememberTranscript(agent, transcriptPath);
+    if (!previous) return this.tallyTranscript(reader, transcriptPath);
+    return Promise.all([
+      this.tally(previous),
+      this.tallyTranscript(reader, transcriptPath),
+    ]).then(() => undefined);
+  }
+
+  /**
+   * Records `transcriptPath` as the agent's pane's last, and returns the one
+   * it replaces, if any, for a final read.
+   */
+  private rememberTranscript(agent: TallyAgent, transcriptPath: string): TallyAgent | null {
+    const owner = agent.paneId ?? agent.id;
+    if (!owner) return null;
+    const last = this.lastTranscript.get(owner);
+    this.lastTranscript.delete(owner);
+    this.lastTranscript.set(owner, { agentKind: agent.agentKind, transcriptPath });
+    if (this.lastTranscript.size > MAX_LAST_TRANSCRIPTS) {
+      const oldest = this.lastTranscript.keys().next().value;
+      if (oldest !== undefined) this.lastTranscript.delete(oldest);
+    }
+    if (!last || last.transcriptPath === transcriptPath) return null;
+    return last;
+  }
+
+  private tallyTranscript(reader: UsageReader, transcriptPath: string): Promise<void> {
     const inFlight = this.running.get(transcriptPath);
     if (inFlight) {
       inFlight.again = true;
@@ -159,11 +200,17 @@ export class TokenTally {
    * after the tally first ran here, else from its end. One created before
    * the prune window may have lost its marker to pruning, so it starts at
    * its end too.
+   *
+   * One counted from its start gets a floor at its creation: a forked
+   * session opens with the original's history, dated before it, and a
+   * birth time can be later than a file's first line.
    */
   private async firstMarker(reader: UsageReader, source: string): Promise<UsageMarker> {
     const createdAt = await reader.createdAt(source);
     if (createdAt === null) return reader.markerAtEnd(source);
-    if (createdAt >= this.since && this.now() - createdAt < PRUNE_AFTER_MS) return { offset: 0 };
+    if (createdAt >= this.since && this.now() - createdAt < PRUNE_AFTER_MS) {
+      return { offset: 0, floor: createdAt - FLOOR_SLACK_MS };
+    }
     return reader.markerAtEnd(source);
   }
 
@@ -240,19 +287,31 @@ function sameMarker(a: UsageMarker, b: UsageMarker): boolean {
   return (
     a.offset === b.offset &&
     a.total === b.total &&
-    (a.ids ?? []).join("\u0000") === (b.ids ?? []).join("\u0000")
+    a.floor === b.floor &&
+    JSON.stringify(a.seen ?? []) === JSON.stringify(b.seen ?? [])
   );
 }
 
 function sanitizeMarker(value: unknown): StoredMarker | null {
   if (typeof value !== "object" || value === null) return null;
-  const { offset, at, ids, total } = value as Partial<StoredMarker>;
+  const { offset, at, seen, total, floor } = value as Partial<StoredMarker>;
   if (typeof offset !== "number" || !Number.isFinite(offset) || offset < 0) return null;
   if (typeof at !== "number" || !Number.isFinite(at)) return null;
   return {
     offset,
     at,
-    ...(Array.isArray(ids) ? { ids: ids.filter((id): id is string => typeof id === "string") } : {}),
+    ...(Array.isArray(seen) ? { seen: seen.filter(isSeenEntry) } : {}),
     ...(typeof total === "number" && Number.isFinite(total) ? { total } : {}),
+    ...(typeof floor === "number" && Number.isFinite(floor) ? { floor } : {}),
   };
+}
+
+function isSeenEntry(value: unknown): value is [string, number] {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "string" &&
+    typeof value[1] === "number" &&
+    Number.isFinite(value[1])
+  );
 }

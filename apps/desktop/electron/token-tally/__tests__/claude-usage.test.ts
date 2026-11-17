@@ -41,14 +41,38 @@ describe("claudeFreshTokens", () => {
 
   it("counts a message's repeated usage lines once", () => {
     const usage = { input: 1, cacheWrite: 10, cacheRead: 500, output: 100 };
-    const { fresh, ids } = claudeFreshTokens([
+    const { fresh, seen } = claudeFreshTokens([
       assistantLine("msg_a", usage),
       assistantLine("msg_a", usage),
       assistantLine("msg_a", usage),
     ]);
     expect(fresh).toBe(111);
-    // and once across reads, by the ids carried forward
-    expect(claudeFreshTokens([assistantLine("msg_a", usage)], ids).fresh).toBe(0);
+    // and once across reads, by the ids carried forward, hashed
+    expect(claudeFreshTokens([assistantLine("msg_a", usage)], seen).fresh).toBe(0);
+    expect(JSON.stringify(seen)).not.toContain("msg_a");
+  });
+
+  it("adds only the increase when a message's later line reports more output", () => {
+    const at = (output: number) => assistantLine("msg_a", { input: 2, cacheWrite: 0, cacheRead: 900, output });
+    const first = claudeFreshTokens([at(8)]);
+    expect(first.fresh).toBe(10);
+    const later = claudeFreshTokens([at(191), at(191), at(50)], first.seen);
+    expect(later.fresh).toBe(183);
+  });
+
+  it("leaves out usage dated before the floor, and counts undated usage", () => {
+    const usage = { input: 1, cacheWrite: 0, cacheRead: 0, output: 1 };
+    const dated = (id: string, timestamp: string) => {
+      const line = JSON.parse(assistantLine(id, usage));
+      return JSON.stringify({ ...line, timestamp });
+    };
+    const undated = JSON.stringify({ ...JSON.parse(assistantLine("msg_c", usage)), timestamp: undefined });
+    const { fresh } = claudeFreshTokens(
+      [dated("msg_a", "2026-10-01T00:00:00.000Z"), dated("msg_b", "2026-11-17T12:00:00.000Z"), undated],
+      [],
+      Date.parse("2026-11-17T00:00:00.000Z"),
+    );
+    expect(fresh).toBe(4);
   });
 
   it("skips lines that don't parse", () => {

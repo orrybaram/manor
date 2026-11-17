@@ -5,9 +5,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { TokenTally } from "../token-tally";
 
-function assistantLine(id: string, input: number, output: number, cacheRead = 50_000): string {
+function assistantLine(
+  id: string,
+  input: number,
+  output: number,
+  cacheRead = 50_000,
+  timestamp = new Date().toISOString(),
+): string {
   return JSON.stringify({
     type: "assistant",
+    timestamp,
     message: {
       id,
       role: "assistant",
@@ -112,6 +119,45 @@ describe("TokenTally", () => {
     fs.appendFileSync(old, `${assistantLine("msg_old2", 2, 2)}\n`);
     await tally.tally({ agentKind: "claude", transcriptPath: old });
     expect(total()).toBe(11);
+  });
+
+  it("counts only a forked transcript's own lines, not the history copied into it", async () => {
+    const tally = makeTally();
+    const fork = path.join(projects, "fork.jsonl");
+    const copied = "2026-10-31T09:00:00.000Z";
+    fs.writeFileSync(
+      fork,
+      `${assistantLine("msg_old1", 500, 500, 0, copied)}\n${assistantLine("msg_old2", 500, 500, 0, copied)}\n` +
+        `${assistantLine("msg_new", 3, 4)}\n`,
+    );
+    await tally.tally({ agentKind: "claude", transcriptPath: fork });
+    expect(total()).toBe(7);
+  });
+
+  it("counts nothing old in an old transcript re-created after the first run", async () => {
+    const tally = makeTally();
+    const recreated = path.join(projects, "recreated.jsonl");
+    fs.writeFileSync(recreated, `${assistantLine("msg_old", 1000, 1000, 0, "2026-10-31T09:00:00.000Z")}\n`);
+    await tally.tally({ agentKind: "claude", transcriptPath: recreated });
+    expect(total()).toBe(0);
+    fs.appendFileSync(recreated, `${assistantLine("msg_new", 1, 1)}\n`);
+    await tally.tally({ agentKind: "claude", transcriptPath: recreated });
+    expect(total()).toBe(2);
+  });
+
+  it("gives a pane's old transcript a last read when it moves to a new one", async () => {
+    const tally = makeTally();
+    const before = path.join(projects, "before.jsonl");
+    const after = path.join(projects, "after.jsonl");
+    fs.writeFileSync(before, `${assistantLine("msg_1", 10, 0)}\n`);
+    await tally.tally({ id: "agent-1", paneId: "pane-1", agentKind: "claude", transcriptPath: before });
+    expect(total()).toBe(10);
+
+    // The turn's last line lands after its tally; then /clear starts a new transcript.
+    fs.appendFileSync(before, `${assistantLine("msg_2", 5, 0)}\n`);
+    fs.writeFileSync(after, `${assistantLine("msg_3", 1, 0)}\n`);
+    await tally.tally({ id: "agent-2", paneId: "pane-1", agentKind: "claude", transcriptPath: after });
+    expect(total()).toBe(16);
   });
 
   it("never overlaps reads of one transcript", async () => {

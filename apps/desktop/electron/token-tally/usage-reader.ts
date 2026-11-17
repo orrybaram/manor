@@ -11,13 +11,23 @@
  * Where one source was last counted. `offset` is the reader's position (a
  * byte offset for a JSONL transcript; a reader may use it for a row cursor).
  * The other fields are optional per-reader state. Persisted as JSON in the
- * tally's marker file, so it holds counts and opaque ids only: never paths,
+ * tally's marker file, so it holds counts and hashes only: never paths, ids,
  * prompt text or model names.
  */
 export interface UsageMarker {
   offset: number;
-  /** Recently counted message ids (Claude: one usage per `message.id`). */
-  ids?: string[];
+  /**
+   * Recently counted messages, oldest first: a short hash of each id and the
+   * fresh tokens already counted for it (Claude: one usage per `message.id`,
+   * whose later lines may report more output).
+   */
+  seen?: [string, number][];
+  /**
+   * Epoch ms before which usage doesn't count: a source counted from its start
+   * may open with history copied from elsewhere (a forked session), dated
+   * before the source was created.
+   */
+  floor?: number;
   /** A cumulative total the source reports (Codex's `total_token_usage`). */
   total?: number;
 }

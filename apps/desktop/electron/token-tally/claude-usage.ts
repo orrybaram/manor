@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -12,8 +13,13 @@ import type { UsageMarker, UsageRead, UsageReader } from "./usage-reader";
  * are left out, since every turn re-reads the whole context from cache.
  *
  * One message is written as one line per content block, every one repeating
- * the same usage under the same `message.id`, so a message counts once. Its
- * lines are contiguous, so the marker remembers only the most recent ids.
+ * the same usage under the same `message.id`, so a message counts once. A
+ * later line may report more output than an earlier one; only the increase
+ * is added. A message's lines are contiguous, so the marker remembers only
+ * the most recent ids, hashed.
+ *
+ * A forked session's transcript opens with the original's lines, timestamps
+ * and all: usage dated before the marker's `floor` doesn't count.
  *
  * A session's subagents write their own transcripts, in
  * `<transcript dir>/<session id>/subagents/agent-*.jsonl`, with the same
@@ -23,8 +29,15 @@ import type { UsageMarker, UsageRead, UsageReader } from "./usage-reader";
 /** Message ids a marker remembers: more than enough for contiguous lines. */
 const RECENT_IDS = 32;
 
-/** One assistant line's message id and fresh tokens, or null for any other line. */
-export function claudeLineUsage(line: string): { id: string | null; fresh: number } | null {
+interface ClaudeLineUsage {
+  id: string | null;
+  fresh: number;
+  /** The line's own `timestamp`, epoch ms; null when it has none. */
+  at: number | null;
+}
+
+/** One assistant line's message id, fresh tokens and time, or null for any other line. */
+export function claudeLineUsage(line: string): ClaudeLineUsage | null {
   // Most lines are tool results and prompts: skip them before parsing.
   if (!line.includes('"usage"') || !line.includes('"assistant"')) return null;
   let parsed: unknown;
@@ -39,32 +52,60 @@ export function claudeLineUsage(line: string): { id: string | null; fresh: numbe
   const usage = message.usage;
   const fresh =
     count(usage.input_tokens) + count(usage.cache_creation_input_tokens) + count(usage.output_tokens);
-  return { id: typeof message.id === "string" ? message.id : null, fresh };
+  const at = typeof parsed.timestamp === "string" ? Date.parse(parsed.timestamp) : NaN;
+  return {
+    id: typeof message.id === "string" ? message.id : null,
+    fresh,
+    at: Number.isNaN(at) ? null : at,
+  };
+}
+
+interface CountState {
+  fresh: number;
+  seen: [string, number][];
 }
 
 /**
- * The fresh tokens in `lines`, each message counted once, given the ids
- * already counted. Returns the ids to remember next, newest last.
+ * The fresh tokens in `lines`, each message counted once (and topped up when
+ * a later line reports more), given what `seen` already counted. Usage dated
+ * before `floor` is left out. Returns what to remember next, newest last.
  */
 export function claudeFreshTokens(
   lines: Iterable<string>,
-  counted: readonly string[] = [],
-): { fresh: number; ids: string[] } {
-  const state = { fresh: 0, ids: [...counted] };
-  for (const line of lines) countLine(state, line);
+  seen: readonly [string, number][] = [],
+  floor?: number,
+): CountState {
+  const state: CountState = { fresh: 0, seen: seen.map(([id, n]) => [id, n]) };
+  for (const line of lines) countLine(state, line, floor);
   return state;
 }
 
-/** Adds one line's fresh tokens to `state`, unless its message already counted. */
-function countLine(state: { fresh: number; ids: string[] }, line: string): void {
+/** Adds one line's fresh tokens to `state`, less what its message already counted. */
+function countLine(state: CountState, line: string, floor: number | undefined): void {
   const usage = claudeLineUsage(line);
   if (!usage) return;
-  if (usage.id !== null) {
-    if (state.ids.includes(usage.id)) return;
-    state.ids.push(usage.id);
-    if (state.ids.length > RECENT_IDS) state.ids.shift();
+  if (floor !== undefined && usage.at !== null && usage.at < floor) return;
+  if (usage.id === null) {
+    state.fresh += usage.fresh;
+    return;
   }
+  const key = idHash(usage.id);
+  const entry = state.seen.find(([id]) => id === key);
+  if (entry) {
+    if (usage.fresh > entry[1]) {
+      state.fresh += usage.fresh - entry[1];
+      entry[1] = usage.fresh;
+    }
+    return;
+  }
+  state.seen.push([key, usage.fresh]);
+  if (state.seen.length > RECENT_IDS) state.seen.shift();
   state.fresh += usage.fresh;
+}
+
+/** A message id as the marker keeps it: a short hash, never the id. */
+function idHash(id: string): string {
+  return createHash("sha256").update(id).digest("hex").slice(0, 12);
 }
 
 export const claudeUsageReader: UsageReader = {
@@ -109,9 +150,15 @@ export const claudeUsageReader: UsageReader = {
   },
 
   async read(marker, source): Promise<UsageRead> {
-    const state = { fresh: 0, ids: [...(marker.ids ?? [])] };
-    const offset = await scanJsonlLines(source, marker.offset, (line) => countLine(state, line));
-    const next: UsageMarker = { offset, ...(state.ids.length > 0 ? { ids: state.ids } : {}) };
+    const state: CountState = { fresh: 0, seen: (marker.seen ?? []).map(([id, n]) => [id, n]) };
+    const offset = await scanJsonlLines(source, marker.offset, (line) =>
+      countLine(state, line, marker.floor),
+    );
+    const next: UsageMarker = {
+      ...marker,
+      offset,
+      ...(state.seen.length > 0 ? { seen: state.seen } : {}),
+    };
     return { fresh: state.fresh, next };
   },
 };

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.27.2] - 2026-11-17
+
+### Features
+
+- **File pane navigation**
+  - Clicking a breadcrumb segment opens a folder picker. You can filter it, drill into folders, or use Reveal in Files.
+  - A new Search view in the Files drawer searches the workspace, with case, word and regex options, globs, and results grouped by file. ⌘⇧F opens it. It runs on the workspace's host.
+  - Go to Definition (F12 or ⌘-click) and Find Usages (⇧F12) search the workspace for the word under the cursor. Go to Definition lists ranked hits under the word.
+- **Fresh tokens in Stats**
+  - Stats has a new Tokens row with each day's fresh tokens: what a model newly read or wrote, not the cached context it re-reads every turn. Hover a short count like 22.7M to see the exact number.
+  - Claude (including subagents), Codex, pi and opencode agents all count. Each host counts its own agents, and the desktop adds them up.
+  - Counting starts from now: earlier usage isn't backfilled, and a forked or re-created transcript isn't counted twice.
+
+### Fixes
+
+- **Pull requests**
+  - A PR that's queued to merge now shows as queued instead of failing checks, in the sidebar badge, the PR popover and the dashboard. Conflicts still take priority. The popover still lists failing checks below "Queued to merge".
+  - The PR card's merge button now uses the same merge icon as the card header. Before, the icon broke apart and spilled out of its box when a merge landed.
+- ⌘⇧N after creating a task's workspace now opens a blank New Workspace dialog instead of the last task's name, branch and prompt.
+- **Chat**
+  - Links in a question card open.
+  - An image pasted into a prompt now shows as an image in your message, not as its file path.
+
 ## [0.27.1] - 2026-11-09
 
 ### Features

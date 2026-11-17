@@ -86,6 +86,8 @@ import { PushManager, type VapidKeys } from "../remote-control/push";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
 import { createBroadcastBus, type BroadcastBus } from "../renderer-broadcast";
 import { StatsStore, type StatsHistory } from "../stats-store";
+import { TokenTally } from "../token-tally/token-tally";
+import type { AgentHookEventType } from "../agent-hook-events";
 import { countBusyAcross } from "../stats-signals";
 import { TerminalHostClient } from "../terminal-host/client";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
@@ -557,6 +559,16 @@ export function createManorServer<D extends BridgeServerDeps>(
   // Every server says when its stats move: a host's is how the desktop
   // knows to read its history again.
   wireStatsBroadcast({ statsStore }, bus.publish);
+  // Fresh tokens, read from the transcripts of this server's own agents:
+  // a remote host's server tallies its own, and the desktop sums hosts' stats.
+  // Tallied after each turn ends, when an agent closes, and on a slow sweep.
+  const isLocalAgent = (agent: AgentInfo): boolean =>
+    agentHostId(agent, getPaneHostId) === LOCAL_HOST_ID;
+  const tokenTally = new TokenTally({
+    dataDir,
+    record: (fresh) => statsStore.record("tokens", fresh),
+    liveAgents: () => agentManager.getActiveAgents().filter(isLocalAgent),
+  });
   // The server's unseen flags and the notifications built on them: one of each per server, shared by the status pipeline, the handlers
   // and the broadcast.
   const unseen = new UnseenAgents();
@@ -617,7 +629,12 @@ export function createManorServer<D extends BridgeServerDeps>(
     ? (paneId: string) => backendRegistry.sessions.ownerOf(paneId)
     : (paneId: string) => backendRegistry.sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
 
-  const broadcastAgent = (agent: AgentInfo): void => notifier.sendAgentUpdate(agent);
+  const broadcastAgent = (agent: AgentInfo): void => {
+    notifier.sendAgentUpdate(agent);
+    // Every lifecycle end (completed, error, abandoned) is broadcast here:
+    // the agent's last tokens count before it leaves the sweep.
+    if (agent.status !== "active" && isLocalAgent(agent)) void tokenTally.tally(agent);
+  };
 
   /** A transition, to the caller's sink, with the automation that started its agent. */
   const tellAgentStatus: AgentStatusSink = (agent, prevStatus, newStatus) => {
@@ -703,6 +720,10 @@ export function createManorServer<D extends BridgeServerDeps>(
     // here only after `agentPipeline.start()`, once `chatMirror` exists.
     onHook: (event) => {
       chatMirror.poke(event.paneId);
+      if (TURN_ENDS.has(event.type)) {
+        const agent = pickPaneAgent(agentManager.getAllAgents(), event.paneId);
+        if (agent && isLocalAgent(agent)) void tokenTally.tally(agent);
+      }
       if (event.type === "PostToolUse" && event.filePath) {
         agentFileAuthors.record(event.filePath, {
           paneId: event.paneId,
@@ -1094,6 +1115,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       // before this were queued and are replayed now. One tick, on the old
       // sweep cadence, carries every time-based rule.
       agentPipeline.start();
+      tokenTally.start();
       automationScheduler.start();
       inboxPoller?.start();
     },
@@ -1119,6 +1141,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       // Takes down the ssh children; remote sessions keep running on their hosts.
       void backendRegistry.disconnectAll();
       killAllActivePushes();
+      // Before the stats flush: a read in flight is dropped, not half-counted.
+      tokenTally.dispose();
       statsStore.flushNow();
       // A host server's log is what the bell shows of the runs that fired
       // with no desktop open: a stop inside the debounce must not lose one.
@@ -1133,6 +1157,14 @@ export function createManorServer<D extends BridgeServerDeps>(
     },
   };
 }
+
+/** Hooks that end a turn (or a subagent's): when its tokens are tallied. */
+const TURN_ENDS: ReadonlySet<AgentHookEventType> = new Set([
+  "Stop",
+  "StopFailure",
+  "SubagentStop",
+  "SessionEnd",
+]);
 
 /** How long a shutdown waits for automation fires still in flight. */
 const AUTOMATION_STOP_TIMEOUT_MS = 5_000;

@@ -131,6 +131,8 @@ async function sweep(w: Page, from = 0, to = 1, leftFrom = 0, leftTo = 1): Promi
     const [x0, x1] = row % 2 === 0 ? [left, right] : [right, left];
     await w.mouse.move(x0, y);
     await w.mouse.move(x1, y, { steps: 24 });
+    // Stop the moment the floor is clear, so Settle is caught from its start.
+    if ((await c.getAttribute("data-state")) === "settle") return;
   }
   // Off the floor: the next sweep starts a fresh pass everywhere.
   await w.mouse.move(box.x + box.width / 2, box.y - 40);
@@ -169,8 +171,8 @@ async function feedOneMeal(w: Page, theme: "dark" | "light", meals: number): Pro
     await expect(canvas(w)).toHaveAttribute("data-state", "settle", { timeout: 500 });
   }).toPass({ timeout: 60_000 });
   await expect(canvas(w)).toHaveAttribute("aria-label", "House floor: fed, the house answers");
-  // The sigil formed and holding (Settle is 3.6s).
-  await w.waitForTimeout(1_400);
+  // The sigil formed and holding (Settle is 3.6s; the sweep stops as it starts).
+  await w.waitForTimeout(1_200);
   await shoot(floor(w), `settle-${theme}.png`);
 
   // The meal was eaten as Settle began: one floor of points gone, one more

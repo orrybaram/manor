@@ -160,6 +160,33 @@ describe("TokenTally", () => {
     expect(total()).toBe(16);
   });
 
+  it("tallies Codex and pi agents by their own readers", async () => {
+    const tally = makeTally();
+    const rollout = path.join(projects, "rollout.jsonl");
+    const usage = { input_tokens: 100, cached_input_tokens: 40, output_tokens: 5 };
+    fs.writeFileSync(
+      rollout,
+      `${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        type: "event_msg",
+        payload: { type: "token_count", info: { total_token_usage: usage } },
+      })}\n`,
+    );
+    const pi = path.join(projects, "pi.jsonl");
+    fs.writeFileSync(
+      pi,
+      `${JSON.stringify({
+        type: "message",
+        id: "e1",
+        timestamp: new Date().toISOString(),
+        message: { role: "assistant", usage: { input: 1, output: 2, cacheRead: 99, cacheWrite: 3 } },
+      })}\n`,
+    );
+    await tally.tally({ agentKind: "codex", transcriptPath: rollout });
+    await tally.tally({ agentKind: "pi", transcriptPath: pi });
+    expect(counted).toEqual([65, 6]);
+  });
+
   it("never overlaps reads of one transcript", async () => {
     const tally = makeTally();
     const transcript = path.join(projects, "sess.jsonl");
@@ -170,8 +197,12 @@ describe("TokenTally", () => {
   });
 
   it("ignores agent kinds without a reader and agents without a transcript", async () => {
-    const tally = makeTally();
-    await tally.tally({ agentKind: "codex", transcriptPath: path.join(projects, "x.jsonl") });
+    const tally = new TokenTally({ dataDir, record: (n) => counted.push(n), readers: {} });
+    tallies.push(tally);
+    const transcript = path.join(projects, "sess.jsonl");
+    fs.writeFileSync(transcript, `${assistantLine("msg_1", 10, 10)}\n`);
+    await tally.tally({ agentKind: "claude", transcriptPath: transcript });
+    await makeTally().tally({ agentKind: "claude", transcriptPath: null });
     await tally.tally({ agentKind: "claude", transcriptPath: null });
     expect(counted).toEqual([]);
   });

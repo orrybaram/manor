@@ -60,3 +60,37 @@ export async function fileSize(file: string): Promise<number> {
     return 0;
   }
 }
+
+/**
+ * When a JSONL file was created: its birth time, else (on a filesystem
+ * without one) its first line's `timestamp`; null when it is gone or neither
+ * says.
+ */
+export async function jsonlCreatedAt(file: string): Promise<number | null> {
+  let stat: fs.Stats;
+  try {
+    stat = await fs.promises.stat(file);
+  } catch {
+    return null;
+  }
+  if (stat.birthtimeMs > 0) return stat.birthtimeMs;
+  let first: number | null = null;
+  await scanJsonlLines(file, 0, (line) => {
+    const match = /"timestamp":"([^"]+)"/.exec(line);
+    const at = match ? Date.parse(match[1]) : NaN;
+    if (Number.isNaN(at)) return;
+    first = at;
+    return "stop";
+  }).catch(() => undefined);
+  return first;
+}
+
+/** A parsed line's object, not an array or a scalar. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A token count from a usage field: a finite positive number, else 0. */
+export function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}

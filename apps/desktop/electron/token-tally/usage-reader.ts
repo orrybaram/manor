@@ -4,7 +4,7 @@
  * cache reads) were added since a marker.
  *
  * One reader per agent kind (`token-tally.ts` holds them by kind). Claude's
- * is `claude-usage.ts`; Codex, pi and opencode plug in the same way.
+ * is `claude-usage.ts`, Codex's `codex-usage.ts`, pi's `pi-usage.ts`.
  */
 
 /**

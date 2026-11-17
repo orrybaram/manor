@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { fileSize, scanJsonlLines } from "./jsonl-scan";
+import { count, isRecord, fileSize, jsonlCreatedAt, scanJsonlLines } from "./jsonl-scan";
+import { countMessage, countState, type CountState } from "./seen-messages";
 import type { UsageMarker, UsageRead, UsageReader } from "./usage-reader";
 
 /**
@@ -60,11 +60,6 @@ export function claudeLineUsage(line: string): ClaudeLineUsage | null {
   };
 }
 
-interface CountState {
-  fresh: number;
-  seen: [string, number][];
-}
-
 /**
  * The fresh tokens in `lines`, each message counted once (and topped up when
  * a later line reports more), given what `seen` already counted. Usage dated
@@ -75,7 +70,7 @@ export function claudeFreshTokens(
   seen: readonly [string, number][] = [],
   floor?: number,
 ): CountState {
-  const state: CountState = { fresh: 0, seen: seen.map(([id, n]) => [id, n]) };
+  const state = countState(seen);
   for (const line of lines) countLine(state, line, floor);
   return state;
 }
@@ -85,27 +80,8 @@ function countLine(state: CountState, line: string, floor: number | undefined): 
   const usage = claudeLineUsage(line);
   if (!usage) return;
   if (floor !== undefined && usage.at !== null && usage.at < floor) return;
-  if (usage.id === null) {
-    state.fresh += usage.fresh;
-    return;
-  }
-  const key = idHash(usage.id);
-  const entry = state.seen.find(([id]) => id === key);
-  if (entry) {
-    if (usage.fresh > entry[1]) {
-      state.fresh += usage.fresh - entry[1];
-      entry[1] = usage.fresh;
-    }
-    return;
-  }
-  state.seen.push([key, usage.fresh]);
-  if (state.seen.length > RECENT_IDS) state.seen.shift();
-  state.fresh += usage.fresh;
-}
-
-/** A message id as the marker keeps it: a short hash, never the id. */
-function idHash(id: string): string {
-  return createHash("sha256").update(id).digest("hex").slice(0, 12);
+  if (usage.id === null) state.fresh += usage.fresh;
+  else countMessage(state, usage.id, usage.fresh, RECENT_IDS);
 }
 
 export const claudeUsageReader: UsageReader = {
@@ -125,32 +101,14 @@ export const claudeUsageReader: UsageReader = {
     return [transcriptPath, ...subagents];
   },
 
-  async createdAt(source) {
-    let stat: fs.Stats;
-    try {
-      stat = await fs.promises.stat(source);
-    } catch {
-      return null;
-    }
-    if (stat.birthtimeMs > 0) return stat.birthtimeMs;
-    // No birth time on this filesystem: the first line that says when.
-    let first: number | null = null;
-    await scanJsonlLines(source, 0, (line) => {
-      const match = /"timestamp":"([^"]+)"/.exec(line);
-      const at = match ? Date.parse(match[1]) : NaN;
-      if (Number.isNaN(at)) return;
-      first = at;
-      return "stop";
-    }).catch(() => undefined);
-    return first;
-  },
+  createdAt: jsonlCreatedAt,
 
   async markerAtEnd(source) {
     return { offset: await fileSize(source) };
   },
 
   async read(marker, source): Promise<UsageRead> {
-    const state: CountState = { fresh: 0, seen: (marker.seen ?? []).map(([id, n]) => [id, n]) };
+    const state = countState(marker.seen);
     const offset = await scanJsonlLines(source, marker.offset, (line) =>
       countLine(state, line, marker.floor),
     );
@@ -162,11 +120,3 @@ export const claudeUsageReader: UsageReader = {
     return { fresh: state.fresh, next };
   },
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function count(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
-}

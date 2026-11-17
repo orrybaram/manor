@@ -300,15 +300,23 @@ export function resultPreview(result: string | undefined): string | null {
   return line ? line.trim() : null;
 }
 
-/** A piece of a prompt: what was typed, or a block that was pasted in. */
-export type PromptPart = { kind: "typed" | "pasted"; text: string };
+/**
+ * A piece of a prompt: what was typed, a block that was pasted in, or an
+ * image pasted into the terminal, which reaches the agent as its path.
+ */
+export type PromptPart = { kind: "typed" | "pasted" | "image"; text: string };
 
 const PASTED = /<pasted_content\b[^>]*>([\s\S]*?)<\/pasted_content\b[^>]*>/g;
 
+/** A path Manor wrote a pasted image to (`writePastedImage`). */
+const PASTED_IMAGE = /(?<=^|\s)\S*\/\.manor\/pasted-images\/[\w.-]+\.(?:png|jpe?g|gif|webp)(?=\s|$)/gi;
+
 /**
- * Split a prompt into what was typed and the `<pasted_content>` blocks the
- * agent wraps a paste in, so the chat can fold a paste rather than print its
- * tags. Text around a block is trimmed; an empty piece is dropped.
+ * Split a prompt into what was typed, the `<pasted_content>` blocks the
+ * agent wraps a paste in, and the pasted-image paths in what was typed, so
+ * the chat can fold a paste and show an image rather than print its tags or
+ * its path. Text around a block or an image is trimmed; an empty piece is
+ * dropped.
  */
 export function splitPrompt(text: string): PromptPart[] {
   const parts: PromptPart[] = [];
@@ -316,13 +324,22 @@ export function splitPrompt(text: string): PromptPart[] {
     const trimmed = kind === "typed" ? piece.trim() : piece.replace(/^\n+|\n+$/g, "");
     if (trimmed) parts.push({ kind, text: trimmed });
   };
+  const pushTyped = (piece: string) => {
+    let from = 0;
+    for (const match of piece.matchAll(PASTED_IMAGE)) {
+      push("typed", piece.slice(from, match.index));
+      push("image", match[0]);
+      from = match.index + match[0].length;
+    }
+    push("typed", piece.slice(from));
+  };
   let at = 0;
   for (const match of text.matchAll(PASTED)) {
-    push("typed", text.slice(at, match.index));
+    pushTyped(text.slice(at, match.index));
     push("pasted", match[1]);
     at = match.index + match[0].length;
   }
-  if (at === 0) return [{ kind: "typed", text }];
-  push("typed", text.slice(at));
+  if (at === 0 && !text.includes("/.manor/pasted-images/")) return [{ kind: "typed", text }];
+  pushTyped(text.slice(at));
   return parts;
 }

@@ -281,4 +281,21 @@ describe("splitPrompt", () => {
       { kind: "pasted", text: "b" },
     ]);
   });
+
+  it("pulls a pasted image's path out of what was typed", () => {
+    const text =
+      "urls should work here /home/me/.manor/pasted-images/20261117-104148-12e4ba54.png and here";
+    expect(splitPrompt(text)).toEqual([
+      { kind: "typed", text: "urls should work here" },
+      { kind: "image", text: "/home/me/.manor/pasted-images/20261117-104148-12e4ba54.png" },
+      { kind: "typed", text: "and here" },
+    ]);
+  });
+
+  it("leaves other paths, and a pasted-images path inside a paste, as text", () => {
+    expect(splitPrompt("see /tmp/shot.png")).toEqual([{ kind: "typed", text: "see /tmp/shot.png" }]);
+    expect(splitPrompt("<pasted_content>/home/me/.manor/pasted-images/a.png</pasted_content>")).toEqual([
+      { kind: "pasted", text: "/home/me/.manor/pasted-images/a.png" },
+    ]);
+  });
 });

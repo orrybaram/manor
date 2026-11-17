@@ -12,6 +12,7 @@ import {
   type QuestionSelection,
 } from "./question-answers";
 import { AnswerInTerminal } from "./AnswerInTerminal";
+import { ChatMarkdown } from "./ChatMarkdown";
 import { useSendAnswer } from "./useSendAnswer";
 import styles from "./ChatPane.module.css";
 
@@ -59,7 +60,9 @@ export function QuestionCard(props: QuestionCardProps) {
         return (
           <div key={qi} className={styles.question}>
             {q.header && <div className={styles.cardHeader}>{q.header}</div>}
-            <div className={styles.questionText}>{q.question}</div>
+            <div className={styles.questionText}>
+              <ChatMarkdown source={q.question} />
+            </div>
             <div className={styles.options} role="group" aria-label={q.header || q.question}>
               {q.options.map((opt, oi) => {
                 const chosen = selection.indexes.includes(oi);

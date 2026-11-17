@@ -160,6 +160,7 @@ export interface NotificationRecord {
 export type StatCounter =
   | "prompts"
   | "toolCalls"
+  | "tokens"
   | "agentSessions"
   | "subagents"
   | "agentsResponded"

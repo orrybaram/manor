@@ -108,6 +108,8 @@ export function counterDescription(counter: StatCounter): string {
       return "Messages you sent to an agent.";
     case "toolCalls":
       return "Tools an agent ran: file reads, edits, shell commands and so on.";
+    case "tokens":
+      return "Tokens your agents' models newly read or wrote. Cached context they re-read every turn is left out.";
     case "agentSessions":
       return "Agent sessions started in a terminal.";
     case "subagents":
@@ -154,6 +156,8 @@ export function humanCounterLabel(counter: StatCounter): string {
       return "Prompts";
     case "toolCalls":
       return "Tool calls";
+    case "tokens":
+      return "Tokens";
     case "agentSessions":
       return "Agent sessions";
     case "subagents":

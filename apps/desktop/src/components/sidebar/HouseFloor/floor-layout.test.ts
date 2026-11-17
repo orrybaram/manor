@@ -7,6 +7,7 @@ import {
   floorLabel,
   FLOOR_BOTTOM,
   FLOOR_TOP,
+  gridPoint,
   P,
   socketPosition,
 } from "./floor-layout";
@@ -26,6 +27,11 @@ describe("socketPosition", () => {
     expect(socketPosition(layout, 0)).toEqual([left, layout.height - FLOOR_BOTTOM]);
     expect(socketPosition(layout, 16)).toEqual([left + 16 * P, layout.height - FLOOR_BOTTOM]);
     expect(socketPosition(layout, 17)).toEqual([left, layout.height - FLOOR_BOTTOM - P]);
+  });
+
+  it("matches grid points, row 0 at the top", () => {
+    expect(gridPoint(layout, 0, 11)).toEqual(socketPosition(layout, 0));
+    expect(gridPoint(layout, 3, 0)).toEqual(socketPosition(layout, 17 * 11 + 3));
   });
 
   it("keeps the top row inside the canvas", () => {
@@ -87,7 +93,8 @@ describe("dotAlpha", () => {
 
 describe("floorLabel", () => {
   it("states the floor", () => {
-    expect(floorLabel(120, 204, false)).toBe("House floor: 120 of 204, filling");
-    expect(floorLabel(204, 204, true)).toBe("House floor: 204 of 204, awake, sweep to feed");
+    expect(floorLabel(120, 204, "filling")).toBe("House floor: 120 of 204, filling");
+    expect(floorLabel(204, 204, "awake")).toBe("House floor: 204 of 204, awake, sweep to feed");
+    expect(floorLabel(204, 204, "settle")).toBe("House floor: fed, the house answers");
   });
 });

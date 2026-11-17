@@ -156,3 +156,25 @@
   background: var(--text-dim);
   opacity: 0.5;
 }
+
+/* Awake: it pulses on the floor's breath. */
+.floorMarker[data-state="awake"] {
+  animation: floorMarkerPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes floorMarkerPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floorMarker[data-state="awake"] {
+    animation: none;
+    opacity: 0.8;
+  }
+}

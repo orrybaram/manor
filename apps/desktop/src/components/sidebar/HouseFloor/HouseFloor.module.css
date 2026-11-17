@@ -14,3 +14,8 @@
   width: 100%;
   height: 100%;
 }
+
+/* Awake on a touch screen, a drag feeds rather than scrolls the list. */
+.canvas[data-state="awake"] {
+  touch-action: none;
+}

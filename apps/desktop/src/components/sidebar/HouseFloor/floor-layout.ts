@@ -24,7 +24,7 @@ export interface FloorLayout {
 }
 
 /** Left edge of the grid, so it's centred in the canvas. */
-function originX(layout: FloorLayout): number {
+export function originX(layout: FloorLayout): number {
   return (layout.width - (layout.cols - 1) * P) / 2;
 }
 
@@ -38,6 +38,11 @@ export function socketPosition(layout: FloorLayout, k: number): [number, number]
     originX(layout) + (k % layout.cols) * P,
     layout.height - FLOOR_BOTTOM - Math.floor(k / layout.cols) * P,
   ];
+}
+
+/** Grid point (i, j), row 0 at the top: for effects over the whole grid. */
+export function gridPoint(layout: FloorLayout, i: number, j: number): [number, number] {
+  return [originX(layout) + i * P, layout.height - FLOOR_BOTTOM - (layout.rows - 1 - j) * P];
 }
 
 const MODULUS = 2_147_483_647;
@@ -114,9 +119,20 @@ export function dotAlpha(look: DotLook, time: number, passesLeft = look.passes):
 /** Seconds a new dot takes to fade in. */
 export const ARRIVE_SECONDS = 1.4;
 
+/**
+ * What the floor is doing: filling (locked), awake (full; sweep to feed),
+ * or settle (cleared; the house answers).
+ */
+export type FloorPhase = "filling" | "awake" | "settle";
+
 /** The state the canvas announces, for its aria-label. */
-export function floorLabel(dots: number, size: number, awake: boolean): string {
-  return awake
-    ? `House floor: ${dots} of ${size}, awake, sweep to feed`
-    : `House floor: ${dots} of ${size}, filling`;
+export function floorLabel(dots: number, size: number, phase: FloorPhase): string {
+  switch (phase) {
+    case "awake":
+      return `House floor: ${dots} of ${size}, awake, sweep to feed`;
+    case "settle":
+      return "House floor: fed, the house answers";
+    default:
+      return `House floor: ${dots} of ${size}, filling`;
+  }
 }

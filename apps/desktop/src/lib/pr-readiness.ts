@@ -2,8 +2,8 @@ import type { PrInfo } from "./pr-info";
 
 /**
  * The PR badge answers exactly one question — "can this ship?".
- * Evaluated in order: merged → closed → blocked → queued → review → ready →
- * pending. The first match wins.
+ * Evaluated in order: merged → closed → conflicts → queued → blocked →
+ * review → ready → pending. The first match wins.
  */
 export type PrReadiness =
   | "ready"
@@ -94,9 +94,9 @@ function firstBlocker(pr: PrInfo): PrBlocker | null {
 }
 
 /**
- * The one place the readiness order lives: merged → closed → blocker
- * (conflicts → checks → changes requested → threads) → queued → review →
- * ready → pending.
+ * The one place the readiness order lives: merged → closed → conflicts →
+ * queued → blocker (checks → changes requested → threads) → review → ready →
+ * pending.
  */
 export function prVerdict(pr: PrInfo): PrVerdict {
   if (pr.state === "merged") {
@@ -107,16 +107,17 @@ export function prVerdict(pr: PrInfo): PrVerdict {
   }
 
   const blocker = firstBlocker(pr);
-  if (blocker) {
-    return { readiness: "blocked", stage: "blocked", blocker };
+
+  // Auto-merge armed or sitting in the merge queue: someone has already said
+  // "ship it", so that outranks a failing check (often a flaky shard the
+  // queue re-runs) or a stale review state. Conflicts still win: a conflicted
+  // PR can't merge from the queue, and only a human can resolve them.
+  if (pr.queuedToMerge && blocker?.kind !== "conflicts") {
+    return { readiness: "queued", stage: "ready", blocker: null };
   }
 
-  // Auto-merge armed or sitting in the merge queue: GitHub will merge it the
-  // moment the remaining requirements pass. Ranked below "blocked" because a
-  // failing check keeps a queued PR from ever merging, and that still needs
-  // a human.
-  if (pr.queuedToMerge) {
-    return { readiness: "queued", stage: "ready", blocker: null };
+  if (blocker) {
+    return { readiness: "blocked", stage: "blocked", blocker };
   }
 
   // `checks == null` is "this commit has no status checks at all", not "the

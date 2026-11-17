@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { floorGrid } from "../../../lib/house-floor";
 import {
   dotAlpha,
   dotLooks,
@@ -24,6 +25,10 @@ describe("floorGridWidth", () => {
   it("always keeps a scrollbar's room, so columns don't follow overflow", () => {
     expect(floorGridWidth(220)).toBe(208);
     expect(floorGridWidth(5)).toBe(0);
+  });
+
+  it("gives the default 220px sidebar a 15 × 13 floor of 195", () => {
+    expect(floorGrid(floorGridWidth(220))).toEqual({ cols: 15, rows: 13, size: 195 });
   });
 });
 

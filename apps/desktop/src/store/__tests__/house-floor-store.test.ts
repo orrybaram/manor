@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { StatsSummary } from "../../electron.d";
 
 const storage = new Map<string, string>();
 vi.stubGlobal("localStorage", {
@@ -11,11 +12,26 @@ const { HOUSE_FLOOR_KEY, loadHouseFloor, useHouseFloorStore } = await import(
   "../house-floor-store"
 );
 const { floorDots, floorGrid } = await import("../../lib/house-floor");
+const { useStatsStore } = await import("../stats-store");
+
+function summary(day: string, today: Record<string, number>, last7 = today): StatsSummary {
+  return {
+    today,
+    last7Days: last7,
+    allTime: today,
+    streakWeeks: 0,
+    dailyPrompts: [],
+    dailyPrsMerged: [{ day, count: 0 }],
+    badges: {},
+    enabled: true,
+  };
+}
 
 const DAY = "2026-11-17";
 
 beforeEach(() => {
   storage.clear();
+  useStatsStore.setState({ summary: null });
   useHouseFloorStore.setState({ floor: null, grid: floorGrid(236) });
 });
 
@@ -59,6 +75,27 @@ describe("house floor store", () => {
     expect(loadHouseFloor()).toBeNull();
     storage.set(HOUSE_FLOOR_KEY, JSON.stringify({ baseline: 1 }));
     expect(loadHouseFloor()).toBeNull();
+  });
+
+  it("banks every summary on its own, with no floor on screen", () => {
+    // Started when the module loaded: no component, no hook.
+    useStatsStore.setState({ summary: summary(DAY, { agentsKilled: 10 }, { agentsKilled: 210 }) });
+    expect(useHouseFloorStore.getState().floor).toMatchObject({
+      day: DAY,
+      todayMax: 20,
+      progress: 0,
+      pointsPerFloor: 60,
+    });
+    useStatsStore.setState({ summary: summary(DAY, { agentsKilled: 25 }, { agentsKilled: 225 }) });
+    expect(useHouseFloorStore.getState().floor).toMatchObject({ todayMax: 50, progress: 30 });
+    // Past midnight, the new day's points all count.
+    useStatsStore.setState({ summary: summary("2026-11-18", { agentsKilled: 3 }, { agentsKilled: 228 }) });
+    expect(useHouseFloorStore.getState().floor).toMatchObject({
+      day: "2026-11-18",
+      todayMax: 6,
+      progress: 36,
+    });
+    expect(loadHouseFloor()).toEqual(useHouseFloorStore.getState().floor);
   });
 
   it("follows the width to whole rows", () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { create } from "zustand";
 import {
   bucketPoints,
@@ -12,6 +12,7 @@ import {
   type FloorGrid,
   type HouseFloorState,
 } from "../lib/house-floor";
+import type { StatsSummary } from "../electron.d";
 import { useStatsStore } from "./stats-store";
 
 /** Per desktop: the renderer's own storage, never synced to hosts. */
@@ -80,6 +81,29 @@ export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
   },
 }));
 
+/** Bank a summary's new points into the floor. */
+function bank(summary: StatsSummary | null): void {
+  if (!summary) return;
+  useHouseFloorStore
+    .getState()
+    .sync(summaryDay(summary, new Date()), bucketPoints(summary.today), bucketPoints(summary.last7Days));
+}
+
+/**
+ * Banks every stats summary while the renderer is open, whether or not the
+ * floor is on screen (rail sidebar, phone layout, no projects), so a day's
+ * gains are never missed. Returns the unsubscribe.
+ */
+export function startHouseFloorBanking(): () => void {
+  bank(useStatsStore.getState().summary);
+  return useStatsStore.subscribe((state, prev) => {
+    if (state.summary !== prev.summary) bank(state.summary);
+  });
+}
+
+// Started once, when the renderer loads this module.
+startHouseFloorBanking();
+
 export interface HouseFloor {
   /** Dots on the floor now, 0 to `floorSize`. */
   dots: number;
@@ -96,21 +120,13 @@ export interface HouseFloor {
 }
 
 /**
- * The house floor for the current stats. Starts the floor once stats arrive
- * (empty on a first run) and banks today's gains as they come.
+ * The house floor, for reading. Banking happens on its own
+ * (`startHouseFloorBanking`); this only reads the floor and feeds it.
  */
 export function useHouseFloor(): HouseFloor {
-  const summary = useStatsStore((s) => s.summary);
+  const last7Days = useStatsStore((s) => (s.summary ? bucketPoints(s.summary.last7Days) : 0));
   const floor = useHouseFloorStore((s) => s.floor);
   const grid = useHouseFloorStore((s) => s.grid);
-
-  const day = summary ? summaryDay(summary, new Date()) : null;
-  const today = summary ? bucketPoints(summary.today) : 0;
-  const last7Days = summary ? bucketPoints(summary.last7Days) : 0;
-
-  useEffect(() => {
-    if (day !== null) useHouseFloorStore.getState().sync(day, today, last7Days);
-  }, [day, today, last7Days]);
 
   const eat = useCallback(() => {
     useHouseFloorStore.getState().eat(last7Days);

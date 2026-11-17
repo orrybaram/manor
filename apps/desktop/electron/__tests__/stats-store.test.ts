@@ -148,6 +148,22 @@ describe("StatsStore", () => {
       expect(store.getSummary().allTime).toEqual({ prompts: 7 });
     });
 
+    it("labels a summary taken across midnight with the day its today is", () => {
+      const before = localMs(2026, 9, 5, 23, 59);
+      const after = localMs(2026, 9, 6, 0, 1);
+      let clock: () => number = () => before;
+      const store = new StatsStore(tmpDir, { now: () => clock() });
+      store.record("prompts", 4);
+
+      // The clock passes midnight after its first read in getSummary.
+      let reads = 0;
+      clock = () => (reads++ === 0 ? before : after);
+      const summary = store.getSummary();
+      expect(summary.today).toEqual({ prompts: 4 });
+      expect(summary.dailyPrsMerged[6].day).toBe("2026-09-05");
+      expect(summary.last7Days).toEqual({ prompts: 4 });
+    });
+
     it("last7Days covers today and the previous six days only", () => {
       let now = localMs(2026, 9, 5);
       const store = new StatsStore(tmpDir, { now: () => now });

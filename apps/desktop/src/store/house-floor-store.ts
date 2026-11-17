@@ -5,9 +5,10 @@ import {
   consumeMeal,
   floorDots,
   floorGrid,
+  summaryDay,
   parseFloorState,
   randomSeed,
-  reconcileFloor,
+  syncFloor,
   type FloorGrid,
   type HouseFloorState,
 } from "../lib/house-floor";
@@ -42,10 +43,13 @@ interface HouseFloorStore {
   grid: FloorGrid;
   /** The floor's canvas reports its width; columns follow it. */
   setWidth: (width: number) => void;
-  /** Start the floor on a first run, or afresh after stats were reset. */
-  sync: (allTimePoints: number, last7DaysPoints: number) => void;
+  /**
+   * Bank the new points in `day`'s bucket (local YYYY-MM-DD). A first run
+   * starts an empty floor at today's points; drops are ignored.
+   */
+  sync: (day: string, todayPoints: number, last7DaysPoints: number) => void;
   /** Feed the house a full floor; no-op unless the floor is full. */
-  eat: (allTimePoints: number, last7DaysPoints: number) => void;
+  eat: (last7DaysPoints: number) => void;
 }
 
 export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
@@ -59,18 +63,18 @@ export const useHouseFloorStore = create<HouseFloorStore>((set, get) => ({
     set({ grid });
   },
 
-  sync: (allTimePoints, last7DaysPoints) => {
-    const { floor, grid } = get();
-    const next = reconcileFloor(floor, allTimePoints, last7DaysPoints, grid.size, randomSeed);
+  sync: (day, todayPoints, last7DaysPoints) => {
+    const { floor } = get();
+    const next = syncFloor(floor, day, todayPoints, last7DaysPoints, randomSeed);
     if (next === floor) return;
     saveHouseFloor(next);
     set({ floor: next });
   },
 
-  eat: (allTimePoints, last7DaysPoints) => {
+  eat: (last7DaysPoints) => {
     const { floor, grid } = get();
-    if (!floor || floorDots(floor, allTimePoints, grid.size) < grid.size) return;
-    const next = consumeMeal(floor, last7DaysPoints, grid.size, randomSeed());
+    if (!floor || floorDots(floor, grid.size) < grid.size) return;
+    const next = consumeMeal(floor, last7DaysPoints, randomSeed());
     saveHouseFloor(next);
     set({ floor: next });
   },
@@ -93,25 +97,26 @@ export interface HouseFloor {
 
 /**
  * The house floor for the current stats. Starts the floor once stats arrive
- * (empty on a first run) and keeps it in step with a stats reset.
+ * (empty on a first run) and banks today's gains as they come.
  */
 export function useHouseFloor(): HouseFloor {
   const summary = useStatsStore((s) => s.summary);
   const floor = useHouseFloorStore((s) => s.floor);
   const grid = useHouseFloorStore((s) => s.grid);
 
-  const allTime = summary ? bucketPoints(summary.allTime) : null;
+  const day = summary ? summaryDay(summary, new Date()) : null;
+  const today = summary ? bucketPoints(summary.today) : 0;
   const last7Days = summary ? bucketPoints(summary.last7Days) : 0;
 
   useEffect(() => {
-    if (allTime !== null) useHouseFloorStore.getState().sync(allTime, last7Days);
-  }, [allTime, last7Days]);
+    if (day !== null) useHouseFloorStore.getState().sync(day, today, last7Days);
+  }, [day, today, last7Days]);
 
   const eat = useCallback(() => {
-    if (allTime !== null) useHouseFloorStore.getState().eat(allTime, last7Days);
-  }, [allTime, last7Days]);
+    useHouseFloorStore.getState().eat(last7Days);
+  }, [last7Days]);
 
-  const dots = floor && allTime !== null ? floorDots(floor, allTime, grid.size) : 0;
+  const dots = floor ? floorDots(floor, grid.size) : 0;
   return {
     dots,
     floorSize: grid.size,

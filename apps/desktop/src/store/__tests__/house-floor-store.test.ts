@@ -12,40 +12,45 @@ const { HOUSE_FLOOR_KEY, loadHouseFloor, useHouseFloorStore } = await import(
 );
 const { floorDots, floorGrid } = await import("../../lib/house-floor");
 
+const DAY = "2026-11-17";
+
 beforeEach(() => {
   storage.clear();
   useHouseFloorStore.setState({ floor: null, grid: floorGrid(236) });
 });
 
 describe("house floor store", () => {
-  it("starts the floor at the current points and persists it", () => {
-    useHouseFloorStore.getState().sync(500, 1400);
+  it("starts the floor empty at today's points and persists it", () => {
+    useHouseFloorStore.getState().sync(DAY, 50, 1400);
     const floor = useHouseFloorStore.getState().floor;
-    expect(floor).toMatchObject({ baseline: 500, pointsPerFloor: 200, meals: 0 });
+    expect(floor).toMatchObject({ day: DAY, todayMax: 50, progress: 0, pointsPerFloor: 200, meals: 0 });
     expect(JSON.parse(storage.get(HOUSE_FLOOR_KEY) ?? "null")).toEqual(floor);
   });
 
   it("survives a restart with the same fill", () => {
-    useHouseFloorStore.getState().sync(500, 1400);
+    useHouseFloorStore.getState().sync(DAY, 0, 1400);
+    useHouseFloorStore.getState().sync(DAY, 100, 1400);
     const before = useHouseFloorStore.getState().floor!;
     // A restart: the store's initial state comes from storage.
     const loaded = loadHouseFloor();
     expect(loaded).toEqual(before);
-    expect(floorDots(loaded!, 600, 204)).toBe(floorDots(before, 600, 204));
-    // Later stats don't move a floor that's filling.
-    useHouseFloorStore.getState().sync(650, 9999);
+    expect(floorDots(loaded!, 204)).toBe(102);
+    // The same summary again banks nothing.
+    useHouseFloorStore.getState().sync(DAY, 100, 1400);
     expect(useHouseFloorStore.getState().floor).toBe(before);
   });
 
   it("eats only a full floor", () => {
-    useHouseFloorStore.getState().sync(0, 1400);
-    useHouseFloorStore.getState().eat(150, 1400);
+    useHouseFloorStore.getState().sync(DAY, 0, 1400);
+    useHouseFloorStore.getState().sync(DAY, 150, 1400);
+    useHouseFloorStore.getState().eat(1400);
     expect(useHouseFloorStore.getState().floor?.meals).toBe(0);
 
-    useHouseFloorStore.getState().eat(230, 1400);
+    useHouseFloorStore.getState().sync(DAY, 230, 1400);
+    useHouseFloorStore.getState().eat(1400);
     const floor = useHouseFloorStore.getState().floor!;
-    expect(floor).toMatchObject({ baseline: 200, meals: 1 });
-    expect(floorDots(floor, 230, 204)).toBe(30);
+    expect(floor).toMatchObject({ progress: 30, meals: 1 });
+    expect(floorDots(floor, 204)).toBe(30);
     expect(loadHouseFloor()).toEqual(floor);
   });
 

@@ -4,13 +4,15 @@ import {
   consumeMeal,
   floorDots,
   floorGrid,
-  floorScale,
   isFloorAwake,
-  MIN_AVERAGE_DAY_POINTS,
+  localDay,
+  MIN_POINTS_PER_FLOOR,
   parseFloorState,
   pointsPerFloor,
-  reconcileFloor,
   startFloor,
+  summaryDay,
+  syncFloor,
+  type HouseFloorState,
 } from "../house-floor";
 
 describe("bucketPoints", () => {
@@ -33,7 +35,7 @@ describe("bucketPoints", () => {
     expect(bucketPoints({})).toBe(0);
   });
 
-  it("scores the mock's busy day at about 200", () => {
+  it("scores the mock's busy day", () => {
     const busy = {
       agentsKilled: 20,
       agentsKilledMidThought: 2,
@@ -63,84 +65,136 @@ describe("floorGrid", () => {
 
 describe("pointsPerFloor", () => {
   it("is the last week's average day", () => {
-    expect(pointsPerFloor(1400, 204)).toBe(200);
+    expect(pointsPerFloor(1400)).toBe(200);
   });
 
-  it("is scale 1 when the average day is zero or very small", () => {
-    expect(pointsPerFloor(0, 204)).toBe(204);
-    expect(pointsPerFloor(MIN_AVERAGE_DAY_POINTS * 7 - 1, 204)).toBe(204);
+  it("never drops below the minimum, with no cliff", () => {
+    expect(pointsPerFloor(0)).toBe(MIN_POINTS_PER_FLOOR);
+    expect(pointsPerFloor(7 * 59)).toBe(MIN_POINTS_PER_FLOOR);
+    expect(pointsPerFloor(7 * 61)).toBe(61);
+  });
+});
+
+describe("summaryDay and localDay", () => {
+  it("reads the day the summary's buckets are for", () => {
+    const now = new Date(2026, 10, 18, 0, 5);
+    expect(localDay(now)).toBe("2026-11-18");
+    expect(
+      summaryDay({ dailyPrsMerged: [{ day: "2026-11-16" }, { day: "2026-11-17" }] }, now),
+    ).toBe("2026-11-17");
+    expect(summaryDay({ dailyPrsMerged: [] }, now)).toBe("2026-11-18");
   });
 });
 
 describe("the floor", () => {
   const seed = () => 7;
+  const D1 = "2026-11-17";
+  const D2 = "2026-11-18";
+  const at = (state: HouseFloorState | null, day: string, today: number, last7 = 1400) =>
+    syncFloor(state, day, today, last7, seed);
 
-  it("starts empty on a first run", () => {
-    const state = reconcileFloor(null, 900, 1400, 204, seed);
-    expect(state).toEqual({ baseline: 900, pointsPerFloor: 200, meals: 0, seed: 7 });
-    expect(floorDots(state, 900, 204)).toBe(0);
+  it("starts empty on a first run, whatever today already holds", () => {
+    const state = at(null, D1, 90);
+    expect(state).toEqual({
+      day: D1,
+      todayMax: 90,
+      progress: 0,
+      pointsPerFloor: 200,
+      meals: 0,
+      seed: 7,
+    });
+    expect(floorDots(state, 204)).toBe(0);
   });
 
-  it("fills at the scaled rate and caps at the floor size", () => {
-    const state = startFloor(1000, 1400, 204, 1);
-    expect(floorScale(state, 204)).toBeCloseTo(1.02);
-    expect(floorDots(state, 1100, 204)).toBe(102);
-    expect(floorDots(state, 1199, 204)).toBe(202);
-    expect(isFloorAwake(state, 1199, 204)).toBe(false);
-    expect(floorDots(state, 1200, 204)).toBe(204);
-    expect(floorDots(state, 5000, 204)).toBe(204);
-    expect(isFloorAwake(state, 5000, 204)).toBe(true);
+  it("banks today's gains and fills at the scaled rate, capped", () => {
+    let state = at(null, D1, 0);
+    state = at(state, D1, 100);
+    expect(floorDots(state, 204)).toBe(102);
+    state = at(state, D1, 199);
+    expect(floorDots(state, 204)).toBe(202);
+    expect(isFloorAwake(state, 204)).toBe(false);
+    state = at(state, D1, 500);
+    expect(floorDots(state, 204)).toBe(204);
+    expect(isFloorAwake(state, 204)).toBe(true);
   });
 
-  it("counts a point a dot at scale 1", () => {
-    const state = startFloor(0, 0, 204, 1);
-    expect(floorDots(state, 37.5, 204)).toBe(37);
+  it("returns the same state when nothing is gained", () => {
+    const state = at(at(null, D1, 0), D1, 50);
+    expect(at(state, D1, 50)).toBe(state);
+    expect(at(state, D1, 10)).toBe(state);
   });
 
-  it("keeps the same scale while the floor fills, whatever the week does", () => {
-    const state = startFloor(0, 1400, 204, 1);
-    expect(reconcileFloor(state, 100, 99_999, 204, seed)).toBe(state);
+  it("doesn't jump when a host's history merges in after the first summary", () => {
+    // First summary: only the desktop's own stats. All-time history from a
+    // host doesn't touch today's bucket beyond the host's today.
+    let state = at(null, D1, 40);
+    state = at(state, D1, 55); // the host's 15 points today merge in
+    expect(state.progress).toBe(15);
+    expect(floorDots(state, 204)).toBe(15);
+  });
+
+  it("adds nothing for a dip and its recovery", () => {
+    let state = at(at(null, D1, 0), D1, 80);
+    state = at(state, D1, 30); // a host briefly missing
+    state = at(state, D1, 80); // back
+    expect(state.progress).toBe(80);
+    state = at(state, D1, 0); // stats reset
+    expect(state.progress).toBe(80);
+    state = at(state, D1, 90); // past the old mark: only the excess counts
+    expect(state.progress).toBe(90);
+  });
+
+  it("starts the mark at 0 on a new day", () => {
+    let state = at(at(null, D1, 0), D1, 120);
+    state = at(state, D2, 20);
+    expect(state).toMatchObject({ day: D2, todayMax: 20, progress: 140 });
+  });
+
+  it("ignores a stale summary from an earlier day", () => {
+    const state = at(at(null, D2, 0), D2, 30);
+    expect(at(state, D1, 500)).toBe(state);
+  });
+
+  it("keeps the same points per floor while it fills, whatever the week does", () => {
+    const state = at(at(null, D1, 0, 1400), D1, 100, 99_999);
+    expect(state.pointsPerFloor).toBe(200);
   });
 
   it("keeps its fill fraction when the grid changes size", () => {
-    const state = startFloor(0, 1400, 204, 1);
-    expect(floorDots(state, 100, 204)).toBe(102);
-    expect(floorDots(state, 100, 208)).toBe(104);
+    const state = at(at(null, D1, 0), D1, 100);
+    expect(floorDots(state, 204)).toBe(102);
+    expect(floorDots(state, 208)).toBe(104);
   });
 
   it("carries anything past full into the next floor after a meal", () => {
-    const state = startFloor(1000, 1400, 204, 1);
-    const next = consumeMeal(state, 2800, 204, 9);
-    expect(next).toEqual({ baseline: 1200, pointsPerFloor: 400, meals: 1, seed: 9 });
-    // 1300 points: 100 past the first floor, at the new floor's scale.
-    expect(floorDots(next, 1300, 204)).toBe(51);
+    const state = at(at(null, D1, 0), D1, 300);
+    const next = consumeMeal(state, 2800, 9);
+    expect(next).toMatchObject({ progress: 100, pointsPerFloor: 400, meals: 1, seed: 9 });
+    expect(floorDots(next, 204)).toBe(51);
   });
 
-  it("counts exactly a floor after a meal with an awkward scale", () => {
-    let state = startFloor(0, 7 * 33.3333, 204, 1);
-    for (let i = 0; i < 5; i++) state = consumeMeal(state, 7 * 33.3333, 204, 1);
-    expect(floorDots(state, 6 * 33.3333, 204)).toBe(204);
-  });
-
-  it("starts afresh when stats drop below the baseline", () => {
-    const state = { ...startFloor(1000, 1400, 204, 1), meals: 3 };
-    const next = reconcileFloor(state, 10, 0, 204, seed);
-    expect(next).toEqual({ baseline: 10, pointsPerFloor: 204, meals: 3, seed: 7 });
-    expect(floorDots(next, 10, 204)).toBe(0);
+  it("counts exactly a floor after meals with an awkward size", () => {
+    let state: HouseFloorState = { ...startFloor(D1, 0, 7 * 66.6667, 1), progress: 6 * 66.6667 };
+    for (let i = 0; i < 5; i++) state = consumeMeal(state, 7 * 66.6667, 1);
+    expect(floorDots(state, 204)).toBe(204);
   });
 });
 
 describe("parseFloorState", () => {
+  const good = { day: "2026-11-17", todayMax: 12.5, progress: 40, pointsPerFloor: 200, meals: 2, seed: 44 };
+
   it("accepts a stored floor", () => {
-    const state = { baseline: 12.5, pointsPerFloor: 200, meals: 2, seed: 44 };
-    expect(parseFloorState(state)).toEqual(state);
+    expect(parseFloorState(good)).toEqual(good);
   });
 
   it("rejects anything else", () => {
     expect(parseFloorState(null)).toBeNull();
     expect(parseFloorState("x")).toBeNull();
-    expect(parseFloorState({ baseline: 1, pointsPerFloor: 0, meals: 0, seed: 1 })).toBeNull();
-    expect(parseFloorState({ baseline: 1, pointsPerFloor: 2, meals: -1, seed: 1 })).toBeNull();
-    expect(parseFloorState({ baseline: "1", pointsPerFloor: 2, meals: 0, seed: 1 })).toBeNull();
+    expect(parseFloorState({ ...good, pointsPerFloor: 0 })).toBeNull();
+    expect(parseFloorState({ ...good, meals: -1 })).toBeNull();
+    expect(parseFloorState({ ...good, progress: "1" })).toBeNull();
+    expect(parseFloorState({ ...good, day: "yesterday" })).toBeNull();
+    // The earlier baseline shape.
+    expect(parseFloorState({ baseline: 1, pointsPerFloor: 2, meals: 0, seed: 1 })).toBeNull();
   });
 });

@@ -6,6 +6,10 @@ import type { DayBucket, StatCounter } from "../electron.d";
  * merged…) fill it; once it is full it wakes and can be fed. Feeding is
  * pretend: it moves only the floor's own baseline, never stats or sessions.
  *
+ * Progress is banked from today's stats bucket as a per-day high-water mark,
+ * so it only ever moves forward: a summary that briefly lacks a host, a
+ * host's history merging in, or a stats reset can't empty or flood the floor.
+ *
  * Everything here is pure. Persistence is `store/house-floor-store.ts`.
  */
 
@@ -29,10 +33,10 @@ const FLOOR_SIDE_ROOM = 24;
 const MIN_COLS = 4;
 const MIN_ROWS = 3;
 /**
- * An average day below this many points is "very small": the scale is 1
- * (a point a dot), so a quiet week doesn't make one kill fill a floor.
+ * The fewest points a floor takes, however quiet the last week was: a
+ * near-idle user fills one in a few days, and one kill never fills a floor.
  */
-export const MIN_AVERAGE_DAY_POINTS = 10;
+export const MIN_POINTS_PER_FLOOR = 60;
 
 /** Weighted points in one stats bucket. */
 export function bucketPoints(bucket: DayBucket): number {
@@ -59,18 +63,15 @@ export function floorGrid(width: number): FloorGrid {
   return { cols, rows, size: cols * rows };
 }
 
-/**
- * What's persisted per desktop (`manor:houseFloor`).
- *
- * The spec's `scale` (dots per point) is kept as its inverse,
- * `pointsPerFloor`, so the floor keeps its fill fraction when the sidebar is
- * resized and the grid gains or loses a column: `scale = floorSize /
- * pointsPerFloor`.
- */
+/** What's persisted per desktop (`manor:houseFloor`). */
 export interface HouseFloorState {
-  /** All-time points at which this floor started (empty). */
-  baseline: number;
-  /** Points that fill this floor: the average day when the floor started. */
+  /** The local day (YYYY-MM-DD) `todayMax` belongs to. */
+  day: string;
+  /** The most points today's bucket has shown; gains past it are banked. */
+  todayMax: number;
+  /** Points banked toward the current floor; past a floor carries over. */
+  progress: number;
+  /** Points that fill this floor, set when it started. */
   pointsPerFloor: number;
   /** Floors fed so far. */
   meals: number;
@@ -78,104 +79,135 @@ export interface HouseFloorState {
   seed: number;
 }
 
+/** A date's local day, YYYY-MM-DD. */
+export function localDay(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /**
- * Points a floor takes, set when it starts: the last 7 days' average day,
- * so a typical day fills about one floor. A very small average gives scale 1
- * (one point, one dot).
+ * The local day a summary's `today` bucket is for: the last day of its
+ * `dailyPrsMerged` (today and the previous 6), so a summary cached across
+ * midnight isn't read as the new day. `now`'s day when it has none.
  */
-export function pointsPerFloor(last7DaysPoints: number, floorSize: number): number {
+export function summaryDay(
+  summary: { dailyPrsMerged?: readonly { day: string }[] },
+  now: Date,
+): string {
+  const days = summary.dailyPrsMerged;
+  return days?.[days.length - 1]?.day ?? localDay(now);
+}
+
+/**
+ * Points a floor takes, set when it starts: the last 7 days' average day, so
+ * a typical day fills about one floor, but never fewer than
+ * `MIN_POINTS_PER_FLOOR`.
+ */
+export function pointsPerFloor(last7DaysPoints: number): number {
   const averageDay = last7DaysPoints / 7;
-  if (!Number.isFinite(averageDay) || averageDay < MIN_AVERAGE_DAY_POINTS) return floorSize;
-  return averageDay;
+  return Number.isFinite(averageDay)
+    ? Math.max(averageDay, MIN_POINTS_PER_FLOOR)
+    : MIN_POINTS_PER_FLOOR;
 }
 
-/** Dots per point on this floor at `floorSize`. */
-export function floorScale(state: HouseFloorState, floorSize: number): number {
-  return floorSize / state.pointsPerFloor;
-}
-
-/** A fresh, empty floor starting at `allTimePoints`. */
+/** A first run: an empty floor that fills from today's points onward. */
 export function startFloor(
-  allTimePoints: number,
+  day: string,
+  todayPoints: number,
   last7DaysPoints: number,
-  floorSize: number,
   seed: number,
-  meals = 0,
 ): HouseFloorState {
   return {
-    baseline: allTimePoints,
-    pointsPerFloor: pointsPerFloor(last7DaysPoints, floorSize),
-    meals,
+    day,
+    todayMax: todayPoints,
+    progress: 0,
+    pointsPerFloor: pointsPerFloor(last7DaysPoints),
+    meals: 0,
     seed,
   };
 }
 
 /**
- * The floor for the latest stats: a first run starts empty at the current
- * points, and stats that dropped below the baseline (reset) start a fresh
- * floor there. Returns `state` itself when nothing changes.
+ * Bank today's new points. A new day starts its high-water mark at 0
+ * (yesterday's gains were banked as they came); a drop in today's points
+ * (a host missing from the summary, a stats reset) is ignored, and getting
+ * back to the old mark adds nothing. Returns `state` itself when nothing changes.
  */
-export function reconcileFloor(
+export function syncFloor(
   state: HouseFloorState | null,
-  allTimePoints: number,
+  day: string,
+  todayPoints: number,
   last7DaysPoints: number,
-  floorSize: number,
   nextSeed: () => number,
 ): HouseFloorState {
-  if (!state) return startFloor(allTimePoints, last7DaysPoints, floorSize, nextSeed());
-  if (allTimePoints < state.baseline) {
-    return startFloor(allTimePoints, last7DaysPoints, floorSize, nextSeed(), state.meals);
+  if (!state) return startFloor(day, todayPoints, last7DaysPoints, nextSeed());
+  // A summary from an earlier day (stale, out of order) banks nothing.
+  if (day < state.day) return state;
+  let next = state;
+  if (next.day !== day) next = { ...next, day, todayMax: 0 };
+  if (Number.isFinite(todayPoints) && todayPoints > next.todayMax) {
+    next = {
+      ...next,
+      progress: next.progress + (todayPoints - next.todayMax),
+      todayMax: todayPoints,
+    };
   }
-  return state;
+  return next;
 }
 
-/** Dots on the floor: `floor((allTime − baseline) × scale)`, 0 to `floorSize`. */
-export function floorDots(state: HouseFloorState, allTimePoints: number, floorSize: number): number {
-  const raw = (allTimePoints - state.baseline) * floorScale(state, floorSize);
-  // A hair of slack so a baseline moved by a float division still counts the
-  // dot it should (e.g. 203.9999999 is 204).
+/** Dots on the floor: `floor(progress / pointsPerFloor × floorSize)`, 0 to `floorSize`. */
+export function floorDots(state: HouseFloorState, floorSize: number): number {
+  const raw = (state.progress / state.pointsPerFloor) * floorSize;
+  // A hair of slack so a float sum still counts the dot it should
+  // (e.g. 203.9999999 is 204).
   const dots = Math.floor(raw + 1e-6);
   return Math.max(0, Math.min(floorSize, dots));
 }
 
 /** Full floors wake and can be fed. */
-export function isFloorAwake(state: HouseFloorState, allTimePoints: number, floorSize: number): boolean {
-  return floorDots(state, allTimePoints, floorSize) >= floorSize;
+export function isFloorAwake(state: HouseFloorState, floorSize: number): boolean {
+  return floorDots(state, floorSize) >= floorSize;
 }
 
 /**
- * The house ate this floor. The baseline moves forward by exactly one floor
- * of points, so anything past full carries into the next; the next floor's
- * scale is set now, from the latest week.
+ * The house ate this floor. Progress drops by exactly one floor of points,
+ * so anything past full carries into the next; the next floor's size in
+ * points is set now, from the latest week.
  */
 export function consumeMeal(
   state: HouseFloorState,
   last7DaysPoints: number,
-  floorSize: number,
   seed: number,
 ): HouseFloorState {
   return {
-    baseline: state.baseline + state.pointsPerFloor,
-    pointsPerFloor: pointsPerFloor(last7DaysPoints, floorSize),
+    ...state,
+    progress: Math.max(0, state.progress - state.pointsPerFloor),
+    pointsPerFloor: pointsPerFloor(last7DaysPoints),
     meals: state.meals + 1,
     seed,
   };
 }
 
+const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
 /** A stored value, or `null` when it's missing or not a floor. */
 export function parseFloorState(raw: unknown): HouseFloorState | null {
   if (!raw || typeof raw !== "object") return null;
-  const value = raw as Record<string, unknown>;
-  const { baseline, pointsPerFloor: perFloor, meals, seed } = value;
+  const { day, todayMax, progress, pointsPerFloor: perFloor, meals, seed } =
+    raw as Record<string, unknown>;
   if (
-    typeof baseline !== "number" || !Number.isFinite(baseline) ||
-    typeof perFloor !== "number" || !Number.isFinite(perFloor) || perFloor <= 0 ||
+    typeof day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+    !isFiniteNumber(todayMax) || todayMax < 0 ||
+    !isFiniteNumber(progress) || progress < 0 ||
+    !isFiniteNumber(perFloor) || perFloor <= 0 ||
     typeof meals !== "number" || !Number.isInteger(meals) || meals < 0 ||
     typeof seed !== "number" || !Number.isInteger(seed)
   ) {
     return null;
   }
-  return { baseline, pointsPerFloor: perFloor, meals, seed };
+  return { day, todayMax, progress, pointsPerFloor: perFloor, meals, seed };
 }
 
 /** A seed for a new floor's fill order. */

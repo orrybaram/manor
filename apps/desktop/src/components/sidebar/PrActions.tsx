@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Check from "lucide-react/dist/esm/icons/check";
+import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import LoaderCircle from "lucide-react/dist/esm/icons/loader-circle";
 import { Button } from "../ui/Button/Button";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
@@ -306,7 +307,7 @@ export function PrActions(props: {
         title={offer?.kind === "none" ? offer.reason : undefined}
         data-testid="pr-merge"
       >
-        <MergeGlyph />
+        <GitMerge size={12} className={styles.glyph} aria-hidden="true" />
         <span>{label}</span>
       </button>
       {hasMenu && (
@@ -398,33 +399,6 @@ export function PrActions(props: {
 
 function MenuLayer(props: { phone: boolean; children: React.ReactNode }) {
   return props.phone ? <Popover.Portal>{props.children}</Popover.Portal> : <Fragment>{props.children}</Fragment>;
-}
-
-/** The merge icon, its two branches drawn apart so a merge can snap them together. */
-function MergeGlyph() {
-  return (
-    <svg
-      className={styles.glyph}
-      viewBox="0 0 24 24"
-      width={12}
-      height={12}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <g className={styles.zipA}>
-        <circle cx="6" cy="6" r="3" />
-        <path d="M6 9v12" />
-      </g>
-      <g className={styles.zipB}>
-        <circle cx="18" cy="18" r="3" />
-        <path d="M15 18a9 9 0 0 1-9-9" />
-      </g>
-    </svg>
-  );
 }
 
 interface Burst {

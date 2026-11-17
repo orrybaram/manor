@@ -206,25 +206,11 @@
   transition: none;
 }
 
-/* Landed: the branches snap together and the whole button pops. */
 .glyph {
   flex-shrink: 0;
-  overflow: visible;
 }
 
-.zipA,
-.zipB {
-  transition: transform 0.45s cubic-bezier(0.5, -0.6, 0.4, 1.6);
-}
-
-.merged .zipA {
-  transform: translate(6px, 6px);
-}
-
-.merged .zipB {
-  transform: translate(0, -6px);
-}
-
+/* Landed: the whole button pops. */
 .merged {
   animation: pop 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
@@ -379,8 +365,6 @@
   .merged,
   .lit,
   .fuse::before,
-  .zipA,
-  .zipB,
   .spin {
     animation: none;
     transition: none;

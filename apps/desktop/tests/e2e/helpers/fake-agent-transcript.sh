@@ -100,7 +100,8 @@ assistant_text() { # uuid text
 }
 
 question_id="toolu_fake_question"
-question_text="Which option should the fake agent take?"
+# FAKE_QUESTION_TEXT swaps the question's text, e.g. for one with a link in it.
+question_text=$(json_escape "${FAKE_QUESTION_TEXT:-Which option should the fake agent take?}")
 labels=("Option 1" "Option 2" "Option 3")
 
 ask_question() {

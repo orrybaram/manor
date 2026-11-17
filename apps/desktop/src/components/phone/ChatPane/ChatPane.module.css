@@ -95,6 +95,43 @@
   gap: 6px;
 }
 
+.imageThumb {
+  display: block;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-selected) 8%, transparent);
+  cursor: zoom-in;
+  min-width: 48px;
+  min-height: 48px;
+}
+
+.imageThumb img {
+  display: block;
+  max-width: 240px;
+  max-height: 160px;
+  object-fit: contain;
+}
+
+.imageThumb[data-large] {
+  cursor: zoom-out;
+}
+
+.imageThumb[data-large] img {
+  max-width: 100%;
+  max-height: none;
+}
+
+.imageChip {
+  align-self: flex-start;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 0.9em;
+  opacity: 0.75;
+  background: color-mix(in srgb, var(--text-selected) 8%, transparent);
+}
+
 .pasted {
   border-radius: 8px;
   background: color-mix(in srgb, var(--text-selected) 8%, transparent);

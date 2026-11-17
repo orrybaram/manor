@@ -658,6 +658,16 @@ describe("ChatPane — question cards", () => {
     expect(chat.answer).toHaveBeenCalledTimes(1);
   });
 
+  it("a URL in the question is a link", async () => {
+    const entry = question("q1", [{ multiSelect: false, header: "H" }]);
+    entry.questions[0].question = "Plan is at https://claude.ai/artifact/abc (4 tickets). OK?";
+    installChat({ ok: true, contextTokens: null, entries: [entry] });
+    await renderChat();
+    const link = all("chat-question")[0].querySelector("a");
+    expect(link?.getAttribute("href")).toBe("https://claude.ai/artifact/abc");
+    expect(all("chat-question")[0].textContent).toContain("(4 tickets). OK?");
+  });
+
   it("multi-select: toggles, then Submit", async () => {
     installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: true, header: "H" }])] });
     await renderChat();

@@ -6,7 +6,7 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { agentChat } from "../../../lib/agent-chat";
-import type { WorkspaceKey } from "../../../lib/workspace-key";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
 import { Button } from "../../ui/Button/Button";
 import { PullToRefresh } from "../PullToRefresh";
 import {
@@ -24,6 +24,7 @@ import { ChatPaneMenu } from "./ChatPaneMenu";
 import { ChatThinking } from "./ChatThinking";
 import { openingAgent, taskChips } from "./chat-status-line";
 import { TaskViewContext, type TaskViewControl } from "./task-view-context";
+import { ChatHostContext } from "./chat-host-context";
 import { AgentsSheet, TaskPanel, type TaskViewState } from "./TaskView";
 import { revealTaskCard } from "./reveal-task";
 import { earlierAnchor, windowStart } from "./chat-window";
@@ -443,143 +444,147 @@ export function ChatPane(props: ChatPaneProps) {
   const thinking = busy && answerableId === null && !toolRunning && newest?.kind !== "turn-end";
   const needsYou = status === "requires_input" && answerableId === null;
 
+  const hostId = workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : null;
+
   return (
-    <ChatPaneMenu
-      paneId={paneId}
-      workspaceKey={workspaceKey}
-      layout={layout}
-      onPaste={unavailable ? undefined : () => composerRef.current?.paste()}
-    >
-      <div
-        className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
-        data-chat-pane
-        data-layout={layout}
-        data-testid="chat-pane"
-        aria-hidden={hidden || undefined}
+    <ChatHostContext.Provider value={hostId}>
+      <ChatPaneMenu
+        paneId={paneId}
+        workspaceKey={workspaceKey}
+        layout={layout}
+        onPaste={unavailable ? undefined : () => composerRef.current?.paste()}
       >
-        {unavailable ? (
-          <div className={styles.unavailable} data-testid="chat-unavailable">
-            <p>{unavailableNote(unavailable, agentName)}</p>
-            <Button onClick={onShowTerminal}>Show terminal</Button>
-          </div>
-        ) : (
-          <>
-            <TaskViewContext.Provider value={taskViewControl}>
-              <div
-                className={styles.chatBody}
-                // A click in the chat focuses this rather than the page, so
-                // Escape still closes the panel.
-                tabIndex={docked && viewedTask ? -1 : undefined}
-                data-task-panel={(docked && viewedTask !== undefined) || undefined}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape" && !e.defaultPrevented && docked && viewedTask) {
-                    e.preventDefault();
-                    changeTaskView(null);
-                  }
-                }}
-              >
-                <div className={styles.chatMain}>
-                  {/* Pulling down at the top refreshes the bridge. It moves an
-                      overlay and never scrolls, so it can't change what
-                      bottom-follow sees. */}
-                  <PullToRefresh
-                    onRefresh={refreshState}
-                    className={styles.scroller}
-                    onScroll={onScroll}
-                  >
-                    <div ref={followBottom} className={styles.entries}>
-                      {loaded && entries.length === 0 && awaitingPrompt === null && (
-                        <p className={styles.empty}>Nothing in this conversation yet.</p>
-                      )}
-                      {items.slice(start).map((entry) => {
-                        const live =
-                          settledIds !== null &&
-                          !settledIds.has(entry.id) &&
-                          !retired.current.has(entry.id) &&
-                          !(firstPrompt !== null && entry.id === entries[0]?.id);
-                        return (
-                          <div
-                            key={entry.id}
-                            className={styles.entry}
-                            data-item-id={entry.id}
-                            data-enter={live || undefined}
-                          >
-                            <ChatEntryView
-                              paneId={paneId}
-                              entry={entry}
-                              answerableId={answerableId}
-                              live={live}
-                              onShowTerminal={onShowTerminal}
-                            />
+        <div
+          className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
+          data-chat-pane
+          data-layout={layout}
+          data-testid="chat-pane"
+          aria-hidden={hidden || undefined}
+        >
+          {unavailable ? (
+            <div className={styles.unavailable} data-testid="chat-unavailable">
+              <p>{unavailableNote(unavailable, agentName)}</p>
+              <Button onClick={onShowTerminal}>Show terminal</Button>
+            </div>
+          ) : (
+            <>
+              <TaskViewContext.Provider value={taskViewControl}>
+                <div
+                  className={styles.chatBody}
+                  // A click in the chat focuses this rather than the page, so
+                  // Escape still closes the panel.
+                  tabIndex={docked && viewedTask ? -1 : undefined}
+                  data-task-panel={(docked && viewedTask !== undefined) || undefined}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape" && !e.defaultPrevented && docked && viewedTask) {
+                      e.preventDefault();
+                      changeTaskView(null);
+                    }
+                  }}
+                >
+                  <div className={styles.chatMain}>
+                    {/* Pulling down at the top refreshes the bridge. It moves an
+                        overlay and never scrolls, so it can't change what
+                        bottom-follow sees. */}
+                    <PullToRefresh
+                      onRefresh={refreshState}
+                      className={styles.scroller}
+                      onScroll={onScroll}
+                    >
+                      <div ref={followBottom} className={styles.entries}>
+                        {loaded && entries.length === 0 && awaitingPrompt === null && (
+                          <p className={styles.empty}>Nothing in this conversation yet.</p>
+                        )}
+                        {items.slice(start).map((entry) => {
+                          const live =
+                            settledIds !== null &&
+                            !settledIds.has(entry.id) &&
+                            !retired.current.has(entry.id) &&
+                            !(firstPrompt !== null && entry.id === entries[0]?.id);
+                          return (
+                            <div
+                              key={entry.id}
+                              className={styles.entry}
+                              data-item-id={entry.id}
+                              data-enter={live || undefined}
+                            >
+                              <ChatEntryView
+                                paneId={paneId}
+                                entry={entry}
+                                answerableId={answerableId}
+                                live={live}
+                                onShowTerminal={onShowTerminal}
+                              />
+                            </div>
+                          );
+                        })}
+                        {awaitingPrompt !== null && (
+                          <div className={styles.entry}>
+                            <UserBubble text={awaitingPrompt} />
                           </div>
-                        );
-                      })}
-                      {awaitingPrompt !== null && (
-                        <div className={styles.entry}>
-                          <UserBubble text={awaitingPrompt} />
-                        </div>
-                      )}
-                      {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
-                      {queued.map((text, i) => (
-                        <div key={i} className={styles.userRow} data-testid="chat-queued">
-                          <div className={`${styles.userBubble} ${styles.userQueued}`}>
-                            <span className={styles.queuedLabel}>Queued</span>
-                            {text}
+                        )}
+                        {thinking && <ChatThinking key={entries[entries.length - 1]?.id ?? ""} />}
+                        {queued.map((text, i) => (
+                          <div key={i} className={styles.userRow} data-testid="chat-queued">
+                            <div className={`${styles.userBubble} ${styles.userQueued}`}>
+                              <span className={styles.queuedLabel}>Queued</span>
+                              {text}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  </PullToRefresh>
-                  {needsYou && (
-                    <div className={styles.needsYou} data-testid="chat-needs-you">
-                      <span>{agentName} needs you</span>
-                      <Button size="sm" variant="primary" onClick={onShowTerminal}>
-                        Open terminal
-                      </Button>
-                    </div>
+                        ))}
+                      </div>
+                    </PullToRefresh>
+                    {needsYou && (
+                      <div className={styles.needsYou} data-testid="chat-needs-you">
+                        <span>{agentName} needs you</span>
+                        <Button size="sm" variant="primary" onClick={onShowTerminal}>
+                          Open terminal
+                        </Button>
+                      </div>
+                    )}
+                    <ChatComposer
+                      ref={composerRef}
+                      paneId={paneId}
+                      agentKind={agentKind}
+                      busy={busy}
+                      transcript={transcript}
+                      contextTokens={contextTokens}
+                      tasks={tasks}
+                      onRevealTask={revealTask}
+                      lastMessageAt={messageAt}
+                      onToggleAgents={toggleAgents}
+                      taskViewOpen={taskView !== null}
+                      taskViewDocked={docked && viewedTask !== undefined}
+                      session={session}
+                      layout={layout}
+                    />
+                  </div>
+                  {docked && viewedTask && (
+                    <TaskPanel
+                      paneId={paneId}
+                      task={viewedTask}
+                      agents={chips.agentsInOrder}
+                      hidden={hidden}
+                      onPick={(id) => setTaskView({ kind: "task", id })}
+                      onClose={() => changeTaskView(null)}
+                    />
                   )}
-                  <ChatComposer
-                    ref={composerRef}
-                    paneId={paneId}
-                    agentKind={agentKind}
-                    busy={busy}
-                    transcript={transcript}
-                    contextTokens={contextTokens}
-                    tasks={tasks}
-                    onRevealTask={revealTask}
-                    lastMessageAt={messageAt}
-                    onToggleAgents={toggleAgents}
-                    taskViewOpen={taskView !== null}
-                    taskViewDocked={docked && viewedTask !== undefined}
-                    session={session}
-                    layout={layout}
-                  />
                 </div>
-                {docked && viewedTask && (
-                  <TaskPanel
+                {!docked && (
+                  <AgentsSheet
                     paneId={paneId}
-                    task={viewedTask}
-                    agents={chips.agentsInOrder}
-                    hidden={hidden}
-                    onPick={(id) => setTaskView({ kind: "task", id })}
-                    onClose={() => changeTaskView(null)}
+                    view={hidden ? null : taskView}
+                    task={hidden ? undefined : viewedTask}
+                    agents={chips.agents}
+                    running={chips.runningAgents}
+                    onViewChange={setTaskView}
                   />
                 )}
-              </div>
-              {!docked && (
-                <AgentsSheet
-                  paneId={paneId}
-                  view={hidden ? null : taskView}
-                  task={hidden ? undefined : viewedTask}
-                  agents={chips.agents}
-                  running={chips.runningAgents}
-                  onViewChange={setTaskView}
-                />
-              )}
-            </TaskViewContext.Provider>
-          </>
-        )}
-      </div>
-    </ChatPaneMenu>
+              </TaskViewContext.Provider>
+            </>
+          )}
+        </div>
+      </ChatPaneMenu>
+    </ChatHostContext.Provider>
   );
 }

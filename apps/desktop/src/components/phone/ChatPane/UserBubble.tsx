@@ -1,4 +1,5 @@
 import { splitPrompt } from "./chat-entries";
+import { ChatImage } from "./ChatImage";
 import styles from "./ChatPane.module.css";
 
 /**
@@ -15,7 +16,10 @@ export function UserBubble({ text }: { text: string }) {
   );
 }
 
-/** The prompt's text, with each paste folded to a "Pasted N lines" row. */
+/**
+ * The prompt's text, with each paste folded to a "Pasted N lines" row and
+ * each pasted image shown rather than its path.
+ */
 function UserPrompt({ text }: { text: string }) {
   const parts = splitPrompt(text);
   if (parts.length === 1 && parts[0].kind === "typed") return <>{text}</>;
@@ -24,6 +28,8 @@ function UserPrompt({ text }: { text: string }) {
       {parts.map((part, i) =>
         part.kind === "typed" ? (
           <div key={i}>{part.text}</div>
+        ) : part.kind === "image" ? (
+          <ChatImage key={`${i}:${part.text}`} path={part.text} />
         ) : (
           <details key={i} className={styles.pasted} data-testid="chat-pasted">
             <summary className={styles.pastedSummary}>

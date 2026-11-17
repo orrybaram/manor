@@ -1020,7 +1020,7 @@ function App() {
                     const projIdx = useProjectStore.getState().projects.findIndex((p) => p.id === projectId);
                     if (projIdx >= 0) selectProject(projIdx);
                   }
-                  setNewWorkspaceOpen(false);
+                  closeNewWorkspace();
                 }
                 return !!result;
               }}

@@ -103,9 +103,14 @@ describe("prVerdict", () => {
       failingChecks(checks(1, 1, 0)),
     ],
     [
-      "failing checks over queued: a failing check keeps a queued PR from merging",
+      "queued over failing checks: someone already chose to ship it",
       { queuedToMerge: true, checks: checks(1, 1, 0) },
-      failingChecks(checks(1, 1, 0)),
+      QUEUED,
+    ],
+    [
+      "queued over changes requested and threads",
+      { queuedToMerge: true, reviewDecision: "CHANGES_REQUESTED", unresolvedThreads: 2 },
+      QUEUED,
     ],
     [
       "conflicts over pending checks",

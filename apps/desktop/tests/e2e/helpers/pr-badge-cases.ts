@@ -138,13 +138,13 @@ export const CASES: Case[] = [
   },
   {
     branch: "h-queued-failing",
-    note: "queued but red: blocked wins, no spinner",
+    note: "queued but red: queued wins, spinner",
     number: 208,
     state: "OPEN",
     reviewDecision: "APPROVED",
     rollup: [FAIL],
     autoMerge: true,
-    expect: { readiness: "blocked", icon: "lucide-circle-x", spin: false },
+    expect: { readiness: "queued", icon: "lucide-loader-circle", spin: true },
   },
   {
     branch: "i-ready",

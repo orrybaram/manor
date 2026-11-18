@@ -60,6 +60,7 @@ import {
   selectActiveWorkspaceKey,
   selectAgentRunningIn,
   OWN_CLAIM,
+  selectOwnPanelId,
 } from "./store/app-store";
 import { useShallow } from "zustand/react/shallow";
 
@@ -89,7 +90,6 @@ import {
   type MenuHandler,
 } from "./lib/menu-handlers";
 import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
-import { findPanelWithTab } from "./lib/layout/workspace-layout";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { useThemeStore, startThemeSync } from "./store/theme-store";
 import { onBridgeResync } from "./bridge/resync";
@@ -770,14 +770,10 @@ function App() {
   // opens the new-agent composer instead (`newAgent`).
   const handleNewAgent = useCallback(() => newAgent({ prewarm: true }), []);
 
-  // A detached window's one panel: the one holding the tab it claims, in this
+  // A detached window's one panel: the one holding the tabs it claims, in this
   // window's replica of the shared layout. A string, so the
   // selector is stable across unrelated layout changes.
-  const claimPanelId = useAppStore((s) => {
-    if (!OWN_CLAIM) return null;
-    const layout = s.workspaceLayouts[OWN_CLAIM.workspacePath];
-    return layout ? (findPanelWithTab(layout, OWN_CLAIM.tabId)?.panel.id ?? null) : null;
-  });
+  const claimPanelId = useAppStore(selectOwnPanelId);
 
   if (!appReady) {
     return (
@@ -789,8 +785,8 @@ function App() {
     );
   }
 
-  // A detached window: one panel, one tab, and none of the primary's chrome.
-  // The tab bar it renders is the claimed tab's own — which is
+  // A detached window: one panel, its own tabs, and none of the primary's
+  // chrome. The tab bar it renders shows the claimed tabs — which is
   // where "Move Back to Main Window" lives — and the panel tree around it
   // belongs to the primary, which is still showing every other tab of the
   // same workspace.

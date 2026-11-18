@@ -20,7 +20,7 @@ import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key
 import { topLeftPanelId } from "../../../lib/layout/panel-tree";
 import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
-import { detachTabToNewWindow, hasOwnClaim, returnToPrimaryWindow } from "../../../lib/detach";
+import { detachTabToNewWindow, hasOwnClaim, returnTabToPrimaryWindow } from "../../../lib/detach";
 import { beginPointerTracking, hasPointerLeftDocument } from "../../../lib/detach-drag";
 import { paneTitle } from "../../../lib/pane-title";
 import { useAgentStore } from "../../../store/agent-store";
@@ -521,7 +521,7 @@ export function TabBar(props: TabBarProps) {
       // There is nothing to hand over, so from the primary it is a no-op —
       // the tab it would "move" is the one that window is already showing.
       if (target) {
-        if (hasOwnClaim()) returnToPrimaryWindow();
+        if (hasOwnClaim()) returnTabToPrimaryWindow(tabId);
         return;
       }
       void detachTabToNewWindow(tabId, spawnBounds);

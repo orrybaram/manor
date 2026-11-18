@@ -145,6 +145,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   // A viewport report is a window's, and a claim is desktop-window state
   // the desktop's `LayoutStore` keeps: a host server has no windows.
   "layout.reportViewport": "home",
+  "layout.claimTab": "home",
+  "layout.releaseTab": "home",
 
   "projects.getAll": "merge",
   "projects.getSelectedIndex": "home",

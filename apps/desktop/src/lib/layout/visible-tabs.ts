@@ -6,7 +6,7 @@
  * renderer the same claim list on every `layout.changed`, and each one answers
  * the same question differently:
  *
- * - a **claiming window** shows that one tab and nothing else;
+ * - a **claiming window** shows the tabs it holds and nothing else;
  * - the **primary** shows everything nobody has claimed, so a popped-out tab
  *   leaves its tab bar the moment the popup reports;
  * - a **browser** shows the whole workspace, claims and all — a claim is about
@@ -20,7 +20,10 @@
 
 import type { WorkspaceLayout } from "./workspace-layout";
 
-/** A desktop window's exclusive hold on one tab of one workspace. */
+/**
+ * A desktop window's exclusive hold on one tab of one workspace. A window
+ * holding several tabs appears once per tab.
+ */
 export interface LayoutClaim {
   /** The window's renderer id — `webContents.id` as a string. */
   windowId: string;
@@ -33,34 +36,35 @@ export type RendererPlatform = "electron" | "web";
 /**
  * Everything that decides which tabs of one workspace a renderer shows.
  *
- * `claims` is the server's, and changes with every broadcast. `platform` and
- * `ownClaim` are the renderer's own and fixed for its life: a window is opened
- * *as* the holder of one tab, and holds it until it closes.
+ * `claims` is the server's, and changes with every broadcast. `platform` is
+ * the renderer's own and fixed for its life. `ownTabs` is what a detached
+ * window holds: the tab it was opened with, then whatever the claims name it
+ * holder of.
  */
 export interface Visibility {
   claims: readonly LayoutClaim[];
   platform: RendererPlatform | undefined;
-  /** The tab this renderer holds in this workspace, or null. */
-  ownClaim: string | null;
+  /** The tabs this renderer holds in this workspace, or null if it is no claiming window. */
+  ownTabs: ReadonlySet<string> | null;
 }
 
 /** A renderer that hides nothing: no claims, no claim of its own. */
 export const SEES_EVERYTHING: Visibility = Object.freeze({
   claims: Object.freeze([]) as readonly LayoutClaim[],
   platform: undefined,
-  ownClaim: null,
+  ownTabs: null,
 });
 
 /**
  * Whether this renderer shows `tabId`.
  *
- * `ownClaim` wins over everything: a claiming window is looking at one tab and
- * the rest of the workspace is somebody else's business.
+ * `ownTabs` wins over everything: a claiming window is looking at its own
+ * tabs and the rest of the workspace is somebody else's business.
  */
 export function isTabVisible(tabId: string, visibility: Visibility): boolean {
-  const { claims, platform, ownClaim } = visibility;
+  const { claims, platform, ownTabs } = visibility;
   if (platform === "web") return true;
-  if (ownClaim !== null) return tabId === ownClaim;
+  if (ownTabs !== null) return ownTabs.has(tabId);
   return !claims.some((claim) => claim.tabId === tabId);
 }
 
@@ -90,18 +94,6 @@ export function hiddenTabIdsIn(
     }
   }
   return hidden;
-}
-
-/** Whether `claims` still names `windowId` as the holder of `tabId`. */
-export function holdsClaim(
-  claims: readonly LayoutClaim[],
-  windowId: string | null | undefined,
-  tabId: string,
-): boolean {
-  if (windowId == null) return false;
-  return claims.some(
-    (claim) => claim.windowId === windowId && claim.tabId === tabId,
-  );
 }
 
 /** Whether two claim lists say the same thing, order included. */

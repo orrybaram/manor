@@ -22,7 +22,7 @@ import type { PaneNode } from "../../lib/layout/pane-tree";
 import {
   detachTabToNewWindow,
   hasOwnClaim,
-  returnToPrimaryWindow,
+  returnTabToPrimaryWindow,
 } from "../../lib/detach";
 import { moveTabToNextPanel } from "../../lib/keybinding-commands";
 import { useKeybinding } from "../../store/keybindings-store";
@@ -409,9 +409,9 @@ export function TabButton(props: TabButtonProps) {
             {hasOwnClaim() && (
               <ContextMenu.Item
                 className={styles.contextMenuItem}
-                /* Closing is the whole operation: the claim dies with the
-                   window and the tab is already in the primary. */
-                onSelect={() => returnToPrimaryWindow()}
+                /* Releasing the claim is the whole operation: the tab is
+                   already in the primary. The window closes with its last. */
+                onSelect={() => returnTabToPrimaryWindow(tabId)}
               >
                 Move Back to Main Window
               </ContextMenu.Item>

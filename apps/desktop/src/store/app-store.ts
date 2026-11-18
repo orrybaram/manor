@@ -46,7 +46,6 @@ import {
   type LayoutClaim,
   type RendererPlatform,
   type Visibility,
-  holdsClaim,
   isTabVisible,
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
@@ -886,9 +885,74 @@ function claimsOf(
   return state.claims?.[path] ?? NO_CLAIMS;
 }
 
-/** The tab this window holds in `path`, or null. */
-function ownClaimIn(path: string): string | null {
-  return OWN_CLAIM?.workspacePath === path ? OWN_CLAIM.tabId : null;
+/** The launch tab, as the set {@link ownTabsFrom} answers with. */
+const LAUNCH_TABS: ReadonlySet<string> | null = OWN_CLAIM
+  ? new Set([OWN_CLAIM.tabId])
+  : null;
+
+/** The last answer of {@link ownTabsFrom}, so a selector gets a stable set. */
+let ownTabsCache: {
+  claims: readonly LayoutClaim[];
+  seen: boolean;
+  tabs: ReadonlySet<string>;
+} | null = null;
+
+/**
+ * The tabs this window holds in `path`, or null when it is not a detached
+ * window of `path`.
+ *
+ * The server's claims name them: the launch tab, the tabs made here since,
+ * less any sent back. Until the claims have named this window once, the
+ * launch tab stands in, so the first frame draws it.
+ */
+function ownTabsFrom(
+  claims: readonly LayoutClaim[],
+  path: string,
+): ReadonlySet<string> | null {
+  if (!OWN_CLAIM || OWN_CLAIM.workspacePath !== path) return null;
+  const me = rendererId();
+  const mine = claims.filter((claim) => claim.windowId === me);
+  if (mine.length === 0 && !sawOwnClaim) return LAUNCH_TABS;
+  if (ownTabsCache?.claims === claims && ownTabsCache.seen === sawOwnClaim) {
+    return ownTabsCache.tabs;
+  }
+  const tabs = new Set(mine.map((claim) => claim.tabId));
+  ownTabsCache = { claims, seen: sawOwnClaim, tabs };
+  return tabs;
+}
+
+/** The tabs this window holds in `path`, read off the store's claims. */
+function ownTabsIn(
+  state: Partial<Pick<AppState, "claims">>,
+  path: string,
+): ReadonlySet<string> | null {
+  return ownTabsFrom(claimsOf(state, path), path);
+}
+
+/**
+ * The tabs this detached window holds, in their panel's order — empty in any
+ * other window. What "Move Back", the sole-pane checks and the window's own
+ * panel are about.
+ */
+export function selectOwnTabs(state: AppState): Tab[] {
+  if (!OWN_CLAIM) return [];
+  const path = OWN_CLAIM.workspacePath;
+  const layout = state.workspaceLayouts[path];
+  const own = ownTabsIn(state, path);
+  if (!layout || !own) return [];
+  const tabs: Tab[] = [];
+  for (const panel of Object.values(layout.panels)) {
+    for (const tab of panel.tabs) if (own.has(tab.id)) tabs.push(tab);
+  }
+  return tabs;
+}
+
+/** The panel this detached window draws: the one holding its tabs. */
+export function selectOwnPanelId(state: AppState): string | null {
+  if (!OWN_CLAIM) return null;
+  const layout = state.workspaceLayouts[OWN_CLAIM.workspacePath];
+  const first = selectOwnTabs(state)[0];
+  return layout && first ? (findPanelWithTab(layout, first.id)?.panel.id ?? null) : null;
 }
 
 /** What decides which tabs of `path` this renderer shows. */
@@ -899,7 +963,7 @@ function visibilityOf(
   return {
     claims: claimsOf(state, path),
     platform: rendererPlatform(),
-    ownClaim: ownClaimIn(path),
+    ownTabs: ownTabsIn(state, path),
   };
 }
 
@@ -960,7 +1024,7 @@ export function useVisibleTabs(
         {
           claims,
           platform: rendererPlatform(),
-          ownClaim: workspacePath ? ownClaimIn(workspacePath) : null,
+          ownTabs: workspacePath ? ownTabsFrom(claims, workspacePath) : null,
         },
       ),
     [tabs, claims, workspacePath],
@@ -1408,16 +1472,79 @@ export function selectAgentRunningIn(
   });
 }
 
+/**
+ * The tab a command will create, named by the sender; null for any other
+ * command, and for one that may not create the tab it names. A claim on a
+ * tab that never arrives is never dropped, and would keep an emptied window
+ * open.
+ */
+function tabCreatedBy(command: LayoutCommand, layout: WorkspaceLayout | undefined): string | null {
+  switch (command.type) {
+    // Not `split-panel-with-new-tab`: a detached window draws one panel, so
+    // a tab in a new panel next to it is the primary's to show.
+    case "new-tab":
+      return command.tab.id;
+    case "duplicate-tab":
+      return command.newTab.id;
+    // A pane alone in its tab is already a tab of its own: the server keeps
+    // that one and the minted id goes unused.
+    case "extract-pane-to-tab": {
+      const found = layout ? findPanelWithPane(layout, command.paneId) : null;
+      return found && allPaneIds(found.tab.rootNode).length > 1 ? command.newTabId : null;
+    }
+    // Not `reopen-closed-pane`: whether it makes a tab or goes back into the
+    // one it left is the server's to know.
+    default:
+      return null;
+  }
+}
+
+/**
+ * Whatever a detached window makes is its own: claim the tab a command is
+ * about to create, then send the command, so the tab arrives already held
+ * and never shows in the primary. Null — send at once — from any other
+ * window or workspace, or for a command that makes no tab.
+ */
+function claimNewTab(workspacePath: string, command: LayoutCommand): Promise<string | null> | null {
+  if (OWN_CLAIM?.workspacePath !== workspacePath) return null;
+  const tabId = tabCreatedBy(command, useAppStore.getState().workspaceLayouts[workspacePath]);
+  const claimTab = window.electronAPI?.layout?.claimTab;
+  if (tabId === null || !claimTab) return null;
+  return claimTab(workspacePath, tabId).then(
+    () => tabId,
+    (err: unknown) => {
+      // The tab still gets made; it shows in the primary instead of here.
+      console.error(`[layout] claim of new tab ${tabId} failed:`, err);
+      return null;
+    },
+  );
+}
+
+/** Let go of a claim on a tab whose command was refused: it will never arrive. */
+function releaseRefusedTab(workspacePath: string, tabId: string | null): void {
+  if (tabId === null) return;
+  void window.electronAPI?.layout?.releaseTab?.(workspacePath, tabId)?.catch(() => {});
+}
+
 function sendLayoutCommand(
   workspacePath: string,
   command: LayoutCommand,
 ): void {
   const held = useAppStore.getState().layoutVersions[workspacePath] ?? 0;
-  const applied = window.electronAPI?.layout?.apply(workspacePath, command);
+  const send = () => window.electronAPI?.layout?.apply(workspacePath, command);
+  const claimed = claimNewTab(workspacePath, command);
+  let claimedTabId: string | null = null;
+  const applied = claimed
+    ? claimed.then((tabId) => {
+        claimedTabId = tabId;
+        return send();
+      })
+    : send();
   void applied
     ?.then((result) => {
       if (!result) return;
       if ("error" in result) {
+        releaseRefusedTab(workspacePath, claimedTabId);
         console.error(`[layout] ${command.type} refused:`, result.error);
         return;
       }
@@ -1432,6 +1559,7 @@ function sendLayoutCommand(
       });
     })
     .catch((err: unknown) => {
+      releaseRefusedTab(workspacePath, claimedTabId);
       if (refuseLayoutWrite(err)) return;
       console.error(`[layout] ${command.type} failed:`, err);
     });
@@ -1606,7 +1734,9 @@ function checkOwnClaim(
   layout: WorkspaceLayout,
 ): void {
   if (!OWN_CLAIM || OWN_CLAIM.workspacePath !== workspacePath) return;
-  const mine = holdsClaim(claims, rendererId(), OWN_CLAIM.tabId);
+  // Any tab will do: a window holding several closes only with the last.
+  const me = rendererId();
+  const mine = claims.some((claim) => claim.windowId === me);
   if (mine) {
     sawOwnClaim = true;
     return;

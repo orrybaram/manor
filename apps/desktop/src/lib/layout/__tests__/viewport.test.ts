@@ -237,13 +237,13 @@ describe("reconcileViewport with claims", () => {
     return {
       claims: tabIds.map((tabId) => ({ windowId: "7", tabId })),
       platform: "electron",
-      ownClaim: null,
+      ownTabs: null,
     };
   }
 
   /** What a detached window holding `tabId` sees. */
   function holding(tabId: string): Visibility {
-    return { claims: [], platform: "electron", ownClaim: tabId };
+    return { claims: [], platform: "electron", ownTabs: new Set([tabId]) };
   }
 
   it("does not select a tab another window has popped out", () => {

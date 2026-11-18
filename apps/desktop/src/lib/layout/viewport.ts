@@ -114,12 +114,25 @@ function panelOfTab(layout: WorkspaceLayout, tabId: string): string | null {
  * `visibility` is the third direction, and it is the one claims added:
  * a tab another window has popped out is still in the layout, still rendered
  * by a browser, and simply not something *this* renderer may select. A
- * claiming window may select its own tab and nothing else, and has the
- * keyboard in the panel holding it.
+ * claiming window may select its own tabs and nothing else, and has the
+ * keyboard in the panel holding them.
  *
  * Returns the viewport it was given when nothing needed repairing, so a store
  * can skip the write — this runs on every broadcast.
  */
+/** The panel holding the first of `ownTabs` that is in the layout, or null. */
+function ownPanelOf(
+  layout: WorkspaceLayout,
+  ownTabs: ReadonlySet<string> | null,
+): string | null {
+  if (ownTabs === null) return null;
+  for (const tabId of ownTabs) {
+    const panelId = panelOfTab(layout, tabId);
+    if (panelId !== null) return panelId;
+  }
+  return null;
+}
+
 export function reconcileViewport(
   layout: WorkspaceLayout,
   viewport: WorkspaceViewport,
@@ -128,10 +141,9 @@ export function reconcileViewport(
   const panelIds = orderedPanelIds(layout);
   const hidden = hiddenTabIdsIn(layout, visibility);
 
-  // A claiming window has the keyboard in the panel its tab lives in; there is
+  // A claiming window has the keyboard in the panel its tabs live in; there is
   // nothing else on its screen to have it in.
-  const { ownClaim } = visibility;
-  const claimPanelId = ownClaim !== null ? panelOfTab(layout, ownClaim) : null;
+  const claimPanelId = ownPanelOf(layout, visibility.ownTabs);
   const activePanelId =
     claimPanelId ??
     (viewport.activePanelId !== null && layout.panels[viewport.activePanelId]

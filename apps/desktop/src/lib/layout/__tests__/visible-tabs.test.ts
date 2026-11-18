@@ -9,7 +9,6 @@
 import { describe, expect, it } from "vitest";
 import {
   hiddenTabIdsIn,
-  holdsClaim,
   isTabVisible,
   sameClaims,
   visibleTabsFor,
@@ -34,13 +33,14 @@ function layout(): WorkspaceLayout {
 
 const CLAIMS: LayoutClaim[] = [{ windowId: "7", tabId: "tab-2" }];
 
-/** A renderer on `platform`, holding `ownClaim`, with {@link CLAIMS} out. */
+/** A renderer on `platform`, holding `own` (a tab or several), with {@link CLAIMS} out. */
 function seen(
   platform: RendererPlatform,
-  ownClaim: string | null,
+  own: string | string[] | null,
   claims: LayoutClaim[] = CLAIMS,
 ): Visibility {
-  return { claims, platform, ownClaim };
+  const ownTabs = own === null ? null : new Set(typeof own === "string" ? [own] : own);
+  return { claims, platform, ownTabs };
 }
 
 describe("visibleTabsFor", () => {
@@ -54,6 +54,12 @@ describe("visibleTabsFor", () => {
     const tabs = visibleTabsFor(PANEL, seen("electron", "tab-2"));
 
     expect(tabs.map((t) => t.id)).toEqual(["tab-2"]);
+  });
+
+  it("shows a claiming window every tab it holds, in the panel's order", () => {
+    const tabs = visibleTabsFor(PANEL, seen("electron", ["tab-3", "tab-1"]));
+
+    expect(tabs.map((t) => t.id)).toEqual(["tab-1", "tab-3"]);
   });
 
   it("shows a browser every tab, claims and all", () => {
@@ -96,14 +102,6 @@ describe("isTabVisible", () => {
     expect(isTabVisible("tab-1", seen("electron", "tab-2"))).toBe(false);
     expect(isTabVisible("tab-2", seen("electron", "tab-2"))).toBe(true);
     expect(isTabVisible("tab-2", seen("web", null))).toBe(true);
-  });
-});
-
-describe("holdsClaim", () => {
-  it("is how a window learns its claim was taken by another one", () => {
-    expect(holdsClaim(CLAIMS, "7", "tab-2")).toBe(true);
-    expect(holdsClaim(CLAIMS, "8", "tab-2")).toBe(false);
-    expect(holdsClaim(CLAIMS, null, "tab-2")).toBe(false);
   });
 });
 

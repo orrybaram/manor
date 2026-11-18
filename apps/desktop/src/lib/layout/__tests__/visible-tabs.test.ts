@@ -9,7 +9,6 @@
 import { describe, expect, it } from "vitest";
 import {
   hiddenTabIdsIn,
-  holdsClaim,
   isTabVisible,
   sameClaims,
   visibleTabsFor,
@@ -103,14 +102,6 @@ describe("isTabVisible", () => {
     expect(isTabVisible("tab-1", seen("electron", "tab-2"))).toBe(false);
     expect(isTabVisible("tab-2", seen("electron", "tab-2"))).toBe(true);
     expect(isTabVisible("tab-2", seen("web", null))).toBe(true);
-  });
-});
-
-describe("holdsClaim", () => {
-  it("is how a window learns its claim was taken by another one", () => {
-    expect(holdsClaim(CLAIMS, "7", "tab-2")).toBe(true);
-    expect(holdsClaim(CLAIMS, "8", "tab-2")).toBe(false);
-    expect(holdsClaim(CLAIMS, null, "tab-2")).toBe(false);
   });
 });
 

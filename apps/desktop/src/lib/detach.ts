@@ -15,7 +15,7 @@
  * window closes, the claim dies with it, and the tab is already there.
  */
 
-import { useAppStore, OWN_CLAIM } from "../store/app-store";
+import { useAppStore, OWN_CLAIM, selectOwnTabs } from "../store/app-store";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { dirtyPaneIds, useOpenFileStore } from "../store/open-file-store";
 import { confirmUnsavedEdits, guardUnsavedEdits } from "../store/unsaved-guard-store";
@@ -84,11 +84,10 @@ export function hasOwnClaim(): boolean {
 }
 
 /**
- * Panes of the tab this window claims — 0 when it claims nothing.
+ * Panes of the tabs this window claims — 0 when it claims nothing.
  *
- * The gate on "would tearing this out leave an empty window?", which used to
- * be a count across the popout's whole private store and is now simply the
- * size of the one tab it shows.
+ * The gate on "would tearing this out leave an empty window?": the panes of
+ * every tab this window holds.
  */
 export function panesInOwnClaim(): number {
   return panesOfOwnClaim().length;
@@ -168,21 +167,62 @@ export async function movePaneToNewWindow(
 }
 
 /**
- * Give the tab back to the primary: close this window.
+ * Give every tab back to the primary: close this window.
  *
  * That is the whole operation. The claim is released by the window
  * dying, the server broadcasts claims without it, and the primary draws the
- * tab again — same panes, same sessions, nothing re-attached.
+ * tabs again — same panes, same sessions, nothing re-attached.
  */
 export function returnToPrimaryWindow(): void {
   // This window's unsaved edits die with it: save or discard them first.
   guardUnsavedEdits(panesOfOwnClaim(), "move", () => window.electronAPI.window.closeSelf());
 }
 
-/** Every pane of the tab this window claims. */
+/**
+ * Give one tab back to the primary ("Move Back to Main Window" on a tab).
+ *
+ * The window lets go of that tab and keeps the rest; with no rest, it closes,
+ * as {@link returnToPrimaryWindow}. Unsaved edits in the tab's file panes
+ * live in this window's memory, so they are saved or discarded first.
+ */
+export function returnTabToPrimaryWindow(tabId: string): void {
+  if (!OWN_CLAIM) return;
+  const own = selectOwnTabs(useAppStore.getState());
+  const tab = own.find((t) => t.id === tabId);
+  if (!tab || own.length === 1) {
+    returnToPrimaryWindow();
+    return;
+  }
+  const { workspacePath } = OWN_CLAIM;
+  const paneIds = allPaneIds(tab.rootNode);
+  guardUnsavedEdits(paneIds, "move", () => {
+    void window.electronAPI.layout
+      .releaseTab(workspacePath, tabId)
+      .then((released) => {
+        if (released) forgetPanes(paneIds);
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to move tab back to the main window", err);
+        toast.error("Couldn't move tab back to the main window", {
+          id: `return-tab-${tabId}`,
+          error: err,
+        });
+      });
+  });
+}
+
+/** Give back the tab holding `paneId` ("Move Back to Main Window" on a pane). */
+export function returnPaneToPrimaryWindow(paneId: string): void {
+  const tab = selectOwnTabs(useAppStore.getState()).find((t) =>
+    allPaneIds(t.rootNode).includes(paneId),
+  );
+  if (tab) returnTabToPrimaryWindow(tab.id);
+  else returnToPrimaryWindow();
+}
+
+/** Every pane of the tabs this window claims. */
 function panesOfOwnClaim(): string[] {
-  if (!OWN_CLAIM) return [];
-  const layout = useAppStore.getState().workspaceLayouts[OWN_CLAIM.workspacePath];
-  const found = layout ? findPanelWithTab(layout, OWN_CLAIM.tabId) : null;
-  return found ? allPaneIds(found.tab.rootNode) : [];
+  return selectOwnTabs(useAppStore.getState()).flatMap((tab) =>
+    allPaneIds(tab.rootNode),
+  );
 }

@@ -96,18 +96,6 @@ export function hiddenTabIdsIn(
   return hidden;
 }
 
-/** Whether `claims` still names `windowId` as the holder of `tabId`. */
-export function holdsClaim(
-  claims: readonly LayoutClaim[],
-  windowId: string | null | undefined,
-  tabId: string,
-): boolean {
-  if (windowId == null) return false;
-  return claims.some(
-    (claim) => claim.windowId === windowId && claim.tabId === tabId,
-  );
-}
-
 /** Whether two claim lists say the same thing, order included. */
 export function sameClaims(
   a: readonly LayoutClaim[],

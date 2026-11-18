@@ -42,7 +42,7 @@ test("a tab popped into its own window is still the workspace's", { tag: "@smoke
   await bootWorkspaceWithTerminal(app, window, tempHome, "detach-workspace");
 
   // Two tabs, so the primary still has something to show afterwards.
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
   const detachedTabId = await tabs(window).nth(1).getAttribute("data-tab-id");
   expect(detachedTabId).toBeTruthy();
@@ -90,7 +90,7 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
   request,
 }) => {
   await bootWorkspaceWithTerminal(app, window, tempHome, "detach-pane-ws");
-  await window.keyboard.press("Meta+d");
+  await window.keyboard.press("ControlOrMeta+d");
   await assertVisiblePaneCount(window, 2);
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
 
@@ -135,7 +135,7 @@ relayTest("a browser still sees and can type into a tab popped out on the desk",
 }) => {
   await bootWorkspaceWithTerminal(app, window, tempHome, "detach-browser-ws");
 
-  await window.keyboard.press("Meta+t");
+  await window.keyboard.press("ControlOrMeta+t");
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
   const detachedTabId = await tabs(window).nth(1).getAttribute("data-tab-id");
   expect(detachedTabId).toBeTruthy();
@@ -184,4 +184,114 @@ relayTest("a browser still sees and can type into a tab popped out on the desk",
   } finally {
     await client.close();
   }
+});
+
+/** Where the multi-tab specs save their screenshots, when asked to. */
+const SHOTS = process.env.MANOR_DETACH_SHOTS;
+
+/**
+ * Count the primary's tabs on every DOM change from here on, so a tab that
+ * shows for one frame and leaves again is still caught.
+ */
+async function watchTabCount(window: Page): Promise<() => Promise<number>> {
+  await window.evaluate(() => {
+    const w = window as unknown as { __maxTabs: number };
+    const count = () => document.querySelectorAll('[data-testid="tab"]').length;
+    w.__maxTabs = count();
+    new MutationObserver(() => {
+      w.__maxTabs = Math.max(w.__maxTabs, count());
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  return () =>
+    window.evaluate(() => (window as unknown as { __maxTabs: number }).__maxTabs);
+}
+
+/** Boot with two tabs and pop the second out; the popout holds one tab. */
+async function popOutSecondTab(
+  app: Parameters<typeof bootWorkspaceWithTerminal>[0],
+  window: Page,
+  tempHome: string,
+  name: string,
+): Promise<Page> {
+  await bootWorkspaceWithTerminal(app, window, tempHome, name);
+  await window.keyboard.press("ControlOrMeta+t");
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
+  const popup = await Promise.all([
+    app.waitForEvent("window"),
+    detachTab(window, 1),
+  ]).then(([win]) => win);
+  await waitForAppDocument(popup);
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(1);
+  return popup;
+}
+
+/** Right-click a tab of a popout and send it back to the primary. */
+async function moveTabBack(popup: Page, index: number): Promise<void> {
+  await tabs(popup).nth(index).click({ button: "right" });
+  await popup.getByRole("menuitem", { name: "Move Back to Main Window" }).click();
+}
+
+test("a tab made in a popped-out window stays in that window", async ({
+  app,
+  window,
+  tempHome,
+  request,
+}) => {
+  const popup = await popOutSecondTab(app, window, tempHome, "detach-new-tab-ws");
+  const maxPrimaryTabs = await watchTabCount(window);
+
+  // The + button…
+  await popup.getByRole("button", { name: "New tab" }).click();
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(2);
+
+  // …and the shortcut, with the popout focused.
+  await popup.bringToFront();
+  await popup.keyboard.press("ControlOrMeta+t");
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(3);
+
+  // The server holds all four; the primary never drew either new one, not
+  // even for a frame.
+  await expect
+    .poll(async () => (await layout(request, tempHome)).tabs.length, { timeout: 30_000 })
+    .toBe(4);
+  expect(await tabs(window).count()).toBe(1);
+  expect(await maxPrimaryTabs()).toBe(1);
+
+  if (SHOTS) {
+    await popup.screenshot({ path: `${SHOTS}/popout-three-tabs.png` });
+    await window.screenshot({ path: `${SHOTS}/primary-one-tab.png` });
+  }
+
+  // Move Back on one tab sends just that one; the popout keeps the rest.
+  await moveTabBack(popup, 0);
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(2);
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(2);
+  expect(popup.isClosed()).toBe(false);
+
+  if (SHOTS) {
+    await popup.screenshot({ path: `${SHOTS}/popout-after-move-back.png` });
+    await window.screenshot({ path: `${SHOTS}/primary-after-move-back.png` });
+  }
+
+  // Closing the window gives back every tab it still holds.
+  await popup.close();
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(4);
+});
+
+test("a popped-out window closes when it sends back its last tab", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  const popup = await popOutSecondTab(app, window, tempHome, "detach-last-tab-ws");
+  await popup.getByRole("button", { name: "New tab" }).click();
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(2);
+
+  await moveTabBack(popup, 1);
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(1);
+  expect(popup.isClosed()).toBe(false);
+
+  await Promise.all([popup.waitForEvent("close"), moveTabBack(popup, 0)]);
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(3);
 });

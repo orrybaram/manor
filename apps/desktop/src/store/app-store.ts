@@ -1472,8 +1472,13 @@ export function selectAgentRunningIn(
   });
 }
 
-/** The tab a command creates, named by the sender; null for any other command. */
-function tabCreatedBy(command: LayoutCommand): string | null {
+/**
+ * The tab a command will create, named by the sender; null for any other
+ * command, and for one that may not create the tab it names. A claim on a
+ * tab that never arrives is never dropped, and would keep an emptied window
+ * open.
+ */
+function tabCreatedBy(command: LayoutCommand, layout: WorkspaceLayout | undefined): string | null {
   switch (command.type) {
     // Not `split-panel-with-new-tab`: a detached window draws one panel, so
     // a tab in a new panel next to it is the primary's to show.
@@ -1481,9 +1486,14 @@ function tabCreatedBy(command: LayoutCommand): string | null {
       return command.tab.id;
     case "duplicate-tab":
       return command.newTab.id;
-    case "extract-pane-to-tab":
-    case "reopen-closed-pane":
-      return command.newTabId;
+    // A pane alone in its tab is already a tab of its own: the server keeps
+    // that one and the minted id goes unused.
+    case "extract-pane-to-tab": {
+      const found = layout ? findPanelWithPane(layout, command.paneId) : null;
+      return found && allPaneIds(found.tab.rootNode).length > 1 ? command.newTabId : null;
+    }
+    // Not `reopen-closed-pane`: whether it makes a tab or goes back into the
+    // one it left is the server's to know.
     default:
       return null;
   }
@@ -1495,15 +1505,25 @@ function tabCreatedBy(command: LayoutCommand): string | null {
  * and never shows in the primary. Null — send at once — from any other
  * window or workspace, or for a command that makes no tab.
  */
-function claimNewTab(workspacePath: string, command: LayoutCommand): Promise<unknown> | null {
+function claimNewTab(workspacePath: string, command: LayoutCommand): Promise<string | null> | null {
   if (OWN_CLAIM?.workspacePath !== workspacePath) return null;
-  const tabId = tabCreatedBy(command);
+  const tabId = tabCreatedBy(command, useAppStore.getState().workspaceLayouts[workspacePath]);
   const claimTab = window.electronAPI?.layout?.claimTab;
   if (tabId === null || !claimTab) return null;
-  return claimTab(workspacePath, tabId).catch((err: unknown) => {
-    // The tab still gets made; it shows in the primary instead of here.
-    console.error(`[layout] claim of new tab ${tabId} failed:`, err);
-  });
+  return claimTab(workspacePath, tabId).then(
+    () => tabId,
+    (err: unknown) => {
+      // The tab still gets made; it shows in the primary instead of here.
+      console.error(`[layout] claim of new tab ${tabId} failed:`, err);
+      return null;
+    },
+  );
+}
+
+/** Let go of a claim on a tab whose command was refused: it will never arrive. */
+function releaseRefusedTab(workspacePath: string, tabId: string | null): void {
+  if (tabId === null) return;
+  void window.electronAPI?.layout?.releaseTab?.(workspacePath, tabId)?.catch(() => {});
 }
 
 function sendLayoutCommand(
@@ -1513,11 +1533,18 @@ function sendLayoutCommand(
   const held = useAppStore.getState().layoutVersions[workspacePath] ?? 0;
   const send = () => window.electronAPI?.layout?.apply(workspacePath, command);
   const claimed = claimNewTab(workspacePath, command);
-  const applied = claimed ? claimed.then(send) : send();
+  let claimedTabId: string | null = null;
+  const applied = claimed
+    ? claimed.then((tabId) => {
+        claimedTabId = tabId;
+        return send();
+      })
+    : send();
   void applied
     ?.then((result) => {
       if (!result) return;
       if ("error" in result) {
+        releaseRefusedTab(workspacePath, claimedTabId);
         console.error(`[layout] ${command.type} refused:`, result.error);
         return;
       }
@@ -1532,6 +1559,7 @@ function sendLayoutCommand(
       });
     })
     .catch((err: unknown) => {
+      releaseRefusedTab(workspacePath, claimedTabId);
       if (refuseLayoutWrite(err)) return;
       console.error(`[layout] ${command.type} failed:`, err);
     });

@@ -102,6 +102,27 @@ describe("a detached window's tabs", () => {
     expect(calls).toEqual([`claim ${made!.tabId}`, `apply new-tab ${made!.tabId}`]);
   });
 
+  it("do not claim a pane's tab id when the pane is already alone in its tab", async () => {
+    const app = await detachedStore();
+
+    app.useAppStore.getState().extractPaneToTab("pane-t1");
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+
+    expect(calls).toEqual(["apply extract-pane-to-tab"]);
+  });
+
+  it("let go of the claim when the command that would make the tab is refused", async () => {
+    const app = await detachedStore();
+    const layoutApi = win.electronAPI!.layout as Record<string, unknown>;
+    layoutApi.apply = vi.fn(async () => ({ error: "nope" }));
+    const releaseTab = vi.fn(async () => true);
+    layoutApi.releaseTab = releaseTab;
+
+    const made = app.useAppStore.getState().addTab();
+
+    await vi.waitFor(() => expect(releaseTab).toHaveBeenCalledWith(WS, made!.tabId));
+  });
+
   it("send a command that makes no tab at once, with no claim", async () => {
     const app = await detachedStore();
 

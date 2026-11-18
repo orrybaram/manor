@@ -104,6 +104,14 @@
   color: var(--text-dim);
 }
 
+/* One line: a narrow drawer clips the title rather than wrap it beside its controls. */
+.headTitle {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .headSpacer {
   flex: 1;
 }

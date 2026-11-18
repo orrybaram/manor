@@ -126,7 +126,7 @@ type Drawer = DrawerMode | null;
 
 /**
  * A change's diff the editor is showing: which file, and against HEAD
- * (Local) or the project's default branch (Branch). A deleted file has no
+ * (Uncommitted) or the project's default branch (vs main). A deleted file has no
  * working copy to open, so its diff shows in place of the open file.
  */
 type DiffShown = {
@@ -201,8 +201,9 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     // A reveal is for the Files view it opened: closed or left, it lapses.
     if (to !== "files") setReveal((r) => (r.folder === null ? r : { ...r, folder: null }));
   };
-  // Local or Branch: kept while the drawer closes and opens, not on the leaf.
-  const [scmView, setScmView] = useState<ScmView>("local");
+  // Uncommitted or vs main, per workspace: kept while the drawer closes and
+  // opens, not on the leaf. Null until the workspace's changes first load.
+  const [scmPick, setScmPick] = useState<{ key: string; view: ScmView } | null>(null);
   // A Source Control row shows its file's diff; local state, as the drawer is.
   const [diff, setDiff] = useState<DiffShown | null>(null);
   // The view an open waiting on the swap bar brings with it (a row's diff, or
@@ -318,6 +319,15 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     error: string | null;
   } | null>(null);
   const branch = branchResult && branchResult.key === branchKey ? branchResult : null;
+  // A workspace opens on its uncommitted changes, or on its branch vs main when
+  // it has none; decided once, when its changes first load, so a file written
+  // later never moves the view under you.
+  if (wsKey && changes && scmPick?.key !== wsKey)
+    setScmPick({ key: wsKey, view: changes.files.size > 0 ? "local" : "branch" });
+  const scmView: ScmView = scmPick?.key === wsKey ? scmPick.view : "local";
+  const setScmView = (view: ScmView) => {
+    if (wsKey) setScmPick({ key: wsKey, view });
+  };
   const diffSource: DiffSource | null = !diff
     ? null
     : diff.view === "local"
@@ -625,7 +635,9 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             focusEditor();
           }}
           resizeHandle={floating ? undefined : openHandle}
-          scmHead={<ScmViewToggle value={scmView} onChange={setScmView} />}
+          scmHead={
+            <ScmViewToggle value={scmView} onChange={setScmView} defaultBranch={defaultBranch} />
+          }
           scm={
             <>
               <SourceControl

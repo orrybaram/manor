@@ -8,7 +8,7 @@ import type { FilesWorkspace } from "./open-file-watches";
 
 /** A workspace's changes as the file pane shows them. */
 export type WorkspaceChanges = {
-  /** Changed files vs. HEAD (Source Control's Local view), by workspace-relative path. */
+  /** Changed files vs. HEAD (Source Control's Uncommitted view), by workspace-relative path. */
   files: ReadonlyMap<string, FileChange>;
   /** The raw diff `files` was read from, for a file's own diff in the editor. */
   raw: string | null;

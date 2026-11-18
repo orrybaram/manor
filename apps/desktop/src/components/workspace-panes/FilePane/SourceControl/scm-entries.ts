@@ -10,7 +10,7 @@ export type ScmLetter = "M" | "A" | "R" | "D" | "U";
 export type ScmEntry = { change: FileChange; letter: ScmLetter };
 
 /**
- * A row's letter. A new file in the Local view that is not staged is
+ * A row's letter. A new file in the Uncommitted view that is not staged is
  * untracked (`git diff HEAD` lists it only through Manor's own untracked
  * diff), so it reads U, as VS Code shows it; once staged, it is A.
  */
@@ -24,7 +24,7 @@ export function scmLetter(
 }
 
 /**
- * The Local view's two groups. A file is Staged when `git diff --cached`
+ * The Uncommitted view's two groups. A file is Staged when `git diff --cached`
  * names it: a partly staged file is Staged,
  * and unstaging it unstages all of it. Each group is by path.
  *
@@ -58,7 +58,7 @@ export function localGroups(
   return out;
 }
 
-/** The Branch view's one group, by path. */
+/** The vs main view's one group, by path. */
 export function branchEntries(changes: Iterable<FileChange>): ScmEntry[] {
   return sortedByPath(changes).map((change) => ({
     change,

@@ -69,7 +69,7 @@ type FileDrawerProps = {
   onClose: () => void;
   /** Its edge: resizes it, and collapses it into the strip. */
   resizeHandle?: ReactNode;
-  /** Source Control's head controls (its Local/Branch toggle). */
+  /** Source Control's head controls (its Uncommitted / vs main toggle). */
   scmHead?: ReactNode;
   /** Source Control's list, shown in place of the tree. */
   scm?: ReactNode;
@@ -162,7 +162,7 @@ export function FileDrawer({
       }}
     >
       <div className={styles.head}>
-        <span>{mode === "scm" ? "Source Control" : mode === "search" ? "Search" : "Files"}</span>
+        <span className={styles.headTitle}>{mode === "scm" ? "Source Control" : mode === "search" ? "Search" : "Files"}</span>
         <span className={styles.headSpacer} />
         {mode === "scm" && scmHead}
         {mode === "search" && searchHead}

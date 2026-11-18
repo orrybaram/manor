@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.27.3] - 2026-11-17
+
+### Fixes
+
+- Switching workspaces or tabs no longer stalls for a second when many terminals are open.
+
 ## [0.27.2] - 2026-11-17
 
 ### Features

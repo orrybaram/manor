@@ -295,3 +295,27 @@ test("a popped-out window closes when it sends back its last tab", async ({
   await Promise.all([popup.waitForEvent("close"), moveTabBack(popup, 0)]);
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(3);
 });
+
+test("a popped-out window closes when its last tab is closed", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  const popup = await popOutSecondTab(app, window, tempHome, "detach-close-last-ws");
+  await popup.getByRole("button", { name: "New tab" }).click();
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(2);
+
+  // Closing one of two keeps the window; the closed tab is gone, not returned.
+  await tabs(popup).nth(1).hover();
+  await tabs(popup).nth(1).getByRole("button", { name: "Close tab" }).click();
+  await expect.poll(() => tabs(popup).count(), { timeout: 30_000 }).toBe(1);
+  expect(popup.isClosed()).toBe(false);
+  expect(await tabs(window).count()).toBe(1);
+
+  await tabs(popup).first().hover();
+  await Promise.all([
+    popup.waitForEvent("close"),
+    tabs(popup).first().getByRole("button", { name: "Close tab" }).click(),
+  ]);
+  await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
+});

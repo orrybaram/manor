@@ -48,13 +48,15 @@ import styles from "./SourceControl.module.css";
 const NO_GIT_FROM_BROWSER = "Git isn't available from the browser yet";
 const NO_STAGED: ReadonlySet<string> = new Set();
 
-/** Local (working changes) or Branch (vs. the default branch), in the drawer's head. */
+/** Uncommitted (working changes) or vs main (everything since the default branch), in the drawer's head. */
 export function ScmViewToggle({
   value,
   onChange,
+  defaultBranch,
 }: {
   value: ScmView;
   onChange: (view: ScmView) => void;
+  defaultBranch: string;
 }) {
   return (
     <ToggleGroup
@@ -66,8 +68,8 @@ export function ScmViewToggle({
       activationMode="manual"
       data-testid="scm-mode"
       options={[
-        { value: "local", label: "Local" },
-        { value: "branch", label: "Branch" },
+        { value: "local", label: "Uncommitted" },
+        { value: "branch", label: `vs ${defaultBranch}` },
       ]}
     />
   );
@@ -87,9 +89,9 @@ type SourceControlProps = {
 };
 
 /**
- * Source Control, the file pane drawer's second mode. Local: a commit box,
+ * Source Control, the file pane drawer's second mode. Uncommitted: a commit box,
  * then the working changes in Staged and Changes, with stage, unstage and discard per file
- * and per group. Branch: everything changed since the project's default
+ * and per group. vs main: everything changed since the project's default
  * branch, to read only. Both are fetched as the file pane fetches its own
  * (single-flight, again only when the workspace's diff fingerprint moves),
  * through the bridge, so a workspace on a remote host works the same.

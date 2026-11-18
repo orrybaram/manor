@@ -35,7 +35,7 @@ type CommitBoxProps = {
 };
 
 /**
- * The top of Source Control's Local view: a message, Commit (⌘↵) for what's
+ * The top of Source Control's Uncommitted view: a message, Commit (⌘↵) for what's
  * staged, and in its menu Commit & Push, Push, and the commit options.
  */
 export function CommitBox({

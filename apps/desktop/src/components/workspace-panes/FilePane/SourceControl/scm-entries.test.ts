@@ -19,7 +19,7 @@ const change = (
 });
 
 describe("scmLetter", () => {
-  it("reads a new, unstaged file in the Local view as untracked", () => {
+  it("reads a new, unstaged file in the Uncommitted view as untracked", () => {
     expect(scmLetter(change("a.ts", "added"), false, "local")).toBe("U");
     expect(scmLetter(change("a.ts", "added"), true, "local")).toBe("A");
   });

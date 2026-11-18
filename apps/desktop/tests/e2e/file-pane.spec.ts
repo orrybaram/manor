@@ -948,6 +948,41 @@ test("Source Control lists the review's comments, each opening its card, and the
   await expect(floatBar).toHaveCount(0);
 });
 
+test("Source Control opens a clean workspace on its branch vs main", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm-clean");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  // Nothing uncommitted: it opens on everything the branch changed instead.
+  await expect(drawer.locator('[data-testid="scm"]')).toHaveAttribute("data-view", "branch", {
+    timeout: 30_000,
+  });
+  const mode = drawer.locator('[data-testid="scm-mode"]');
+  await expect(mode.locator('[data-value="local"]')).toHaveText("Uncommitted");
+  await expect(mode.locator('[data-value="branch"]')).toHaveText("vs main");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-clean-opens-branch") });
+
+  // A file written now leaves the view where it is.
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+  await expect(
+    drawer.locator('[data-testid="scm-row"][data-path="src/helper.ts"]'),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(drawer.locator('[data-testid="scm"]')).toHaveAttribute("data-view", "branch");
+});
+
 test("Source Control commits what's staged with the message typed above it", async ({
   app,
   window,

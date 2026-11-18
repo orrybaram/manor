@@ -47,7 +47,7 @@ export function createSingleFlight<T>(): (key: string, run: () => Promise<T>) =>
 
 /**
  * The key of a workspace's local diff (vs. HEAD), which has no base branch:
- * Source Control's Local view and the file pane's change marks share it.
+ * Source Control's Uncommitted view and the file pane's change marks share it.
  */
 export function localDiffKey(wsKey: string): string {
   return `${wsKey}\u0000local`;

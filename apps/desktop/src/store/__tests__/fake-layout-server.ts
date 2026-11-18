@@ -398,6 +398,10 @@ export function fakeLayoutApi(): LayoutApi {
       });
       return hop(() => server.reportViewport(workspacePath, RENDERER, viewport));
     },
+    claimTab: (workspacePath, tabId) =>
+      hop(() => server.claimTab(workspacePath, tabId, RENDERER)),
+    releaseTab: (workspacePath, tabId) =>
+      hop(() => server.releaseTab(workspacePath, tabId, RENDERER)),
     setPaneTitle: (paneId, title) => {
       sentPaneTitles.push({ paneId, title });
       return hop(() => {

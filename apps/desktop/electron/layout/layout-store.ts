@@ -249,17 +249,24 @@ export class LayoutStore {
   private readonly windowViewports = new Map<string, WorkspaceViewport>();
   private readonly primaryViewports = new Map<string, WorkspaceViewport>();
   /**
-   * Which window holds which tab, keyed by the window's renderer id.
+   * Which window holds which tabs, keyed by the window's renderer id.
    *
-   * Exclusive by construction: one entry per window, and a second window
-   * claiming a tab evicts the first, which hears about it on the broadcast
-   * this makes and closes itself. Never persisted — a claim is a fact about a
-   * window that is open right now.
+   * A window holds tabs of one workspace: the one it was opened with, and any
+   * it made since (`claimTab`). Exclusive per tab: a second window claiming a
+   * tab evicts the first from that tab, and a window left holding none hears
+   * it on the broadcast and closes itself. Never persisted — a claim is a fact
+   * about a window that is open right now.
    */
   private readonly claims = new Map<
     string,
-    { workspacePath: string; tabId: string }
+    { workspacePath: string; tabIds: Set<string> }
   >();
+  /**
+   * Windows whose launch tab has been claimed. The launch claim is taken
+   * once, on the window's first report, not on every one: a window that sent
+   * its first tab back and kept the others must not take it again.
+   */
+  private readonly seededWindows = new Set<string>();
   /** Sessions of closed panes serving out their grace, keyed by paneId. */
   private readonly pendingKills = new Map<string, PendingKill>();
   /**
@@ -839,9 +846,8 @@ export class LayoutStore {
     viewport: WorkspaceViewport,
   ): void {
     if (origin.kind === "window") {
-      const claim = this.windows.claimOf(origin.id);
-      if (claim) {
-        this.setClaim(origin.id, claim.workspacePath, claim.tabId, origin);
+      if (this.windows.claimOf(origin.id)) {
+        this.seedLaunchClaim(origin);
         return;
       }
       this.windowViewports.set(workspacePath, viewport);
@@ -876,9 +882,8 @@ export class LayoutStore {
   claimsFor(workspacePath: string): LayoutClaim[] {
     const claims: LayoutClaim[] = [];
     for (const [windowId, claim] of this.claims) {
-      if (claim.workspacePath === workspacePath) {
-        claims.push({ windowId, tabId: claim.tabId });
-      }
+      if (claim.workspacePath !== workspacePath) continue;
+      for (const tabId of claim.tabIds) claims.push({ windowId, tabId });
     }
     return claims;
   }
@@ -905,10 +910,59 @@ export class LayoutStore {
    * mode this design has.
    */
   releaseWindow(rendererId: string): void {
+    this.seededWindows.delete(rendererId);
     this.setClaim(rendererId, null, undefined, {
       kind: "window",
       id: rendererId,
     });
+  }
+
+  /**
+   * A detached window takes one more tab of its workspace — one it is about
+   * to create, usually, so the tab never shows in the primary on its way in.
+   *
+   * Only a detached window may, and only in the workspace it already holds:
+   * the primary and a browser hold nothing, and a window cannot reach into
+   * another workspace. False when refused.
+   */
+  claimTab(workspacePath: string, tabId: string, origin: LayoutOrigin): boolean {
+    const workspace = this.claimWorkspaceOf(origin);
+    if (workspace === null || workspace !== workspacePath) return false;
+    this.seedLaunchClaim(origin);
+    this.setClaim(origin.id, workspacePath, tabId, origin);
+    return true;
+  }
+
+  /**
+   * A detached window gives one tab back to the primary ("Move Back to Main
+   * Window"). The window closes itself once it holds none.
+   */
+  releaseTab(workspacePath: string, tabId: string, origin: LayoutOrigin): boolean {
+    if (origin.kind !== "window") return false;
+    const held = this.claims.get(origin.id);
+    if (!held || held.workspacePath !== workspacePath || !held.tabIds.has(tabId)) {
+      return false;
+    }
+    held.tabIds.delete(tabId);
+    if (held.tabIds.size === 0) this.claims.delete(origin.id);
+    this.broadcastClaims(workspacePath, origin);
+    return true;
+  }
+
+  /** Claim a detached window's launch tab, the first time it is asked. */
+  private seedLaunchClaim(origin: LayoutOrigin): void {
+    const launch = this.windows.claimOf(origin.id);
+    if (!launch || this.seededWindows.has(origin.id)) return;
+    this.seededWindows.add(origin.id);
+    this.setClaim(origin.id, launch.workspacePath, launch.tabId, origin);
+  }
+
+  /** The workspace a detached window holds tabs of, or null for any other caller. */
+  private claimWorkspaceOf(origin: LayoutOrigin): string | null {
+    if (origin.kind !== "window") return null;
+    const held = this.claims.get(origin.id);
+    if (held) return held.workspacePath;
+    return this.windows.claimOf(origin.id)?.workspacePath ?? null;
   }
 
   /**
@@ -924,11 +978,14 @@ export class LayoutStore {
   // ───────────────────────────── internals ──────────────────────────────
 
   /**
-   * Record, move or release one window's claim, and tell everybody.
+   * Add a tab to one window's claim, or release the whole claim, and tell
+   * everybody.
    *
-   * Exclusive: a second window claiming a tab evicts the first, which is
-   * today's behaviour when a tab is torn off twice — the loser sees a
-   * `layout.changed` whose `claims` no longer name it and closes itself. The
+   * Exclusive per tab: a second window claiming a tab evicts the first from
+   * it, which is today's behaviour when a tab is torn off twice — a loser left
+   * holding nothing sees a `layout.changed` whose `claims` no longer name it
+   * and closes itself. A claim in a different workspace replaces the window's
+   * old one: a window holds tabs of one workspace. The
    * broadcast goes out at the *unchanged* version, because a claim is not
    * structure and inventing a version for it would make every renderer think
    * the tree moved.
@@ -950,18 +1007,23 @@ export class LayoutStore {
       this.claims.delete(windowId);
       affected.add(held.workspacePath);
     } else {
-      if (held?.workspacePath === workspacePath && held.tabId === tabId) return;
-      if (held) affected.add(held.workspacePath);
+      if (held?.workspacePath === workspacePath && held.tabIds.has(tabId)) return;
       for (const [otherId, other] of [...this.claims]) {
         if (
           otherId !== windowId &&
           other.workspacePath === workspacePath &&
-          other.tabId === tabId
+          other.tabIds.delete(tabId) &&
+          other.tabIds.size === 0
         ) {
           this.claims.delete(otherId);
         }
       }
-      this.claims.set(windowId, { workspacePath, tabId });
+      if (held && held.workspacePath === workspacePath) {
+        held.tabIds.add(tabId);
+      } else {
+        if (held) affected.add(held.workspacePath);
+        this.claims.set(windowId, { workspacePath, tabIds: new Set([tabId]) });
+      }
       affected.add(workspacePath);
     }
 
@@ -1032,9 +1094,12 @@ export class LayoutStore {
     let dropped = false;
     for (const [windowId, claim] of [...this.claims]) {
       if (claim.workspacePath !== workspacePath) continue;
-      if (has && (!had || !had.has(claim.tabId) || has.has(claim.tabId))) continue;
-      this.claims.delete(windowId);
-      dropped = true;
+      for (const tabId of [...claim.tabIds]) {
+        if (has && (!had || !had.has(tabId) || has.has(tabId))) continue;
+        claim.tabIds.delete(tabId);
+        dropped = true;
+      }
+      if (claim.tabIds.size === 0) this.claims.delete(windowId);
     }
     return dropped;
   }

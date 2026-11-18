@@ -238,6 +238,32 @@ export function layoutReportViewport(
 }
 
 /**
+ * A detached window takes one more tab of its workspace: the one it is about
+ * to create, so the tab joins the window instead of the primary. The store
+ * refuses anyone but a detached window, and any workspace but its own.
+ */
+export function layoutClaimTab(
+  ctx: HandlerCtx<SharedDeps>,
+  workspacePath: string,
+  tabId: string,
+): boolean {
+  assertString(workspacePath, "workspacePath");
+  assertString(tabId, "tabId");
+  return ctx.deps.layoutStore.claimTab(workspacePath, tabId, originOf(ctx.caller));
+}
+
+/** A detached window gives one tab back to the primary. */
+export function layoutReleaseTab(
+  ctx: HandlerCtx<SharedDeps>,
+  workspacePath: string,
+  tabId: string,
+): boolean {
+  assertString(workspacePath, "workspacePath");
+  assertString(tabId, "tabId");
+  return ctx.deps.layoutStore.releaseTab(workspacePath, tabId, originOf(ctx.caller));
+}
+
+/**
  * On the desktop, a remote workspace's layout is its host server's:
  * a command names it by key, a title or a queued command by
  * pane, and goes there. The reads merge every host's.
@@ -259,4 +285,6 @@ export const layout = {
   // A window's report, and its claim, are the desktop's whatever workspace
   // it names: a host server has no windows to hold a claim.
   reportViewport: method(layoutReportViewport, { route: LOCAL_ROUTE }),
+  claimTab: method(layoutClaimTab, { route: LOCAL_ROUTE }),
+  releaseTab: method(layoutReleaseTab, { route: LOCAL_ROUTE }),
 };

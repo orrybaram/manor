@@ -886,9 +886,14 @@ function claimsOf(
   return state.claims?.[path] ?? NO_CLAIMS;
 }
 
-/** The tab this window holds in `path`, or null. */
-function ownClaimIn(path: string): string | null {
-  return OWN_CLAIM?.workspacePath === path ? OWN_CLAIM.tabId : null;
+/** The launch tab, as the set {@link ownTabsIn} answers with. */
+const LAUNCH_TABS: ReadonlySet<string> | null = OWN_CLAIM
+  ? new Set([OWN_CLAIM.tabId])
+  : null;
+
+/** The tabs this window holds in `path`, or null when it holds none there. */
+function ownTabsIn(path: string): ReadonlySet<string> | null {
+  return OWN_CLAIM?.workspacePath === path ? LAUNCH_TABS : null;
 }
 
 /** What decides which tabs of `path` this renderer shows. */
@@ -899,7 +904,7 @@ function visibilityOf(
   return {
     claims: claimsOf(state, path),
     platform: rendererPlatform(),
-    ownClaim: ownClaimIn(path),
+    ownTabs: ownTabsIn(path),
   };
 }
 
@@ -960,7 +965,7 @@ export function useVisibleTabs(
         {
           claims,
           platform: rendererPlatform(),
-          ownClaim: workspacePath ? ownClaimIn(workspacePath) : null,
+          ownTabs: workspacePath ? ownTabsIn(workspacePath) : null,
         },
       ),
     [tabs, claims, workspacePath],

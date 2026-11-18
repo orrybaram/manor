@@ -1212,6 +1212,124 @@ describe("LayoutStore", () => {
       ]);
     });
 
+    describe("a window holding several tabs", () => {
+      const W2 = { kind: "window", id: "window-2" } as const;
+
+      /** window-2 holds tab-1 (its launch tab) and tab-2, made from it. */
+      async function holdingTwo(): Promise<void> {
+        report("window-2", "tab-1");
+        expect(store.claimTab(WS, "tab-2", W2)).toBe(true);
+        await store.apply(WS, { type: "new-tab", tab: leafTab("tab-2", "pane-2") }, W2);
+        broadcasts = [];
+      }
+
+      it("takes a tab it is about to make, which then arrives already held", async () => {
+        report("window-2", "tab-1");
+        broadcasts = [];
+
+        expect(store.claimTab(WS, "tab-2", W2)).toBe(true);
+        // Held before the tree has it: the primary never gets to show it.
+        expect(lastBroadcast().claims).toEqual([
+          { windowId: "window-2", tabId: "tab-1" },
+          { windowId: "window-2", tabId: "tab-2" },
+        ]);
+
+        await store.apply(WS, { type: "new-tab", tab: leafTab("tab-2", "pane-2") }, W2);
+
+        expect(lastBroadcast().claims).toEqual([
+          { windowId: "window-2", tabId: "tab-1" },
+          { windowId: "window-2", tabId: "tab-2" },
+        ]);
+      });
+
+      it("claims the launch tab too when it takes a tab before its first report", () => {
+        windowClaims.set("window-2", "tab-1");
+
+        store.claimTab(WS, "tab-2", W2);
+
+        expect(store.claimsFor(WS)).toEqual([
+          { windowId: "window-2", tabId: "tab-1" },
+          { windowId: "window-2", tabId: "tab-2" },
+        ]);
+      });
+
+      it("refuses the primary, a browser, and another workspace", () => {
+        report("window-2", "tab-1");
+        broadcasts = [];
+
+        expect(store.claimTab(WS, "tab-2", { kind: "window", id: "primary" })).toBe(false);
+        expect(store.claimTab(WS, "tab-2", { kind: "bridge", id: "window-2" })).toBe(false);
+        expect(store.claimTab("/project/other", "tab-2", W2)).toBe(false);
+
+        expect(store.claimsFor(WS)).toEqual([{ windowId: "window-2", tabId: "tab-1" }]);
+        expect(broadcasts).toHaveLength(0);
+      });
+
+      it("gives back one tab and keeps the other", async () => {
+        await holdingTwo();
+
+        expect(store.releaseTab(WS, "tab-1", W2)).toBe(true);
+
+        expect(store.claimsFor(WS)).toEqual([{ windowId: "window-2", tabId: "tab-2" }]);
+        expect(lastBroadcast().claims).toEqual([{ windowId: "window-2", tabId: "tab-2" }]);
+      });
+
+      it("does not take its launch tab back on a later report", async () => {
+        await holdingTwo();
+        store.releaseTab(WS, "tab-1", W2);
+
+        report("window-2");
+
+        expect(store.claimsFor(WS)).toEqual([{ windowId: "window-2", tabId: "tab-2" }]);
+      });
+
+      it("holds nothing once it gives back its last tab", async () => {
+        await holdingTwo();
+        store.releaseTab(WS, "tab-1", W2);
+
+        store.releaseTab(WS, "tab-2", W2);
+
+        expect(store.claimsFor(WS)).toEqual([]);
+        expect(lastBroadcast().claims).toEqual([]);
+      });
+
+      it("refuses to give back a tab it does not hold", async () => {
+        await holdingTwo();
+
+        expect(store.releaseTab(WS, "tab-9", W2)).toBe(false);
+        expect(store.releaseTab(WS, "tab-1", { kind: "window", id: "window-3" })).toBe(false);
+        expect(broadcasts).toHaveLength(0);
+      });
+
+      it("loses only the tab a second window claims", async () => {
+        await holdingTwo();
+
+        report("window-3", "tab-2");
+
+        expect(store.claimsFor(WS)).toEqual([
+          { windowId: "window-2", tabId: "tab-1" },
+          { windowId: "window-3", tabId: "tab-2" },
+        ]);
+      });
+
+      it("drops only the claim on a tab that closes", async () => {
+        await holdingTwo();
+
+        await store.apply(WS, { type: "close-tab", tabId: "tab-2" }, W2);
+
+        expect(store.claimsFor(WS)).toEqual([{ windowId: "window-2", tabId: "tab-1" }]);
+      });
+
+      it("releases every tab when the window dies", async () => {
+        await holdingTwo();
+
+        store.releaseWindow("window-2");
+
+        expect(store.claimsFor(WS)).toEqual([]);
+        expect(lastBroadcast().claims).toEqual([]);
+      });
+    });
+
     it("leaves a claim on a workspace it does not hold to whoever publishes it", () => {
       // A remote host's workspace: its layout is its server's, the claim the desktop's.
       const remote = "box:/srv/app" as WorkspaceKey;

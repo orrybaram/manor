@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.27.4] - 2026-11-18
+
+### Fixes
+
+- New tabs made in a popped-out window now stay in that window. Before, they showed up in the main window. A popped-out window can now hold several tabs, including duplicated tabs and panes moved out to their own tab.
+
+### Improvements
+
+- Source Control's views are now called Uncommitted and vs main, replacing Local and Branch. vs main includes uncommitted edits, and a workspace with no uncommitted changes opens on vs main.
+
 ## [0.27.3] - 2026-11-17
 
 ### Fixes

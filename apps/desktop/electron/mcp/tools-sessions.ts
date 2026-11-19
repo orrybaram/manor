@@ -17,6 +17,8 @@ import { text } from "./types";
 interface SendResult {
   ok: boolean;
   target: { id: string; paneId: string; lastAgentStatus: string | null };
+  /** `/sessions/send` only: whether the agent's turn was stopped first. */
+  interrupted?: boolean;
 }
 
 /** The wire shape `POST /sessions/end` returns. */
@@ -41,6 +43,12 @@ interface ReadResult {
 }
 
 // ── Tool definitions ──
+
+const INTERRUPT_KEYS_PROP = {
+  type: "string",
+  description:
+    "The key sequence that stops this agent's turn, for custom harnesses. Omit to use the harness default (Esc for Claude, Ctrl-C otherwise).",
+};
 
 const tools: ToolDef[] = [
   {
@@ -71,7 +79,8 @@ const tools: ToolDef[] = [
   {
     name: "send_to_session",
     description:
-      "Steer another running agent session: gracefully interrupt its current turn, then inject a new prompt. This INTERRUPTS the target — it ends whatever the agent is currently doing (without killing the process) and may discard its in-flight work, so use it deliberately. Check the target's status with list_agents first; the response reports the target's status as it was just before the interrupt so you can tell whether you cut off a working agent.",
+      "Send a prompt to another running agent session and submit it. If the agent is mid-turn (working, or waiting on a question), its turn is interrupted first — without killing the process — which may discard in-flight work; pass queue to let the turn finish instead. An idle agent is not interrupted. The response says whether it interrupted and the target's status just before.",
+    positional: "text",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -83,13 +92,14 @@ const tools: ToolDef[] = [
         text: {
           type: "string",
           description:
-            "The new prompt to submit after interrupting the target.",
+            "The prompt to submit. Also accepted as the command's bare argument.",
         },
-        interrupt: {
-          type: "string",
+        queue: {
+          type: "boolean",
           description:
-            "Optional override for the interrupt key sequence, for custom harnesses. Omit to use the harness default.",
+            "Don't interrupt a busy agent: submit the prompt for it to run once its turn ends.",
         },
+        interruptKeys: INTERRUPT_KEYS_PROP,
       },
       required: ["target", "text"],
     },
@@ -106,11 +116,7 @@ const tools: ToolDef[] = [
           description:
             "Which session to stop. Accepts an agent id (from list_agents), a raw pane id, '#<issue>', or a workspace branch.",
         },
-        interrupt: {
-          type: "string",
-          description:
-            "Optional override for the interrupt key sequence, for custom harnesses. Omit to use the harness default.",
-        },
+        interruptKeys: INTERRUPT_KEYS_PROP,
       },
       required: ["target"],
     },
@@ -199,19 +205,22 @@ const handlers: ToolModule["handlers"] = {
     const res = (await http.post("/sessions/send", {
       target: args.target,
       text: args.text,
-      interrupt: args.interrupt,
+      queue: args.queue,
+      interruptKeys: args.interruptKeys,
     })) as SendResult;
 
     const status = res.target.lastAgentStatus ?? "unknown";
     return text(
-      `Interrupted session ${res.target.id} (was ${status}) and sent the new prompt.`,
+      res.interrupted
+        ? `Interrupted session ${res.target.id} (was ${status}) and submitted the prompt.`
+        : `Submitted the prompt to session ${res.target.id} (was ${status}; not interrupted).`,
     );
   },
 
   async interrupt_session(args, http) {
     const res = (await http.post("/sessions/interrupt", {
       target: args.target,
-      interrupt: args.interrupt,
+      interruptKeys: args.interruptKeys,
     })) as SendResult;
 
     const status = res.target.lastAgentStatus ?? "unknown";

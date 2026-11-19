@@ -829,3 +829,29 @@ describe("manor <file>", () => {
   });
 });
 
+
+describe("send-to-session", () => {
+  it("takes the prompt as a bare argument and says whether it interrupted", async () => {
+    const http = fakeHttp({
+      post: async () => ({
+        ok: true,
+        interrupted: false,
+        target: { id: "a1", paneId: "p1", lastAgentStatus: "responded" },
+      }),
+    });
+    const cap = captureIo();
+    const code = await runCli(
+      ["send-to-session", "--target", "a1", "go ahead and ship it", "--queue"],
+      http,
+      cap.io,
+    );
+    expect(code).toBe(0);
+    expect(http.post).toHaveBeenCalledWith("/sessions/send", {
+      target: "a1",
+      text: "go ahead and ship it",
+      queue: true,
+      interruptKeys: undefined,
+    });
+    expect(cap.stdout).toContain("not interrupted");
+  });
+});

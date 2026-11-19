@@ -76,7 +76,7 @@ async function requestViaControlRelay(
   long = false,
 ): Promise<unknown> {
   const target = readControlPortFile(portFile);
-  if (!target) throw new Error(REMOTE_UNREACHABLE_MESSAGE);
+  if (!target) throw notListening(REMOTE_UNREACHABLE_MESSAGE);
 
   let res: Answer;
   try {
@@ -93,7 +93,9 @@ async function requestViaControlRelay(
     );
   } catch (err) {
     if (isConnectionError(err)) {
-      throw new Error(REMOTE_UNREACHABLE_MESSAGE, { cause: err });
+      throw neverSent(err)
+        ? notListening(REMOTE_UNREACHABLE_MESSAGE, err)
+        : new Error(REMOTE_UNREACHABLE_MESSAGE, { cause: err });
     }
     throw err;
   }
@@ -125,7 +127,7 @@ function candidateTargets(): { port: number; token: string }[] {
     targets.push({ port: filePort, token: fileToken ?? "" });
   }
   if (targets.length === 0) {
-    throw new Error(
+    throw notListening(
       `No Manor webview port found (env MANOR_WEBVIEW_PORT or ${PORT_FILE}) — is Manor running?`,
     );
   }
@@ -236,11 +238,56 @@ async function bodyOf(res: Answer): Promise<unknown> {
   throw new HttpError(res.status, parsed, rawBody);
 }
 
+/**
+ * How long a request keeps trying while nothing is listening: Manor
+ * restarting takes a few seconds to open its server again, and a CLI call in
+ * that window should wait it out, not fail. `MANOR_CONNECT_GRACE_MS`
+ * overrides it (tests set 0).
+ */
+const CONNECT_GRACE_MS = 10_000;
+const CONNECT_RETRY_EVERY_MS = 500;
+
+/** Errors raised before anything reached a server: safe to try again. */
+const NOT_LISTENING = Symbol("notListening");
+
+function notListening(message: string, cause?: unknown): Error {
+  const err = new Error(message, cause === undefined ? undefined : { cause });
+  (err as unknown as Record<symbol, boolean>)[NOT_LISTENING] = true;
+  return err;
+}
+
+/** True when the request never left: nothing listening, or no port to try. */
+function neverSent(err: unknown): boolean {
+  if ((err as Record<symbol, unknown> | null)?.[NOT_LISTENING] === true) return true;
+  return isConnectionError(err) && codeOf((err as NodeJS.ErrnoException).cause) === "ECONNREFUSED";
+}
+
+function connectGraceMs(): number {
+  const env = parseInt(process.env.MANOR_CONNECT_GRACE_MS ?? "", 10);
+  return Number.isFinite(env) && env >= 0 ? env : CONNECT_GRACE_MS;
+}
+
+/**
+ * `requestOnce`, tried again while Manor isn't listening yet. Only a request
+ * that was never sent is retried, so a write is never carried out twice.
+ */
+async function request(urlPath: string, init?: RequestInit, long = false): Promise<unknown> {
+  const deadline = Date.now() + connectGraceMs();
+  for (;;) {
+    try {
+      return await requestOnce(urlPath, init, long);
+    } catch (err) {
+      if (!neverSent(err) || Date.now() + CONNECT_RETRY_EVERY_MS > deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, CONNECT_RETRY_EVERY_MS));
+    }
+  }
+}
+
 // Try each candidate port until one answers. A port with nothing on it
 // (`retryOnNextPort`) and a refused token fall through to the next candidate;
 // any other HTTP error from a live server is surfaced as-is (don't mask a real
 // error by retrying a different instance).
-async function request(urlPath: string, init?: RequestInit, long = false): Promise<unknown> {
+async function requestOnce(urlPath: string, init?: RequestInit, long = false): Promise<unknown> {
   const controlPortFile = process.env.MANOR_CONTROL_PORT_FILE;
   if (controlPortFile) {
     return requestViaControlRelay(controlPortFile, urlPath, init, long);

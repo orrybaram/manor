@@ -13,7 +13,7 @@ import type { McpIssue, McpIssueDetail } from "../issue-sources";
 // the MCP process at runtime — only the shape is shared.
 import type { BatchResultEntry } from "../routes/projects";
 import type { AgentSummary } from "../routes/agents";
-import type { ToolDef, ToolModule } from "./types";
+import type { Http, ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
 /** Shared by every tool that takes an optional, inferrable project. */
@@ -82,7 +82,7 @@ const tools: ToolDef[] = [
   {
     name: "start_agent",
     description:
-      "Launch an agent session in a workspace, optionally with an initial prompt. Waits for confirmation that a pane actually started and returns its id.",
+      "Launch an agent session in a workspace, optionally with an initial prompt. Waits for confirmation that a pane actually started and returns its id, then waits up to 20s for the agent to register and returns its id too.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -197,6 +197,31 @@ const tools: ToolDef[] = [
 
 // ── Tool handlers ──
 
+/** How long start_agent waits for the agent's record, and how often it looks. */
+const AGENT_ROW_WAIT_MS = 20_000;
+const AGENT_ROW_POLL_MS = 1_000;
+
+/**
+ * The agent a new pane's harness registers, once it has: the pane exists as
+ * soon as `/agents` answers, but its agent appears in `list_agents` only
+ * when the harness's first hook reports in. Null if it hasn't within
+ * `AGENT_ROW_WAIT_MS`.
+ */
+async function awaitAgentRow(http: Http, paneId: string): Promise<AgentSummary | null> {
+  const deadline = Date.now() + AGENT_ROW_WAIT_MS;
+  for (;;) {
+    try {
+      const agents = (await http.get("/agents")) as AgentSummary[];
+      const found = agents.find((a) => a.paneId === paneId);
+      if (found) return found;
+    } catch {
+      // A failed look is not an answer; the launch already happened.
+    }
+    if (Date.now() + AGENT_ROW_POLL_MS > deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, AGENT_ROW_POLL_MS));
+  }
+}
+
 const handlers: ToolModule["handlers"] = {
   async list_issues(args, http) {
     const projectId = await resolveProjectId(
@@ -263,8 +288,13 @@ const handlers: ToolModule["handlers"] = {
     };
     if (args.prompt !== undefined) body.prompt = args.prompt;
     const result = (await http.post("/agents", body)) as { paneId: string };
+    const launched = `Launched agent in ${args.workspacePath} (pane ${result.paneId}).`;
+    const agent = await awaitAgentRow(http, result.paneId);
     return text(
-      `Launched agent in ${args.workspacePath} (pane ${result.paneId}).`,
+      agent
+        ? `${launched}\nAgent ${agent.id} is running there; it shows in list-agents.`
+        : `${launched}\nIt hasn't registered yet, so list-agents may not show it for a while. ` +
+            `Don't relaunch: check it with \`read-session --target ${result.paneId}\`.`,
     );
   },
 

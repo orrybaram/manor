@@ -73,6 +73,20 @@ const tools: ToolDef[] = [
           type: "number",
           description: "Maximum number of sessions to return.",
         },
+        workspace: {
+          type: "string",
+          description:
+            "Restrict to agents in this workspace: its full path, or its last path segment (usually the branch).",
+        },
+        pane: {
+          type: "string",
+          description: "Restrict to the agent in this pane.",
+        },
+        all: {
+          type: "boolean",
+          description:
+            "Also list agents with no pane (records of sessions whose terminal is gone). Hidden by default: there is nothing to read or steer.",
+        },
       },
     },
   },
@@ -181,7 +195,20 @@ function formatAgent(agent: AgentSummary): string {
   const project = agent.projectName ?? agent.projectId ?? "no project";
   const status = agent.lastAgentStatus ?? agent.status;
   const pane = agent.paneId ?? "no pane";
-  return `${handleFor(agent)}  [${status}]  ${project}  pane:${pane}`;
+  const workspace = agent.workspacePath ? `  ws:${lastSegment(agent.workspacePath)}` : "";
+  return `${handleFor(agent)}  [${status}]  ${project}${workspace}  pane:${pane}`;
+}
+
+function lastSegment(p: string): string {
+  return p.replace(/\/+$/, "").split("/").pop() ?? p;
+}
+
+/** `workspace` names this agent's workspace: its whole path or last segment. */
+function inWorkspace(agent: AgentSummary, workspace: string): boolean {
+  const ws = agent.workspacePath;
+  if (!ws) return false;
+  const want = workspace.replace(/\/+$/, "");
+  return ws.replace(/\/+$/, "") === want || lastSegment(ws) === want;
 }
 
 // ── Tool handlers ──
@@ -194,11 +221,19 @@ const handlers: ToolModule["handlers"] = {
     if (args.status !== undefined) params.set("status", String(args.status));
     if (args.limit !== undefined) params.set("limit", String(args.limit));
     const qs = params.toString();
-    const agents = (await http.get(`/agents?${qs}`)) as AgentSummary[];
+    const fetched = (await http.get(`/agents?${qs}`)) as AgentSummary[];
+    const matching = fetched.filter(
+      (a) =>
+        (args.workspace === undefined || inWorkspace(a, String(args.workspace))) &&
+        (args.pane === undefined || a.paneId === args.pane),
+    );
+    const agents = args.all === true ? matching : matching.filter((a) => a.paneId !== null);
+    const hidden = matching.length - agents.length;
+    const note = hidden > 0 ? `\n(${hidden} without a pane hidden; --all shows them)` : "";
     if (agents.length === 0) {
-      return text("No sessions found.");
+      return text(`No sessions found.${note}`);
     }
-    return text(agents.map(formatAgent).join("\n"));
+    return text(agents.map(formatAgent).join("\n") + note);
   },
 
   async send_to_session(args, http) {

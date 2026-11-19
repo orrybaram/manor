@@ -337,6 +337,18 @@ const MOVE_TIMEOUT_MS = 40 * 60_000;
  */
 const CREATE_WAIT_TIMEOUT_MS = 12 * 60_000;
 
+/** The workspace `create_workspace` just made: on the branch asked for, else by name. */
+function createdWorkspace(
+  workspaces: WorkspaceInfo[],
+  branch: unknown,
+  name: string | undefined,
+): WorkspaceInfo | undefined {
+  return (
+    workspaces.find((ws) => !ws.isMain && ws.branch === branch) ??
+    workspaces.find((ws) => !ws.isMain && name !== undefined && ws.name === name)
+  );
+}
+
 export function formatWorkspace(
   ws: WorkspaceInfo,
   folders: WorkspaceFolder[] = [],
@@ -1051,9 +1063,15 @@ const handlers: ToolModule["handlers"] = {
       waited ? CREATE_WAIT_TIMEOUT_MS : undefined,
     )) as ProjectInfo & { setup?: SetupEnd };
     const setup = setupNote(project.worktreeStartScript, project.setup, waited);
-    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n\n${setup.note}\n\nWorkspaces now:\n${project.workspaces
-      .map((ws) => formatWorkspace(ws, project.folders))
-      .join("\n")}`;
+    const created = createdWorkspace(project.workspaces, args.branch ?? args.name, label);
+    // Just the new workspace: a caller handed every workspace has been known
+    // to take the first path, and launch agents in someone else's worktree.
+    const where = created
+      ? `Path: ${created.path}\nBranch: ${created.branch}`
+      : `Couldn't tell which workspace is the new one. Workspaces now:\n${project.workspaces
+          .map((ws) => formatWorkspace(ws, project.folders))
+          .join("\n")}`;
+    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n${where}\n\n${setup.note}`;
     // A caller that waited is waiting to build on the workspace: one whose
     // setup did not finish is an error (a non-zero exit from the CLI).
     if (setup.failed) throw new Error(answer);

@@ -28,7 +28,7 @@ import {
 import { agentsGetActive, agentsGetAll } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 import { chatSteer } from "../bridge/handlers/chat";
-import { stripAnsi } from "../terminal-host/pane-facts";
+import { transcriptText } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import { askHost, forwardToHost, onAdoptedHost } from "./host-forward";
 import type { ServerRoute, ServerRouteDeps } from "./types";
@@ -630,7 +630,7 @@ export const agentRoutes: ServerRoute[] = [
       }
 
       const raw = body.raw === true;
-      let output = raw ? ansi : stripAnsi(ansi);
+      let output = raw ? ansi : transcriptText(ansi);
 
       const tailLinesParam = body.tailLines;
       const tailLines =

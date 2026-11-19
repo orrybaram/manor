@@ -63,6 +63,19 @@ export function stripAnsi(str: string): string {
   );
 }
 
+/**
+ * A terminal's ANSI as plain text a reader can grep: `stripAnsi`, except that
+ * cursor-forward (`CSI n C`) becomes n spaces first. The headless serializer
+ * writes a run of blank cells as a cursor move, and TUIs (Claude Code among
+ * them) draw the gaps between words that way, so stripping it outright runs
+ * the words together.
+ */
+export function transcriptText(str: string): string {
+  return stripAnsi(
+    str.replace(/\x1b\[(\d*)C/g, (_, n: string) => " ".repeat(Math.max(1, Number(n) || 1))),
+  );
+}
+
 /** Check if a line starts with box-drawing characters (skip these) */
 function isBoxDrawingLine(line: string): boolean {
   const trimmed = line.trimStart();

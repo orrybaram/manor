@@ -27,7 +27,8 @@ import {
 } from "../bridge/handlers/agents";
 import { agentsGetActive, agentsGetAll } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
-import { stripAnsi } from "../terminal-host/pane-facts";
+import { chatSteer } from "../bridge/handlers/chat";
+import { transcriptText } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
 import { askHost, forwardToHost, onAdoptedHost } from "./host-forward";
 import type { ServerRoute, ServerRouteDeps } from "./types";
@@ -144,6 +145,7 @@ type PreparedWrite =
       ok: true;
       write: (data: string) => void;
       interrupt: string;
+      agentKind: AgentInfo["agentKind"];
       result: { ok: true; target: TargetResult };
     };
 
@@ -186,15 +188,31 @@ function prepareWrite(
   return {
     ok: true,
     write: (data) => deps.backend.pty.write(paneId, data),
-    interrupt: interruptSequenceFor(
-      agent.agentKind,
-      typeof body.interrupt === "string" ? body.interrupt : undefined,
-    ),
+    interrupt: interruptSequenceFor(agent.agentKind, customInterrupt(body)),
+    agentKind: agent.agentKind,
     result: {
       ok: true,
       target: { id: agent.id, paneId, lastAgentStatus: agent.lastAgentStatus },
     },
   };
+}
+
+/** A custom interrupt sequence: `interruptKeys`, or its old name `interrupt`. */
+function customInterrupt(body: Record<string, unknown>): string | undefined {
+  for (const value of [body.interruptKeys, body.interrupt]) {
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+/**
+ * An agent in a turn a steer should stop first: working, or waiting on a
+ * question that would otherwise swallow the prompt. An unknown status (a
+ * harness without hooks) is not interrupted: Ctrl-C at an idle prompt can
+ * quit some harnesses.
+ */
+function isMidTurn(status: string | null): boolean {
+  return status === "thinking" || status === "working" || status === "requires_input";
 }
 
 type ResolvedAgent =
@@ -446,7 +464,7 @@ export const agentRoutes: ServerRoute[] = [
     async handler({ deps, json, readBody }) {
       const body = await readBody();
       const text = body.text;
-      if (typeof text !== "string" || text.length === 0) {
+      if (typeof text !== "string" || text.trim().length === 0) {
         json(400, { error: "Missing 'text' string in request body" });
         return;
       }
@@ -457,12 +475,27 @@ export const agentRoutes: ServerRoute[] = [
         return;
       }
 
-      // Ordering is load-bearing: interrupt to end the current turn, then submit
-      // the new prompt. No artificial delay — the pty layer can't guarantee one.
-      ready.write(ready.interrupt);
-      ready.write(text + "\r");
-
-      json(200, ready.result);
+      // Typed as the chat view types a prompt (one bracketed paste, Enter on
+      // its own), so it is submitted rather than left in the input box. Only
+      // a turn in progress is stopped first: a stop key sent to an idle agent
+      // does nothing useful, and Esc landing just before the text reads as
+      // Alt+<key>. `queue` leaves a busy agent's turn alone; Claude runs a
+      // prompt submitted mid-turn once the turn ends.
+      const interrupted =
+        body.queue !== true && isMidTurn(ready.result.target.lastAgentStatus);
+      try {
+        await chatSteer(
+          localCtx(deps),
+          ready.result.target.paneId,
+          text,
+          interrupted ? ready.interrupt : null,
+          ready.agentKind,
+        );
+      } catch (err) {
+        json(500, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      json(200, { ...ready.result, interrupted });
     },
   },
 
@@ -600,7 +633,7 @@ export const agentRoutes: ServerRoute[] = [
       }
 
       const raw = body.raw === true;
-      let output = raw ? ansi : stripAnsi(ansi);
+      let output = raw ? ansi : transcriptText(ansi);
 
       const tailLinesParam = body.tailLines;
       const tailLines =

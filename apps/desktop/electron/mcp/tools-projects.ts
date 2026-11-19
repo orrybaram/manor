@@ -337,6 +337,26 @@ const MOVE_TIMEOUT_MS = 40 * 60_000;
  */
 const CREATE_WAIT_TIMEOUT_MS = 12 * 60_000;
 
+/**
+ * The workspace `create_workspace` just made: the one on the branch asked
+ * for, else the one with the name asked for. Only an unambiguous match
+ * counts; two candidates means the caller gets the whole list instead of a
+ * guess, since a wrong path sends agents into someone else's worktree.
+ */
+function createdWorkspace(
+  workspaces: WorkspaceInfo[],
+  branch: unknown,
+  name: string | undefined,
+): WorkspaceInfo | undefined {
+  const only = (match: (ws: WorkspaceInfo) => boolean) => {
+    const found = workspaces.filter((ws) => !ws.isMain && match(ws));
+    return found.length === 1 ? found[0] : undefined;
+  };
+  const byBranch = workspaces.filter((ws) => !ws.isMain && ws.branch === branch);
+  if (byBranch.length > 0) return byBranch.length === 1 ? byBranch[0] : undefined;
+  return name === undefined ? undefined : only((ws) => ws.name === name);
+}
+
 export function formatWorkspace(
   ws: WorkspaceInfo,
   folders: WorkspaceFolder[] = [],
@@ -1051,9 +1071,18 @@ const handlers: ToolModule["handlers"] = {
       waited ? CREATE_WAIT_TIMEOUT_MS : undefined,
     )) as ProjectInfo & { setup?: SetupEnd };
     const setup = setupNote(project.worktreeStartScript, project.setup, waited);
-    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n\n${setup.note}\n\nWorkspaces now:\n${project.workspaces
-      .map((ws) => formatWorkspace(ws, project.folders))
-      .join("\n")}`;
+    const created = createdWorkspace(project.workspaces, args.branch ?? args.name, label);
+    // Just the new workspace: a caller handed every workspace has been known
+    // to take the first path, and launch agents in someone else's worktree.
+    const folder = created?.folderId
+      ? project.folders?.find((f) => f.id === created.folderId)
+      : undefined;
+    const where = created
+      ? `Path: ${created.path}\nBranch: ${created.branch}${folder ? `\nFolder: ${folder.name}` : ""}`
+      : `Couldn't tell which workspace is the new one. Workspaces now:\n${project.workspaces
+          .map((ws) => formatWorkspace(ws, project.folders))
+          .join("\n")}`;
+    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n${where}\n\n${setup.note}`;
     // A caller that waited is waiting to build on the workspace: one whose
     // setup did not finish is an error (a non-zero exit from the CLI).
     if (setup.failed) throw new Error(answer);

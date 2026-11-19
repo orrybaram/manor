@@ -22,6 +22,9 @@ import type {
   ChatMirror,
 } from "../../chat-mirror/mirror";
 import { CHAT_KEYS, type ChatKey } from "../../chat-mirror/chat-keys";
+import { adapterFor } from "../../chat-mirror/adapters";
+import { claudeAdapter } from "../../chat-mirror/adapters/claude";
+import type { AgentKind } from "../../terminal-host/types";
 import type { PickerAnswer } from "../../chat-mirror/picker-keys";
 import { parseChatTaskKey } from "../../chat-mirror/task-key";
 import { byPane, method, type HandlerCtx } from "../method";
@@ -104,11 +107,39 @@ export async function chatSend(
   paneId: string,
   text: string,
 ): Promise<void> {
+  return chatSteer(ctx, paneId, text, null);
+}
+
+/** How long a steer waits after its stop key before typing: long enough for
+ *  the agent to end its turn, and for the stop key not to be read together
+ *  with the text that follows (Esc then `P` is Alt+P). */
+const STEER_GAP_MS = 500;
+
+/**
+ * Steer the pane's agent (`send_to_session`): optionally stop its turn with
+ * `interruptKeys`, wait, then type and submit `text` as `chatSend` does. One
+ * queued job, so nothing else written to the pane lands in between.
+ */
+export async function chatSteer(
+  ctx: HandlerCtx<ChatDeps>,
+  paneId: string,
+  text: string,
+  interruptKeys: string | null,
+  /** The pane's harness, when the caller knows it better than the mirror
+   *  does: the mirror knows only this host's agents. */
+  agentKind?: AgentKind,
+): Promise<void> {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
-  const writes = ctx.deps.chatMirror.input(paneId).promptWrites(text);
+  const writes = agentKind
+    ? (adapterFor(agentKind) ?? claudeAdapter).promptWrites(text)
+    : ctx.deps.chatMirror.input(paneId).promptWrites(text);
   return enqueueWrite(paneId, async () => {
+    if (interruptKeys) {
+      ctx.deps.backend.pty.write(paneId, interruptKeys);
+      await pause(STEER_GAP_MS);
+    }
     for (const [i, data] of writes.entries()) {
       if (i > 0) await pause(SUBMIT_DELAY_MS);
       ctx.deps.backend.pty.write(paneId, data);

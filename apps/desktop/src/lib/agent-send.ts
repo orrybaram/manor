@@ -47,9 +47,9 @@ export function sendPromptToAgent(
     return false;
   }
 
-  // Ordering is load-bearing, and mirrors `POST /sessions/send` in
-  // electron/routes/agents.ts: interrupt to end the current turn, then submit
-  // the new prompt. No artificial delay — the pty layer can't guarantee one.
+  // Ordering is load-bearing: interrupt to end the current turn, then submit
+  // the new prompt. (`POST /sessions/send` no longer does this: it types
+  // through `chatSteer`, which pastes and pauses before Enter.)
   void window.electronAPI.pty.write(
     paneId,
     adapterForKind(agent.agentKind).interruptSequence(),

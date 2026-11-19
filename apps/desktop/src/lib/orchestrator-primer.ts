@@ -29,8 +29,9 @@ Observe: \`list-projects\`, \`list-workspaces\`, \`list-issues\`,
 \`get-issue-detail\`, \`list-panes\`, \`list-agents\`, \`read-session\`.
 
 Act: \`create-workspace\`, \`batch-create-workspaces\`, \`start-agent\`,
-\`send-to-session\`. \`send-to-session\` interrupts the target's current turn
-and may discard its in-flight work — use it deliberately.
+\`send-to-session\`. \`send-to-session\` interrupts a busy target's current turn
+and may discard its in-flight work — use it deliberately, or pass \`--queue\`
+to let the turn finish first.
 
 ## Fan-out playbook
 

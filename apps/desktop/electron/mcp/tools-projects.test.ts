@@ -214,6 +214,52 @@ describe("create_workspace", () => {
     expect(result.content[0].text).toContain('in project "App" (box-app on me@box)');
   });
 
+  it("leads with the new workspace's path and branch, not every workspace", async () => {
+    const http = fakeHttp({
+      post: async () => ({
+        id: "p1",
+        name: "App",
+        hostId: "local",
+        host: "this Mac",
+        workspaces: [
+          { path: "/repo", branch: "main", isMain: true, name: null },
+          { path: "/wt/other-work", branch: "other-work", isMain: false, name: null },
+          { path: "/wt/feat-x", branch: "feat-x", isMain: false, name: "feat-x" },
+        ],
+      }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat-x" },
+      http,
+    );
+
+    const out = result.content[0].text;
+    expect(out).toContain("Path: /wt/feat-x\nBranch: feat-x");
+    expect(out).not.toContain("other-work");
+  });
+
+  it("lists every workspace rather than guess between two with the asked-for name", async () => {
+    const http = fakeHttp({
+      post: async () => ({
+        id: "p1",
+        name: "App",
+        hostId: "local",
+        host: "this Mac",
+        workspaces: [
+          { path: "/wt/old", branch: "fix-login-1", isMain: false, name: "fix login" },
+          { path: "/wt/new", branch: "fix-login-2", isMain: false, name: "fix login" },
+        ],
+      }),
+    });
+    const out = (
+      await projectsModule.handlers.create_workspace({ projectId: "p1", name: "fix login" }, http)
+    ).content[0].text;
+    expect(out).not.toContain("Path:");
+    expect(out).toContain("Couldn't tell which workspace is the new one");
+    expect(out).toContain("/wt/new");
+  });
+
   it("passes --folder through to the route", async () => {
     const http = fakeHttp({
       post: async () => ({ id: "p1", name: "App", hostId: "local", host: "this Mac", workspaces: [] }),

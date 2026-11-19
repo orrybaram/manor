@@ -51,6 +51,8 @@ describe("http-client", () => {
     delete process.env.MANOR_CONTROL_PORT_FILE;
     delete process.env.MANOR_WEBVIEW_PORT;
     delete process.env.MANOR_WEBVIEW_TOKEN;
+    // No waiting for a restart unless a test asks for it.
+    process.env.MANOR_CONNECT_GRACE_MS = "0";
   });
 
   afterEach(() => {
@@ -156,6 +158,73 @@ describe("http-client", () => {
         const [, init] = mockFetch.mock.calls[call];
         expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       }
+    });
+
+    it("waits out a restart: retries a refused connection until Manor listens", async () => {
+      process.env.MANOR_CONNECT_GRACE_MS = "10000";
+      vi.useFakeTimers();
+      try {
+        localFiles("7777", "tok");
+        mockFetch
+          .mockRejectedValueOnce(connectionRefused())
+          .mockRejectedValueOnce(connectionRefused())
+          .mockResolvedValueOnce(fetchOk({ ok: true }));
+
+        const { createHttp } = await import("./http-client");
+        const answer = createHttp().post("/sessions/send", { target: "a" });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        await expect(answer).resolves.toEqual({ ok: true });
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("waits out a restart while the port file is missing", async () => {
+      process.env.MANOR_CONNECT_GRACE_MS = "10000";
+      vi.useFakeTimers();
+      try {
+        localFiles(null, null);
+        const { createHttp } = await import("./http-client");
+        const answer = createHttp().get("/agents");
+        await vi.advanceTimersByTimeAsync(500);
+        localFiles("7777", "tok");
+        mockFetch.mockResolvedValueOnce(fetchOk([]));
+        await vi.advanceTimersByTimeAsync(500);
+
+        await expect(answer).resolves.toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("gives up after the grace period", async () => {
+      process.env.MANOR_CONNECT_GRACE_MS = "2000";
+      vi.useFakeTimers();
+      try {
+        localFiles("7777", "tok");
+        mockFetch.mockRejectedValue(connectionRefused());
+        const { createHttp } = await import("./http-client");
+        const answer = createHttp().get("/agents");
+        const settled = expect(answer).rejects.toThrow("fetch failed");
+        await vi.advanceTimersByTimeAsync(3_000);
+        await settled;
+        expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(5);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("never retries a write a live server may have received", async () => {
+      process.env.MANOR_CONNECT_GRACE_MS = "10000";
+      localFiles("7777", "tok");
+      const reset = new TypeError("fetch failed");
+      (reset as NodeJS.ErrnoException).cause = Object.assign(new Error("reset"), { code: "ECONNRESET" });
+      mockFetch.mockRejectedValue(reset);
+      const { createHttp } = await import("./http-client");
+      await expect(createHttp().post("/sessions/send", {})).rejects.toThrow("fetch failed");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it("surfaces HttpError for a non-2xx response", async () => {
@@ -312,6 +381,7 @@ describe("http-client long requests", () => {
     vi.resetModules();
     delete process.env.MANOR_CONTROL_PORT_FILE;
     delete process.env.MANOR_WEBVIEW_PORT;
+    process.env.MANOR_CONNECT_GRACE_MS = "0";
   });
 
   afterEach(async () => {

@@ -95,6 +95,29 @@ describe("POST /sessions/read", () => {
     });
   });
 
+  it("keeps the spaces a live screen draws as cursor moves", async () => {
+    // What the headless serializer hands back for Claude Code's output: the
+    // gaps between words are `CSI n C`, not space characters.
+    const res = await read(
+      { target: "pane-7" },
+      {
+        snapshots: {
+          "pane-7": { screenAnsi: "⏺\x1b[1CPushed\x1b[1Cthe\x1b[1Cfix\x1b[3C\x1b[2mdone\x1b[0m\x1b[C!" },
+        },
+      },
+    );
+
+    expect(res.body.text).toBe("⏺ Pushed the fix   done !");
+  });
+
+  it("keeps the spaces in persisted scrollback too", async () => {
+    readScrollback.mockReturnValue("resolved\x1b[1Call\x1b[1Cthreads\n");
+
+    const res = await read({ target: "pane-9" });
+
+    expect(res.body.text).toContain("resolved all threads");
+  });
+
   it("falls back to persisted scrollback for a dead plain pane", async () => {
     readScrollback.mockReturnValue("$ make build\ndone\n");
 

@@ -239,6 +239,27 @@ describe("create_workspace", () => {
     expect(out).not.toContain("other-work");
   });
 
+  it("lists every workspace rather than guess between two with the asked-for name", async () => {
+    const http = fakeHttp({
+      post: async () => ({
+        id: "p1",
+        name: "App",
+        hostId: "local",
+        host: "this Mac",
+        workspaces: [
+          { path: "/wt/old", branch: "fix-login-1", isMain: false, name: "fix login" },
+          { path: "/wt/new", branch: "fix-login-2", isMain: false, name: "fix login" },
+        ],
+      }),
+    });
+    const out = (
+      await projectsModule.handlers.create_workspace({ projectId: "p1", name: "fix login" }, http)
+    ).content[0].text;
+    expect(out).not.toContain("Path:");
+    expect(out).toContain("Couldn't tell which workspace is the new one");
+    expect(out).toContain("/wt/new");
+  });
+
   it("passes --folder through to the route", async () => {
     const http = fakeHttp({
       post: async () => ({ id: "p1", name: "App", hostId: "local", host: "this Mac", workspaces: [] }),

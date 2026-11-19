@@ -43,6 +43,21 @@ describe("list_agents", () => {
     expect(await listText({ all: true })).toContain("a2");
   });
 
+  it("applies limit after its own filters, not before", async () => {
+    const paths: string[] = [];
+    const out = (
+      await sessionsModule.handlers.list_agents(
+        { limit: 1, workspace: "other" },
+        http(async (p) => {
+          paths.push(p);
+          return ROWS;
+        }),
+      )
+    ).content[0].text;
+    expect(out).toContain("a3");
+    expect(paths[0]).not.toContain("limit");
+  });
+
   it("filters by workspace path or last segment, and by pane", async () => {
     for (const workspace of ["feat-x", "/wt/feat-x", "/wt/feat-x/"]) {
       const out = await listText({ workspace });

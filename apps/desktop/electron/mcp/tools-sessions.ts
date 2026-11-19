@@ -219,7 +219,11 @@ const handlers: ToolModule["handlers"] = {
     if (args.projectId !== undefined)
       params.set("projectId", String(args.projectId));
     if (args.status !== undefined) params.set("status", String(args.status));
-    if (args.limit !== undefined) params.set("limit", String(args.limit));
+    // `limit` applies after this tool's own filters (pane, workspace), so it
+    // is not sent: the server would cut the list before they ran. An offset
+    // keeps the server's "a filter was given" reading (every status) that a
+    // bare limit used to get.
+    if (args.limit !== undefined) params.set("offset", "0");
     const qs = params.toString();
     const fetched = (await http.get(`/agents?${qs}`)) as AgentSummary[];
     const matching = fetched.filter(
@@ -227,8 +231,9 @@ const handlers: ToolModule["handlers"] = {
         (args.workspace === undefined || inWorkspace(a, String(args.workspace))) &&
         (args.pane === undefined || a.paneId === args.pane),
     );
-    const agents = args.all === true ? matching : matching.filter((a) => a.paneId !== null);
-    const hidden = matching.length - agents.length;
+    const shown = args.all === true ? matching : matching.filter((a) => a.paneId !== null);
+    const hidden = matching.length - shown.length;
+    const agents = args.limit !== undefined ? shown.slice(0, Number(args.limit)) : shown;
     const note = hidden > 0 ? `\n(${hidden} without a pane hidden; --all shows them)` : "";
     if (agents.length === 0) {
       return text(`No sessions found.${note}`);

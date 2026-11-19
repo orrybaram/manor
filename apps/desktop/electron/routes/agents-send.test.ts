@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { agentRoutes } from "./agents";
 import { claudeAdapter } from "../chat-mirror/adapters/claude";
+import { adapterFor } from "../chat-mirror/adapters";
 import type { HostDeps, Route } from "./types";
 
 const sendRoute = agentRoutes.find(
@@ -116,9 +117,19 @@ describe("POST /sessions/send", () => {
     expect(writes).toHaveLength(3);
   });
 
-  it("400s without text", async () => {
-    const { res, writes } = await send({});
-    expect(res.status).toBe(400);
-    expect(writes).toEqual([]);
+  it("400s without text, or with only whitespace", async () => {
+    for (const body of [{}, { text: "   " }]) {
+      const { res, writes } = await send(body);
+      expect(res.status).toBe(400);
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it("types as the agent's own harness does, even one the mirror doesn't know", async () => {
+    // The stub mirror answers Claude's writes for every pane, as the real one
+    // does for an adopted host's agent; the route knows the agent is codex.
+    const { writes } = await send({ text: "go" }, agent("responded", "codex"));
+    const codex = adapterFor("codex")!.promptWrites("go");
+    expect(writes).toEqual(codex);
   });
 });

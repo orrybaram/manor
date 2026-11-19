@@ -145,6 +145,7 @@ type PreparedWrite =
       ok: true;
       write: (data: string) => void;
       interrupt: string;
+      agentKind: AgentInfo["agentKind"];
       result: { ok: true; target: TargetResult };
     };
 
@@ -188,6 +189,7 @@ function prepareWrite(
     ok: true,
     write: (data) => deps.backend.pty.write(paneId, data),
     interrupt: interruptSequenceFor(agent.agentKind, customInterrupt(body)),
+    agentKind: agent.agentKind,
     result: {
       ok: true,
       target: { id: agent.id, paneId, lastAgentStatus: agent.lastAgentStatus },
@@ -462,7 +464,7 @@ export const agentRoutes: ServerRoute[] = [
     async handler({ deps, json, readBody }) {
       const body = await readBody();
       const text = body.text;
-      if (typeof text !== "string" || text.length === 0) {
+      if (typeof text !== "string" || text.trim().length === 0) {
         json(400, { error: "Missing 'text' string in request body" });
         return;
       }
@@ -487,6 +489,7 @@ export const agentRoutes: ServerRoute[] = [
           ready.result.target.paneId,
           text,
           interrupted ? ready.interrupt : null,
+          ready.agentKind,
         );
       } catch (err) {
         json(500, { error: err instanceof Error ? err.message : String(err) });

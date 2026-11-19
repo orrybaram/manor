@@ -22,6 +22,9 @@ import type {
   ChatMirror,
 } from "../../chat-mirror/mirror";
 import { CHAT_KEYS, type ChatKey } from "../../chat-mirror/chat-keys";
+import { adapterFor } from "../../chat-mirror/adapters";
+import { claudeAdapter } from "../../chat-mirror/adapters/claude";
+import type { AgentKind } from "../../terminal-host/types";
 import type { PickerAnswer } from "../../chat-mirror/picker-keys";
 import { parseChatTaskKey } from "../../chat-mirror/task-key";
 import { byPane, method, type HandlerCtx } from "../method";
@@ -122,11 +125,16 @@ export async function chatSteer(
   paneId: string,
   text: string,
   interruptKeys: string | null,
+  /** The pane's harness, when the caller knows it better than the mirror
+   *  does: the mirror knows only this host's agents. */
+  agentKind?: AgentKind,
 ): Promise<void> {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
-  const writes = ctx.deps.chatMirror.input(paneId).promptWrites(text);
+  const writes = agentKind
+    ? (adapterFor(agentKind) ?? claudeAdapter).promptWrites(text)
+    : ctx.deps.chatMirror.input(paneId).promptWrites(text);
   return enqueueWrite(paneId, async () => {
     if (interruptKeys) {
       ctx.deps.backend.pty.write(paneId, interruptKeys);

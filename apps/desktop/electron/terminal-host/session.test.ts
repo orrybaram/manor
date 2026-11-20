@@ -751,10 +751,15 @@ describe("Session", () => {
       });
 
       it("repaints an agent once, 300 ms after a timed-out ack went quiet", async () => {
-        const { signals } = await paneRunning("claude");
+        const { signals, resizes } = await paneRunning("claude");
 
         void session.resize(100, 30);
         await vi.advanceTimersByTimeAsync(2_000);
+        // Not before the late ack: a repaint then would be at the old size.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(signals).toEqual([]);
+
+        pushResizedFrame(session, resizes[0].id);
         await vi.advanceTimersByTimeAsync(299);
         expect(signals).toEqual([]);
 
@@ -771,6 +776,7 @@ describe("Session", () => {
         (session as any).outputPaused = true;
 
         void session.resize(100, 30);
+        (session as any).outputPaused = false;
         pushResizedFrame(session, resizes[0].id);
         await vi.advanceTimersByTimeAsync(300);
 
@@ -787,15 +793,31 @@ describe("Session", () => {
       });
 
       it("waits for output to stop before repainting", async () => {
-        const { signals } = await paneRunning("claude");
+        const { signals, resizes } = await paneRunning("claude");
 
         void session.resize(100, 30);
-        await vi.advanceTimersByTimeAsync(2_000 + 200);
+        await vi.advanceTimersByTimeAsync(2_000);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(200);
         pushDataFrame(session, "still drawing");
         await vi.advanceTimersByTimeAsync(299);
         expect(signals).toEqual([]);
 
         await vi.advanceTimersByTimeAsync(1);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("waits while output is paused, then repaints once it resumes", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+        (session as any).outputPaused = true;
+
+        void session.resize(100, 30);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(signals).toEqual([]);
+
+        (session as any).outputPaused = false;
+        await vi.advanceTimersByTimeAsync(300);
         expect(signals).toEqual([REPAINT]);
       });
 

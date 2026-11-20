@@ -154,6 +154,8 @@ export function prependManorBinDir(basePath: string | undefined): string {
  * the caller goes on, but the size is still published only by its own ack.
  */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
+/** How long a dead helper's stdout gets to end before pending sizes publish anyway. */
+const EXIT_SETTLE_BACKSTOP_MS = 1_000;
 
 /** How long output must stay quiet after a doubtful resize before a repaint. */
 const REPAINT_QUIET_MS = 300;
@@ -446,7 +448,13 @@ export class Session {
       if (!stdout || stdout.readableEnded || stdout.destroyed) {
         this.settlePendingResizes();
       } else {
-        const settle = () => this.settlePendingResizes();
+        const settle = () => {
+          clearTimeout(backstop);
+          this.settlePendingResizes();
+        };
+        // A pipe whose write end something else kept open never ends; don't
+        // hold the sizes back for good on its account.
+        const backstop = setTimeout(settle, EXIT_SETTLE_BACKSTOP_MS);
         stdout.once("end", settle);
         stdout.once("close", settle);
       }
@@ -607,8 +615,10 @@ export class Session {
         this.publishResize(pending, false);
         if (!pending.timedOut) pending.resolve();
         // Paused output is read on the helper's terms, not the stream's: what
-        // the program wrote around the ioctl may sit on either side of it.
-        if (pending.pausedAtResize || this.outputPaused)
+        // the program wrote around the ioctl may sit on either side of it. A
+        // late ack says the daemon was behind, which can do the same. Marked
+        // here, at the ack, so the repaint follows the size it is for.
+        if (pending.timedOut || pending.pausedAtResize || this.outputPaused)
           this.markBoundaryDoubtful();
         break;
       }
@@ -705,8 +715,9 @@ export class Session {
       // helper that dies instead publishes it on exit
       // (`settlePendingResizes`), so no client is stranded at the old size.
       const timer = setTimeout(() => {
+        // Doubtful, but only once its ack lands: a repaint before then would
+        // be drawn at the old size (see the RESIZED case).
         pending.timedOut = true;
-        this.markBoundaryDoubtful();
         resolve();
       }, RESIZE_ACK_TIMEOUT_MS);
       const pending = {
@@ -824,6 +835,12 @@ export class Session {
   private repaintAfterDoubtfulBoundary(): void {
     this.repaintTimer = null;
     if (!this.boundaryDoubtful) return;
+    // No data while paused is the daemon not reading, not the agent idle: a
+    // repaint now would queue behind the backlog it is meant to follow.
+    if (this.outputPaused || this.headlessPendingChars > 0) {
+      this.armRepaintTimer();
+      return;
+    }
     this.boundaryDoubtful = false;
     if (!this._alive || !this.subprocess || this.helperKind !== "native")
       return;

@@ -467,6 +467,7 @@ function claudeTurn(entry: ChatEntry): PreviewTurn | null {
     case "notice":
     case "thought":
     case "turn-end":
+    case "recap":
       return null;
   }
 }

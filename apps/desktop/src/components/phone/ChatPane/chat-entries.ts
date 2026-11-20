@@ -74,11 +74,12 @@ export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup
 
 /**
  * A line about a turn's timing ("Thought for 5s", a finished turn's
- * divider), not something the agent said or did: never a tool, never the
- * content the live line or a running tool's line looks at.
+ * divider) or a recap written while the user was away, not something the
+ * agent said or did: never a tool, never the content the live line or a
+ * running tool's line looks at.
  */
 function isTimingItem(item: ChatItem): boolean {
-  return item.kind === "thought" || item.kind === "turn-end";
+  return item.kind === "thought" || item.kind === "turn-end" || item.kind === "recap";
 }
 
 /** The newest item that isn't a timing line (`isTimingItem`). */

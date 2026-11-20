@@ -22,6 +22,12 @@
       "backgroundAgents": 0
     },
     {
+      "kind": "recap",
+      "id": "00000000-0000-4000-8000-00000000000b",
+      "ts": "2026-01-01T00:03:02.072Z",
+      "text": "A nulla non Qui c sunt aliqua'a est-sit proident deserunt sed non aliquip veniam cillum, anim voluptate qui fugiat in amet id pariatur. Elit, culpa enim lorem do est commodo sit, ipsum quis excepteur, nisi sed duis dolor aute non."
+    },
+    {
       "kind": "user",
       "id": "00000000-0000-4000-8000-00000000000d",
       "ts": "2026-01-01T00:13:58.925Z",

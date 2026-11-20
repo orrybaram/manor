@@ -28,6 +28,12 @@
       "backgroundAgents": 0
     },
     {
+      "kind": "recap",
+      "id": "00000000-0000-4000-8000-00000000000e",
+      "ts": "2026-01-01T00:03:05.576Z",
+      "text": "AD #907 lorem veniam elit cillum, ipsum dolor est sit magna enim commodo. Ex's minim sed irure quis, officia laborum non eiusmod ea d incididunt velit. Nisi, qui `!in id nulla 941 --culpa` est E'do fugiat `duis`. (nostrud mollit ut /tempor)"
+    },
+    {
       "kind": "command",
       "id": "00000000-0000-4000-8000-000000000010",
       "ts": "2026-01-01T00:10:54.870Z",
@@ -107,6 +113,12 @@
       "ts": "2026-01-01T00:11:30.494Z",
       "durationMs": 35628,
       "backgroundAgents": 0
+    },
+    {
+      "kind": "recap",
+      "id": "00000000-0000-4000-8000-00000000002d",
+      "ts": "2026-01-01T00:14:32.636Z",
+      "text": "Non minim ex ea qui cillum-esse deserunt fugiat est irure velit; sint sit, sunt sed nulla-mollit laboris, in tempor id DO #907. Anim, aliquip non commodo qui est labore amet elit'a dolore ut officia enim quis. (laborum aliqua et /veniam)"
     }
   ]
 }

@@ -247,6 +247,24 @@ fn resize_lands_before_resized_and_the_shell_sees_it() {
 }
 
 #[test]
+fn resized_echoes_the_resize_id_and_is_empty_without_one() {
+    let mut h = Helper::start();
+    h.spawn_sh("sleep 5");
+    let resized = |h: &Helper| loop {
+        let (kind, p) = h.next();
+        if kind == RESIZED {
+            break p;
+        }
+    };
+    h.send(RESIZE, br#"{"cols":100,"rows":30,"id":7}"#);
+    assert_eq!(resized(&h), br#"{"id":7}"#);
+    // An older daemon sends no id and expects the empty ack it always got.
+    h.send(RESIZE, br#"{"cols":90,"rows":30}"#);
+    assert_eq!(resized(&h), b"");
+    h.send(DISPOSE, b"");
+}
+
+#[test]
 fn fractional_and_out_of_range_sizes_are_truncated_and_clamped() {
     let mut h = Helper::start();
     let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();

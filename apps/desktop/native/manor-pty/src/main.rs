@@ -62,6 +62,10 @@ struct ResizePayload {
     cols: u16,
     #[serde(deserialize_with = "dimension")]
     rows: u16,
+    /// Echoed in Resized so the daemon can tell whose ack it is. Absent from
+    /// an older daemon, which then gets the empty Resized it expects.
+    #[serde(default)]
+    id: Option<u64>,
 }
 
 /// A size in cells from any JSON number: the daemon passes clients' sizes
@@ -218,15 +222,16 @@ impl Helper {
                 }
             }
             frame::RESIZE => {
-                if let (Some(fd), Ok(r)) = (
-                    self.child.as_ref().and_then(pty::Child::fd),
-                    serde_json::from_slice::<ResizePayload>(payload),
-                ) {
+                let r = serde_json::from_slice::<ResizePayload>(payload).ok();
+                if let (Some(fd), Some(r)) = (self.child.as_ref().and_then(pty::Child::fd), &r) {
                     let _ = pty::resize(fd, r.cols, r.rows);
                 }
                 // Output read at the old size goes out ahead of this.
                 self.flush_data(false);
-                frame::encode_into(&mut self.out, frame::RESIZED, b"");
+                match r.and_then(|r| r.id) {
+                    Some(id) => json_frame(&mut self.out, frame::RESIZED, serde_json::json!({ "id": id })),
+                    None => frame::encode_into(&mut self.out, frame::RESIZED, b""),
+                }
             }
             // Once the shell is reaped its pid can belong to anyone: Kill and
             // Signal after that would reach an unrelated process.

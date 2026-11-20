@@ -6,7 +6,7 @@
  * Daemon → Subprocess message types (0x01–0x0F):
  *   0x01 Spawn   — JSON: PtySpawnPayload
  *   0x02 Write   — raw bytes (terminal input)
- *   0x03 Resize  — JSON: { cols, rows }
+ *   0x03 Resize  — JSON: { cols, rows, id? }
  *   0x04 Kill    — no payload
  *   0x05 Signal  — JSON: { signal }
  *   0x06 Dispose — no payload
@@ -20,7 +20,8 @@
  *   0x14 Exit    — JSON: { exitCode }
  *   0x15 Error   — JSON: { message }
  *   0x16 FgProc  — JSON: { name } (foreground process name, polled)
- *   0x17 Resized — no payload (the pty ioctl for the last Resize has landed)
+ *   0x17 Resized — JSON: { id } echoing the Resize's id, or no payload if it
+ *                  had none (the pty ioctl for that Resize has landed)
  */
 
 /**
@@ -41,6 +42,9 @@
  *     Spawn's optional `agentNames`, for the native `manor-pty`, joined the
  *     same way: `pty-subprocess.js` ignores it, and `manor-pty` without it
  *     reports plain process names only.
+ *     Resize's `id`, echoed in Resized, joined the same way: a subprocess
+ *     that ignores it acks with an empty payload, which the daemon matches
+ *     in order as before, and a daemon that sends none gets an empty ack.
  */
 export const PTY_SUBPROCESS_PROTOCOL = 1;
 

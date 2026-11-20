@@ -306,7 +306,11 @@ const decoder = new FrameDecoder((type, payload) => {
       ptyProcess?.write(payload.toString("utf-8"));
       break;
     case MSG.RESIZE: {
-      const { cols, rows } = JSON.parse(payload.toString("utf-8"));
+      const { cols, rows, id } = JSON.parse(payload.toString("utf-8")) as {
+        cols: number;
+        rows: number;
+        id?: number;
+      };
       // Everything the pty produced at the old size goes out first, so the
       // daemon can treat RESIZED as a boundary in the output stream rather
       // than just a reply: no pre-resize bytes can follow it.
@@ -316,7 +320,12 @@ const decoder = new FrameDecoder((type, payload) => {
       } catch {
         // Ignore resize errors (process may have exited)
       }
-      writeFrame(MSG.RESIZED);
+      // Echo the id so the daemon matches this ack to its own resize; a
+      // daemon from before ids sent none and gets the empty ack it expects.
+      writeFrame(
+        MSG.RESIZED,
+        id === undefined ? undefined : JSON.stringify({ id }),
+      );
       break;
     }
     case MSG.KILL:

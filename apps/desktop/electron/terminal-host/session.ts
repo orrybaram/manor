@@ -149,7 +149,10 @@ export function prependManorBinDir(basePath: string | undefined): string {
   return existing ? `${binDir}:${existing}` : binDir;
 }
 
-/** How long to wait for the pty subprocess to confirm a resize before giving up. */
+/**
+ * How long a caller waits for the pty subprocess to confirm a resize. Past it
+ * the caller goes on, but the size is still published only by its own ack.
+ */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
 
 /**
@@ -256,13 +259,21 @@ export class Session {
    * the first of two in-flight resizes publish the second one's size, which on
    * a shrinking drag hands clients a grid narrower than the pty their program
    * is reading from.
+   *
+   * Each also carries the `id` its Resize frame was sent with, and the ack
+   * echoes it. Matching by position instead credits a late ack to the next
+   * resize, which then publishes before its own ioctl has happened.
    */
   private pendingResizes: Array<{
+    id: number;
     cols: number;
     rows: number;
     resolve: () => void;
     timer: ReturnType<typeof setTimeout>;
+    /** The caller stopped waiting; the ack still publishes the size. */
+    timedOut: boolean;
   }> = [];
+  private lastResizeId = 0;
 
   /** Optional extra env vars injected on top of the shell env at spawn time */
   private envOverrides: Record<string, string>;
@@ -380,6 +391,8 @@ export class Session {
     }
     const fallBack = (reason: string, code?: string) => {
       if (this.helperReady || this.subprocess !== child) return;
+      // The Node helper spawns at the newest size and never saw these.
+      this.settlePendingResizes();
       recordNativeHelperFailure(helperPath, reason, code);
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
@@ -409,6 +422,8 @@ export class Session {
     });
 
     child.on("exit", () => {
+      // No ack can come from a helper that is gone.
+      this.settlePendingResizes();
       if (!this.helperReady && onEarlyExit) {
         onEarlyExit();
         return;
@@ -545,11 +560,23 @@ export class Session {
       }
 
       case MSG.RESIZED: {
-        const pending = this.pendingResizes.shift();
+        // A subprocess from before resize ids acks with an empty payload; its
+        // acks still come in order, so the oldest pending resize is the one.
+        const id = payload.length
+          ? (JSON.parse(payload.toString("utf-8")) as { id?: unknown }).id
+          : undefined;
+        const i =
+          typeof id === "number"
+            ? this.pendingResizes.findIndex((p) => p.id === id)
+            : 0;
+        if (i < 0) break;
+        const [pending] = this.pendingResizes.splice(i, 1);
         if (!pending) break;
         clearTimeout(pending.timer);
+        // Published here even when the caller gave up waiting: this is where
+        // the ioctl landed in the stream, late or not.
         this.applyResized(pending.cols, pending.rows);
-        pending.resolve();
+        if (!pending.timedOut) pending.resolve();
         break;
       }
 
@@ -630,21 +657,22 @@ export class Session {
       this.applyResized(cols, rows);
       return;
     }
+    const id = ++this.lastResizeId;
     return new Promise<void>((resolve) => {
-      // A subprocess that dies mid-resize would otherwise leave the caller —
-      // and the terminal it is holding at the old size — waiting forever. The
-      // oldest pending resize is always the first to time out, so it is the one
-      // at the head of the queue.
+      // A slow ack would otherwise hold the caller up. The timeout lets the
+      // caller go on but publishes nothing: an ack that is only late (the
+      // daemon is behind on the pipe, output is paused) still has old-size
+      // output ahead of it, and a grid moved now would wrap that output at
+      // the new width. The entry stays queued so its ack publishes it; a
+      // helper that dies instead publishes it on exit
+      // (`settlePendingResizes`), so no client is stranded at the old size.
       const timer = setTimeout(() => {
-        if (this.pendingResizes[0]?.timer === timer)
-          this.pendingResizes.shift();
-        // A client left waiting on an event that will never come would keep its
-        // grid at the old size for good, so the timeout publishes one too.
-        this.applyResized(cols, rows);
+        pending.timedOut = true;
         resolve();
       }, RESIZE_ACK_TIMEOUT_MS);
-      this.pendingResizes.push({ cols, rows, resolve, timer });
-      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows }));
+      const pending = { id, cols, rows, resolve, timer, timedOut: false };
+      this.pendingResizes.push(pending);
+      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows, id }));
     });
   }
 
@@ -677,6 +705,19 @@ export class Session {
       cols,
       rows,
     });
+  }
+
+  /**
+   * Publish and resolve every resize still waiting for an ack that can no
+   * longer come, oldest first. Clients then end at the newest size asked
+   * for, instead of holding an old one for good.
+   */
+  private settlePendingResizes(): void {
+    for (const pending of this.pendingResizes.splice(0)) {
+      clearTimeout(pending.timer);
+      this.applyResized(pending.cols, pending.rows);
+      pending.resolve();
+    }
   }
 
   /** Dispose of this session entirely */
@@ -724,10 +765,7 @@ export class Session {
     this._alive = false;
     if (this.readyFallback) clearTimeout(this.readyFallback);
     this.readyFallback = null;
-    for (const pending of this.pendingResizes.splice(0)) {
-      clearTimeout(pending.timer);
-      pending.resolve();
-    }
+    this.settlePendingResizes();
     // Kept after disposal, which makes it inert, so `whenPersisted` can
     // still wait on its last writes.
     this.scrollbackWriter?.end();

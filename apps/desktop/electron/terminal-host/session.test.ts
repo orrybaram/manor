@@ -503,8 +503,36 @@ describe("Session", () => {
       return chunks;
     }
 
-    function pushResizedFrame(session: Session): void {
-      (session as any).decoder.push(encodeFrame(MSG.RESIZED));
+    /** An ack: with `id` as manor-pty and pty-subprocess.js now send it,
+     * without as a subprocess from before resize ids did. */
+    function pushResizedFrame(session: Session, id?: number): void {
+      (session as any).decoder.push(
+        id === undefined
+          ? encodeFrame(MSG.RESIZED)
+          : encodeJsonFrame(MSG.RESIZED, { id }),
+      );
+    }
+
+    /** The Resize frames the session sent its pty subprocess, in order. */
+    function captureResizeFrames(
+      session: Session,
+    ): Array<{ cols: number; rows: number; id: number }> {
+      const resizes: Array<{ cols: number; rows: number; id: number }> = [];
+      const decoder = new FrameDecoder((type, payload) => {
+        if (type === MSG.RESIZE)
+          resizes.push(JSON.parse(payload.toString("utf-8")));
+      });
+      (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+        decoder.push(c),
+      );
+      return resizes;
+    }
+
+    /** Stand in for the subprocess going away. */
+    function exitSubprocess(session: Session): void {
+      const on = (session as any).subprocess.on as ReturnType<typeof vi.fn>;
+      const onExit = on.mock.calls.find(([event]) => event === "exit")![1];
+      onExit();
     }
 
     it("publishes a resized event for a request that changes nothing", async () => {
@@ -540,6 +568,102 @@ describe("Session", () => {
         { cols: 100, rows: 30 },
         { cols: 120, rows: 40 },
       ]);
+    });
+
+    describe("an ack slower than the timeout", () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("publishes each size on its own ack, never on the timeout", async () => {
+        vi.useFakeTimers();
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        // A shrinking drag whose first ack is held up behind old-size output.
+        const first = session.resize(77, 24);
+        const second = session.resize(45, 24);
+        expect(sent.map(({ cols }) => cols)).toEqual([77, 45]);
+        const [id77, id45] = sent.map(({ id }) => id);
+        expect(id77).not.toBe(id45);
+
+        // The callers go on, but no grid moves on a guess: old-size output is
+        // still ahead of the ack, and would wrap at the new width.
+        await vi.advanceTimersByTimeAsync(2_500);
+        await first;
+        await second;
+        expect(resizedEvents(written)).toEqual([]);
+
+        // The late ack is the first resize's, and is credited to it alone —
+        // matched in order, it would publish 45 before that ioctl.
+        pushResizedFrame(session, id77);
+        expect(resizedEvents(written)).toEqual([{ cols: 77, rows: 24 }]);
+
+        pushResizedFrame(session, id45);
+        expect(resizedEvents(written)).toEqual([
+          { cols: 77, rows: 24 },
+          { cols: 45, rows: 24 },
+        ]);
+      });
+
+      it("credits an ack by id even when acks come out of order", () => {
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        void session.resize(77, 24);
+        void session.resize(45, 24);
+        pushResizedFrame(session, sent[1].id);
+
+        expect(resizedEvents(written)).toEqual([{ cols: 45, rows: 24 }]);
+      });
+    });
+
+    it("matches empty acks from an older subprocess in order", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const first = session.resize(100, 30);
+      const second = session.resize(120, 40);
+      pushResizedFrame(session);
+      pushResizedFrame(session);
+      await first;
+      await second;
+
+      expect(resizedEvents(written)).toEqual([
+        { cols: 100, rows: 30 },
+        { cols: 120, rows: 40 },
+      ]);
+    });
+
+    it("publishes a pending resize when the subprocess exits", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const pending = session.resize(100, 30);
+      // Its ack can no longer come, and a client left at the old size would
+      // stay there for good.
+      exitSubprocess(session);
+
+      expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+      await pending;
+    });
+
+    it("publishes a pending resize when the session is disposed", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const pending = session.resize(100, 30);
+      session.dispose();
+
+      expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+      await pending;
     });
 
     it("keeps the resize in order with the output around it", () => {

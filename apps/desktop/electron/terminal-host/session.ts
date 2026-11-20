@@ -277,6 +277,8 @@ export class Session {
     timedOut: boolean;
     /** Output was paused when the resize was sent. */
     pausedAtResize: boolean;
+    /** `Date.now()` when the Resize frame was sent, for `resizes.jsonl`. */
+    sentAt: number;
   }> = [];
   private lastResizeId = 0;
 
@@ -593,7 +595,7 @@ export class Session {
         clearTimeout(pending.timer);
         // Published here even when the caller gave up waiting: this is where
         // the ioctl landed in the stream, late or not.
-        this.applyResized(pending.cols, pending.rows);
+        this.publishResize(pending, false);
         if (!pending.timedOut) pending.resolve();
         // Paused output is read on the helper's terms, not the stream's: what
         // the program wrote around the ioctl may sit on either side of it.
@@ -701,6 +703,7 @@ export class Session {
         timer,
         timedOut: false,
         pausedAtResize: this.outputPaused,
+        sentAt: Date.now(),
       };
       this.pendingResizes.push(pending);
       this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows, id }));
@@ -746,9 +749,34 @@ export class Session {
   private settlePendingResizes(): void {
     for (const pending of this.pendingResizes.splice(0)) {
       clearTimeout(pending.timer);
-      this.applyResized(pending.cols, pending.rows);
+      this.publishResize(pending, true);
       pending.resolve();
     }
+  }
+
+  /**
+   * Publish a resize the subprocess was sent, once its ack came or can no
+   * longer come (`settled`), and log it to `resizes.jsonl`.
+   */
+  private publishResize(
+    pending: Session["pendingResizes"][number],
+    settled: boolean,
+  ): void {
+    this.applyResized(pending.cols, pending.rows);
+    const ts = Date.now();
+    void this.scrollbackWriter?.logResize({
+      event: "resize",
+      ts,
+      id: pending.id,
+      cols: pending.cols,
+      rows: pending.rows,
+      streamOffset: this.outputSeq,
+      ackLatencyMs: ts - pending.sentAt,
+      timedOut: pending.timedOut,
+      pausedAtResize: pending.pausedAtResize,
+      pendingQueueLength: this.pendingResizes.length,
+      settled,
+    });
   }
 
   private markBoundaryDoubtful(): void {
@@ -789,6 +817,11 @@ export class Session {
     this.writeToSubprocess(
       encodeJsonFrame(MSG.SIGNAL, { signal: "SIGWINCH", target: "foreground" }),
     );
+    void this.scrollbackWriter?.logResize({
+      event: "repaint",
+      ts: Date.now(),
+      streamOffset: this.outputSeq,
+    });
   }
 
   /** Dispose of this session entirely */

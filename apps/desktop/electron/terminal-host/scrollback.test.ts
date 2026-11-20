@@ -9,6 +9,7 @@ import {
   MAX_SCROLLBACK_BYTES,
   SCROLLBACK_TRUNCATE_TO_BYTES,
   COLD_RESTORE_MAX_BYTES,
+  MAX_RESIZE_LOG_BYTES,
   type SessionMeta,
 } from "./scrollback";
 
@@ -228,6 +229,32 @@ describe("ScrollbackWriter", () => {
     });
   });
 
+  describe("resize log", () => {
+    it("keeps whole lines from its last half once past the cap", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+      const logPath = path.join(sessionsDir, "s1", "resizes.jsonl");
+
+      for (let i = 0; i < 3_000; i++) {
+        void writer.logResize({ event: "repaint", ts: i, streamOffset: i });
+      }
+      await writer.whenIdle();
+
+      const text = fs.readFileSync(logPath, "utf-8");
+      expect(text.length).toBeLessThanOrEqual(MAX_RESIZE_LOG_BYTES);
+      const lines = text
+        .trimEnd()
+        .split("\n")
+        .map((l) => JSON.parse(l));
+      expect(lines[lines.length - 1]).toEqual({
+        event: "repaint",
+        ts: 2_999,
+        streamOffset: 2_999,
+      });
+      writer.dispose();
+    });
+  });
+
   describe("clear scrollback", () => {
     it("handleClearScrollback truncates the file", async () => {
       const writer = new ScrollbackWriter("s1", sessionsDir);
@@ -318,6 +345,7 @@ describe("ScrollbackWriter", () => {
       expect(fs.statSync(metaPath()).ino).not.toBe(ino);
       expect(fs.readdirSync(path.join(sessionsDir, "s1")).sort()).toEqual([
         "meta.json",
+        "resizes.jsonl",
         "scrollback.bin",
       ]);
       expect(readMeta().cwd).toBe("/new/path");

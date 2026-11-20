@@ -772,6 +772,47 @@ describe("Session", () => {
       });
     });
 
+    it("logs each published resize to resizes.jsonl", async () => {
+      const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-rl-"));
+      try {
+        const logged = new Session("logged", "/tmp", 80, 24, sessionsDir);
+        logged.spawn();
+        const sent = captureResizeFrames(logged);
+        pushDataFrame(logged, "before");
+
+        void logged.resize(100, 30);
+        pushResizedFrame(logged, sent[0].id);
+        await logged.whenPersisted();
+
+        const lines = fs
+          .readFileSync(
+            path.join(sessionsDir, "logged", "resizes.jsonl"),
+            "utf-8",
+          )
+          .trimEnd()
+          .split("\n")
+          .map((l) => JSON.parse(l));
+        expect(lines).toEqual([
+          {
+            event: "resize",
+            ts: expect.any(Number),
+            id: sent[0].id,
+            cols: 100,
+            rows: 30,
+            streamOffset: 1,
+            ackLatencyMs: expect.any(Number),
+            timedOut: false,
+            pausedAtResize: false,
+            pendingQueueLength: 0,
+            settled: false,
+          },
+        ]);
+        logged.dispose();
+      } finally {
+        fs.rmSync(sessionsDir, { recursive: true, force: true });
+      }
+    });
+
     it("keeps the resize in order with the output around it", () => {
       const { socket, written } = mockSocket();
       session.spawn();

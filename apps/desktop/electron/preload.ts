@@ -158,8 +158,6 @@ const nativeApi = {
       invoke<string>("shell:openInEditor", path),
     resolveFilePath: (filePath: string, cwd: string) =>
       invoke<string | null>("shell:resolveFilePath", filePath, cwd),
-    discoverAgents: () =>
-      invoke<Array<{ name: string; command: string }>>("shell:discoverAgents"),
     showItemInFolder: (path: string) => invoke("shell:showItemInFolder", path),
   },
 

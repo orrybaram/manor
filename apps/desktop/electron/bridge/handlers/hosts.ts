@@ -24,6 +24,10 @@ import {
   type TemplateInfo,
 } from "../../backend/providers/recipe-templates";
 import { forgetHostFiles } from "../../backend/host-removal";
+import {
+  discoverAgentsOnHost,
+  type DiscoveredAgent,
+} from "../../backend/agent-discovery";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import type { HostStatusInfo } from "../../backend/registry";
 import {
@@ -288,6 +292,21 @@ export async function hostsHealthCheck(
   deps.projectManager.assertKnownHost(hostId);
   const { shell, git } = deps.backendRegistry.get(hostId);
   return runHealthChecks(shell, git, projectPath);
+}
+
+/**
+ * The agent CLIs installed on `hostId`'s box, for Project Setup's agent
+ * list: the project's host, not this machine, and found the way the
+ * health check finds them.
+ */
+export async function hostsDiscoverAgents(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+): Promise<DiscoveredAgent[]> {
+  const { deps } = ctx;
+  assertString(hostId, "hosts:discoverAgents.hostId");
+  deps.projectManager.assertKnownHost(hostId);
+  return discoverAgentsOnHost(deps.backendRegistry.get(hostId).shell);
 }
 
 // ── Phone access through a host's server ──
@@ -643,6 +662,7 @@ export const hosts = {
   wake: method(hostsWake, { mutating: true, route: LOCAL_ROUTE }),
   stop: method(hostsStop, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   healthCheck: method(hostsHealthCheck),
+  discoverAgents: method(hostsDiscoverAgents),
   // Pairing a phone with a host's server hands out a key to that host, so
   // these are `localOnly` like `remoteControl.pair`.
   serverStatus: method(hostsServerStatus, { localOnly: true }),

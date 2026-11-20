@@ -5,7 +5,7 @@ import type { GitBackend, ShellBackend } from "../types";
 /**
  * A fake `ShellBackend.exec` that answers the script shapes
  * `health-check.ts` sends through `sh -c`: a login-shell `command -v <cli>`
- * probe (`findCliOnHost`), its `~/.local/bin` fallback, and `ls-remote`.
+ * probe (`findCliOnHost`), its per-user folder fallback, and `ls-remote`.
  * `bins` maps a cli name to its resolved path (or `undefined` for "not
  * found").
  */
@@ -28,8 +28,9 @@ function fakeShell(opts: {
           const cli = cliMatch[1];
           return bins[cli] ?? "";
         }
-        if (script.startsWith("test -x")) {
-          const cli = script.split("/").pop()?.replace(/'/g, "") ?? "";
+        if (script.startsWith("for p in")) {
+          const first = /^for p in (\S+)/.exec(script)?.[1] ?? "";
+          const cli = first.replace(/'/g, "").split("/").pop() ?? "";
           const path = localBinBins[cli];
           return path ? path : "";
         }
@@ -117,7 +118,7 @@ describe("runHealthChecks", () => {
     const [, agent] = await runHealthChecks(shell, fakeGit(), "/repo");
     expect(agent.id).toBe("agent");
     expect(agent.status).toBe("fail");
-    expect(agent.detail).toContain("claude, codex, opencode, pi");
+    expect(agent.detail).toContain("claude, codex, pi, opencode");
   });
 
   it("passes the agent check with any one agent CLI installed", async () => {

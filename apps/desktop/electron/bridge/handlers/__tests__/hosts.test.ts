@@ -16,6 +16,7 @@ import {
   hostsAdd,
   hostsAddRecipeHost,
   hostsCheckTemplate,
+  hostsDiscoverAgents,
   hostsEncryptKeys,
   hostsHealthCheck,
   hostsPairDevice,
@@ -58,6 +59,7 @@ const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown
   ["hosts:addRecipeHost", call(hostsAddRecipeHost)],
   ["hosts:retryConnect", call(hostsRetryConnect)],
   ["hosts:healthCheck", call(hostsHealthCheck)],
+  ["hosts:discoverAgents", call(hostsDiscoverAgents)],
 ]);
 
 /** Every renderer broadcast, which is how the host events go out. */
@@ -304,6 +306,37 @@ describe("hosts:healthCheck", () => {
     register(deps as never);
     await expect(
       handlers.get("hosts:healthCheck")!(null, "nope", "/srv/app") as Promise<unknown>,
+    ).rejects.toThrow(/Unknown host/);
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("hosts:discoverAgents", () => {
+  it("asks the given host's shell, not this machine's", async () => {
+    const { deps, backendRegistry } = makeDeps();
+    const remoteShell = {
+      homeDir: vi.fn(async () => "/home/box"),
+      exec: vi.fn(async (_cmd: string, args: string[]) =>
+        /command -v codex/.test(args[1] ?? "") ? "/usr/bin/codex" : "",
+      ),
+    };
+    const get = vi.fn().mockReturnValue({ shell: remoteShell });
+    Object.assign(backendRegistry, { get });
+    Object.assign(deps.projectManager, { assertKnownHost: vi.fn() });
+    register(deps as never);
+    await expect(
+      handlers.get("hosts:discoverAgents")!(null, "box") as Promise<unknown>,
+    ).resolves.toEqual([{ name: "Codex", command: "codex --yolo" }]);
+    expect(get).toHaveBeenCalledWith("box");
+  });
+
+  it("refuses a host that is not registered, before touching any backend", async () => {
+    const { deps, backendRegistry } = makeDeps();
+    const get = vi.fn();
+    Object.assign(backendRegistry, { get });
+    register(deps as never);
+    await expect(
+      handlers.get("hosts:discoverAgents")!(null, "nope") as Promise<unknown>,
     ).rejects.toThrow(/Unknown host/);
     expect(get).not.toHaveBeenCalled();
   });

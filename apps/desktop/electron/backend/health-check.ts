@@ -12,6 +12,8 @@
 import { errorMessage } from "../lib/errors";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { GitBackend, ShellBackend } from "./types";
+import { findCliOnHost, PROBE_TIMEOUT_MS } from "./find-cli";
+import { getAllAgentKinds } from "../agent-connectors";
 
 export type HealthCheckId = "origin" | "agent" | "gh";
 
@@ -46,57 +48,8 @@ function result(
   return { id, label, ok: status === "ok", status, detail, fixCommand };
 }
 
-/** How long any single host probe (a `which`, a login-shell check, …) may run. */
-const PROBE_TIMEOUT_MS = 15_000;
-
 /** How long `ls-remote` against `origin` may run before it's a failure. */
 const ORIGIN_TIMEOUT_MS = 20_000;
-
-/**
- * Wrap `snippet` so it runs under the user's own login shell rather than
- * whatever the daemon inherited — a non-interactive ssh command (or an
- * already-running daemon) never sources `.profile`/`.zprofile`, so a CLI
- * installed under `~/.local/bin` or a credential exported there would
- * otherwise look missing. `snippet` is fixed at
- * call sites (constants below), never user input, so no quoting beyond
- * `shellQuote` is needed.
- */
-function loginShellCommand(snippet: string): string {
-  return `exec "\${SHELL:-sh}" -lc ${shellQuote(snippet)}`;
-}
-
-/**
- * Resolve `cli` to an absolute path via the host's login shell, falling back
- * to the common manual-install location (`~/.local/bin`) if the login-shell
- * probe itself fails to run (odd `$SHELL`, a restrictive rc file). `null` if
- * neither finds it.
- */
-async function findCliOnHost(shell: ShellBackend, cli: string): Promise<string | null> {
-  try {
-    const out = await shell.exec(
-      "sh",
-      ["-c", loginShellCommand(`command -v ${cli}`)],
-      { timeout: PROBE_TIMEOUT_MS },
-    );
-    const found = out.trim();
-    if (found.length > 0) return found;
-  } catch {
-    // Fall through to the ~/.local/bin fallback below.
-  }
-  try {
-    const home = await shell.homeDir();
-    const candidate = `${home}/.local/bin/${cli}`;
-    const out = await shell.exec(
-      "sh",
-      ["-c", `test -x ${shellQuote(candidate)} && echo ${shellQuote(candidate)}`],
-      { timeout: PROBE_TIMEOUT_MS },
-    );
-    const found = out.trim();
-    return found.length > 0 ? found : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The host of an `ssh://` or scp-style (`user@host:path`) origin URL. */
 function sshHostFromOriginUrl(url: string): string | null {
@@ -169,19 +122,15 @@ async function checkOrigin(
   }
 }
 
-/**
- * The agent CLIs Manor can launch (`AgentKind` in `terminal-host/types.ts`).
- * A host needs one of them, not all: a project runs whichever its agent
- * command names.
- */
-const AGENT_CLIS = ["claude", "codex", "opencode", "pi"] as const;
-
 async function checkAgent(shell: ShellBackend): Promise<HealthCheckResult> {
   const label = "Agent CLI";
+  // A host needs one of them, not all: a project runs whichever its agent
+  // command names. Each agent's CLI is named after its kind.
+  const clis = getAllAgentKinds();
   const found = await Promise.all(
-    AGENT_CLIS.map(async (cli) => ((await findCliOnHost(shell, cli)) ? cli : null)),
+    clis.map(async (cli) => ((await findCliOnHost(shell, cli)) ? cli : null)),
   );
-  const installed = found.filter((cli): cli is (typeof AGENT_CLIS)[number] => cli !== null);
+  const installed = found.filter((cli) => cli !== null);
   if (installed.length > 0) {
     return result("agent", label, "ok", `Installed: ${installed.join(", ")}.`, null);
   }
@@ -189,7 +138,7 @@ async function checkAgent(shell: ShellBackend): Promise<HealthCheckResult> {
     "agent",
     label,
     "fail",
-    `No agent CLI is installed on this host (looked for ${AGENT_CLIS.join(", ")}).`,
+    `No agent CLI is installed on this host (looked for ${clis.join(", ")}).`,
     "curl -fsSL https://claude.ai/install.sh | bash",
   );
 }

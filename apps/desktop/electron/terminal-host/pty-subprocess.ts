@@ -306,23 +306,42 @@ const decoder = new FrameDecoder((type, payload) => {
       ptyProcess?.write(payload.toString("utf-8"));
       break;
     case MSG.RESIZE: {
-      const { cols, rows } = JSON.parse(payload.toString("utf-8"));
+      const { cols, rows, id } = JSON.parse(payload.toString("utf-8")) as {
+        cols: number;
+        rows: number;
+        id?: number;
+      };
       // Everything the pty produced at the old size goes out first, so the
       // daemon can treat RESIZED as a boundary in the output stream rather
       // than just a reply: no pre-resize bytes can follow it.
+      //
+      // Known gap: that is only what node-pty has already read. manor-pty
+      // also drains the kernel's buffer before its ioctl; node-pty can't read
+      // synchronously, so here output still in that buffer (all of it while
+      // paused) follows RESIZED. manor-pty is what desktop and the host
+      // tarball ship, so this is the fallback only.
       flushOutput();
       try {
         ptyProcess?.resize(cols, rows);
       } catch {
         // Ignore resize errors (process may have exited)
       }
-      writeFrame(MSG.RESIZED);
+      // Echo the id so the daemon matches this ack to its own resize; a
+      // daemon from before ids sent none and gets the empty ack it expects.
+      writeFrame(
+        MSG.RESIZED,
+        id === undefined ? undefined : JSON.stringify({ id }),
+      );
       break;
     }
     case MSG.KILL:
       handleKill();
       break;
     case MSG.SIGNAL: {
+      // A `target: "foreground"` is ignored: node-pty can't name the pty's
+      // foreground process group, so this always signals the shell. The
+      // daemon sends its foreground repaint to manor-pty only; one that got
+      // here would be a SIGWINCH to the shell, which is harmless.
       const { signal } = JSON.parse(payload.toString("utf-8"));
       if (ptyProcess) {
         try {

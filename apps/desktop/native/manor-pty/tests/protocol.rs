@@ -247,6 +247,66 @@ fn resize_lands_before_resized_and_the_shell_sees_it() {
 }
 
 #[test]
+fn resized_echoes_the_resize_id_and_is_empty_without_one() {
+    let mut h = Helper::start();
+    h.spawn_sh("sleep 5");
+    let resized = |h: &Helper| loop {
+        let (kind, p) = h.next();
+        if kind == RESIZED {
+            break p;
+        }
+    };
+    h.send(RESIZE, br#"{"cols":100,"rows":30,"id":7}"#);
+    assert_eq!(resized(&h), br#"{"id":7}"#);
+    // An older daemon sends no id and expects the empty ack it always got.
+    h.send(RESIZE, br#"{"cols":90,"rows":30}"#);
+    assert_eq!(resized(&h), b"");
+    h.send(DISPOSE, b"");
+}
+
+#[test]
+fn output_waiting_in_the_pty_goes_out_before_resized_even_while_paused() {
+    // What a program wrote at the old size, still in the kernel's buffer
+    // because the daemon paused reading. Small enough that the kernel holds
+    // all of it, so the writer finishes and every byte here was written
+    // before the Resize: macOS's pty buffer is far smaller than Linux's
+    // (WSL2 took 12 KB; macOS blocked a 4 KB writer), and BSD ttys queue
+    // at least 1 KB.
+    const N: usize = 512;
+    let marker = std::env::temp_dir().join(format!("manor-pty-drain-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let mut h = Helper::start();
+    h.spawn_sh(&format!(
+        "stty -echo; echo ready; read _; head -c {N} /dev/zero | tr '\\0' x; touch {}; sleep 5",
+        marker.display()
+    ));
+    h.output_until("ready");
+    h.send(PAUSE, b"");
+    h.send(WRITE, b"\r");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "the child never finished writing");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::fs::remove_file(&marker).unwrap();
+    h.send(RESIZE, br#"{"cols":45,"rows":24,"id":3}"#);
+    let mut before = 0;
+    loop {
+        let (kind, p) = h.next();
+        match kind {
+            DATA => before += p.iter().filter(|&&b| b == b'x').count(),
+            RESIZED => {
+                assert_eq!(p, br#"{"id":3}"#);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(before, N, "old-size output read after the ioctl");
+    h.send(DISPOSE, b"");
+}
+
+#[test]
 fn fractional_and_out_of_range_sizes_are_truncated_and_clamped() {
     let mut h = Helper::start();
     let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();
@@ -329,6 +389,23 @@ fn signal_by_name_reaches_the_shell() {
     h.send(SIGNAL, br#"{"signal":"SIGUSR1"}"#);
     h.output_until("usr1");
     assert_eq!(h.exit_code(), 3);
+}
+
+#[test]
+fn signal_to_the_foreground_reaches_the_job_not_the_shell() {
+    let mut h = Helper::start();
+    // With job control on, the shell puts the job in its own process group
+    // and hands it the terminal: a signal to the shell's pid misses it.
+    h.spawn_sh(
+        "set -m; trap 'echo shell-winch' WINCH; \
+         sh -c 'trap \"echo job-winch\" WINCH; echo ready; while :; do sleep 0.05; done'",
+    );
+    h.output_until("ready");
+    h.send(SIGNAL, br#"{"signal":"SIGWINCH","target":"foreground"}"#);
+    let out = h.output_until("job-winch");
+    assert!(!out.contains("shell-winch"), "{out:?}");
+    h.send(KILL, b"");
+    h.exit_code();
 }
 
 #[test]

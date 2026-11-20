@@ -8,7 +8,8 @@
 //! - PTY output → DATA frames on stdout, never splitting a UTF-8 character
 //! - when stdout backs up, or the daemon sent Pause, the PTY isn't read, so the
 //!   kernel's buffers fill and the program in the pane blocks: nothing piles up
-//!   here
+//!   here. A Resize is the exception: it first reads what the kernel holds,
+//!   so output written at the old size goes out ahead of Resized
 //! - SIGCHLD → EXIT once the shell is gone
 
 mod foreground;
@@ -21,12 +22,16 @@ mod wait;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 /// Stop reading the PTY while this much is waiting to go to the daemon.
 const OUT_HIGH_WATER: usize = 256 * 1024;
 const READ_CHUNK: usize = 64 * 1024;
+/// The most a Resize reads from the PTY before its ioctl (see `drain_pty`):
+/// more than a kernel's PTY buffer holds, so it takes all of it.
+const RESIZE_DRAIN_MAX: usize = 256 * 1024;
 /// How long streaming output gathers before it's framed: pty-subprocess.js's
 /// OUTPUT_BATCH_INTERVAL_MS.
 const BATCH_WINDOW: Duration = Duration::from_millis(4);
@@ -62,6 +67,10 @@ struct ResizePayload {
     cols: u16,
     #[serde(deserialize_with = "dimension")]
     rows: u16,
+    /// Echoed in Resized so the daemon can tell whose ack it is. Absent from
+    /// an older daemon, which then gets the empty Resized it expects.
+    #[serde(default)]
+    id: Option<u64>,
 }
 
 /// A size in cells from any JSON number: the daemon passes clients' sizes
@@ -84,9 +93,20 @@ enum SignalName {
     Number(i32),
 }
 
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum SignalTarget {
+    /// The PTY's foreground process group: whatever the shell is running
+    /// (an agent), not the shell itself.
+    Foreground,
+}
+
 #[derive(Deserialize)]
 struct SignalPayload {
     signal: SignalName,
+    /// Unset: the shell, as before targets existed.
+    #[serde(default)]
+    target: Option<SignalTarget>,
 }
 
 fn signal_number(s: &SignalName) -> Option<i32> {
@@ -218,15 +238,21 @@ impl Helper {
                 }
             }
             frame::RESIZE => {
-                if let (Some(fd), Ok(r)) = (
-                    self.child.as_ref().and_then(pty::Child::fd),
-                    serde_json::from_slice::<ResizePayload>(payload),
-                ) {
+                let r = serde_json::from_slice::<ResizePayload>(payload).ok();
+                // Output the program wrote at the old size may still be in
+                // the kernel's buffer, all of it while paused; read after
+                // the ioctl, it would follow Resized and the daemon would
+                // draw it at the new size.
+                self.drain_pty();
+                if let (Some(fd), Some(r)) = (self.child.as_ref().and_then(pty::Child::fd), &r) {
                     let _ = pty::resize(fd, r.cols, r.rows);
                 }
                 // Output read at the old size goes out ahead of this.
                 self.flush_data(false);
-                frame::encode_into(&mut self.out, frame::RESIZED, b"");
+                match r.and_then(|r| r.id) {
+                    Some(id) => json_frame(&mut self.out, frame::RESIZED, serde_json::json!({ "id": id })),
+                    None => frame::encode_into(&mut self.out, frame::RESIZED, b""),
+                }
             }
             // Once the shell is reaped its pid can belong to anyone: Kill and
             // Signal after that would reach an unrelated process.
@@ -243,8 +269,18 @@ impl Helper {
                     && !self.exited
                     && let Some(sig) = signal_number(&s.signal)
                 {
+                    let pid = if s.target == Some(SignalTarget::Foreground) {
+                        // No foreground group (or init's, where -1 would mean
+                        // every process): nothing to signal.
+                        match child.fd().and_then(pty::foreground_pgrp) {
+                            Some(pgrp) if pgrp > 1 => -pgrp,
+                            _ => return,
+                        }
+                    } else {
+                        child.pid
+                    };
                     // SAFETY: plain syscall.
-                    unsafe { libc::kill(child.pid, sig) };
+                    unsafe { libc::kill(pid, sig) };
                 }
             }
             frame::DISPOSE => self.dispose(),
@@ -300,12 +336,41 @@ impl Helper {
             return;
         };
         while !self.pty_eof && !self.paused && self.queued() < OUT_HIGH_WATER {
-            // SAFETY: reading into our buffer.
-            let n = unsafe { libc::read(fd, self.read_buf.as_mut_ptr().cast(), READ_CHUNK) };
+            if self.read_once(fd, READ_CHUNK) == 0 {
+                return;
+            }
+        }
+    }
+
+    /// Before a resize's ioctl, read what the PTY already holds: until it's
+    /// empty or `RESIZE_DRAIN_MAX`, whether paused or not. Pause is there to
+    /// stop a program that keeps writing, and this is bounded: it takes
+    /// what was written before the resize and no more.
+    fn drain_pty(&mut self) {
+        let Some(fd) = self.child.as_ref().and_then(pty::Child::fd) else {
+            return;
+        };
+        let mut total = 0;
+        while !self.pty_eof && total < RESIZE_DRAIN_MAX {
+            match self.read_once(fd, READ_CHUNK.min(RESIZE_DRAIN_MAX - total)) {
+                0 => return,
+                n => total += n,
+            }
+        }
+    }
+
+    /// One read of up to `max` bytes into `pending`, framed as any output
+    /// is. Returns how many bytes it got: 0 when the PTY is empty (the
+    /// master is non-blocking) or done.
+    fn read_once(&mut self, fd: RawFd, max: usize) -> usize {
+        loop {
+            // SAFETY: reading into our buffer, which holds READ_CHUNK >= max.
+            let n = unsafe { libc::read(fd, self.read_buf.as_mut_ptr().cast(), max) };
             if n > 0 {
-                self.pending.extend_from_slice(&self.read_buf[..n as usize]);
+                let n = n as usize;
+                self.pending.extend_from_slice(&self.read_buf[..n]);
                 self.after_read();
-                continue;
+                return n;
             }
             let err = std::io::Error::last_os_error();
             if n < 0 && err.kind() == ErrorKind::Interrupted {
@@ -316,7 +381,7 @@ impl Helper {
                 self.pty_eof = true;
                 self.flush_data(true);
             }
-            return;
+            return 0;
         }
     }
 

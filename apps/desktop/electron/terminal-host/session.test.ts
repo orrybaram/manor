@@ -503,8 +503,36 @@ describe("Session", () => {
       return chunks;
     }
 
-    function pushResizedFrame(session: Session): void {
-      (session as any).decoder.push(encodeFrame(MSG.RESIZED));
+    /** An ack: with `id` as manor-pty and pty-subprocess.js now send it,
+     * without as a subprocess from before resize ids did. */
+    function pushResizedFrame(session: Session, id?: number): void {
+      (session as any).decoder.push(
+        id === undefined
+          ? encodeFrame(MSG.RESIZED)
+          : encodeJsonFrame(MSG.RESIZED, { id }),
+      );
+    }
+
+    /** The Resize frames the session sent its pty subprocess, in order. */
+    function captureResizeFrames(
+      session: Session,
+    ): Array<{ cols: number; rows: number; id: number }> {
+      const resizes: Array<{ cols: number; rows: number; id: number }> = [];
+      const decoder = new FrameDecoder((type, payload) => {
+        if (type === MSG.RESIZE)
+          resizes.push(JSON.parse(payload.toString("utf-8")));
+      });
+      (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+        decoder.push(c),
+      );
+      return resizes;
+    }
+
+    /** Stand in for the subprocess going away. */
+    function exitSubprocess(session: Session): void {
+      const on = (session as any).subprocess.on as ReturnType<typeof vi.fn>;
+      const onExit = on.mock.calls.find(([event]) => event === "exit")![1];
+      onExit();
     }
 
     it("publishes a resized event for a request that changes nothing", async () => {
@@ -540,6 +568,319 @@ describe("Session", () => {
         { cols: 100, rows: 30 },
         { cols: 120, rows: 40 },
       ]);
+    });
+
+    describe("an ack slower than the timeout", () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("publishes each size on its own ack, never on the timeout", async () => {
+        vi.useFakeTimers();
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        // A shrinking drag whose first ack is held up behind old-size output.
+        const first = session.resize(77, 24);
+        const second = session.resize(45, 24);
+        expect(sent.map(({ cols }) => cols)).toEqual([77, 45]);
+        const [id77, id45] = sent.map(({ id }) => id);
+        expect(id77).not.toBe(id45);
+
+        // The callers go on, but no grid moves on a guess: old-size output is
+        // still ahead of the ack, and would wrap at the new width.
+        await vi.advanceTimersByTimeAsync(2_500);
+        await first;
+        await second;
+        expect(resizedEvents(written)).toEqual([]);
+
+        // The late ack is the first resize's, and is credited to it alone —
+        // matched in order, it would publish 45 before that ioctl.
+        pushResizedFrame(session, id77);
+        expect(resizedEvents(written)).toEqual([{ cols: 77, rows: 24 }]);
+
+        pushResizedFrame(session, id45);
+        expect(resizedEvents(written)).toEqual([
+          { cols: 77, rows: 24 },
+          { cols: 45, rows: 24 },
+        ]);
+      });
+
+      it("credits an ack by id even when acks come out of order", () => {
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        void session.resize(77, 24);
+        void session.resize(45, 24);
+        pushResizedFrame(session, sent[1].id);
+
+        expect(resizedEvents(written)).toEqual([{ cols: 45, rows: 24 }]);
+      });
+    });
+
+    it("matches empty acks from an older subprocess in order", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const first = session.resize(100, 30);
+      const second = session.resize(120, 40);
+      pushResizedFrame(session);
+      pushResizedFrame(session);
+      await first;
+      await second;
+
+      expect(resizedEvents(written)).toEqual([
+        { cols: 100, rows: 30 },
+        { cols: 120, rows: 40 },
+      ]);
+    });
+
+    it("publishes a pending resize when the subprocess exits", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const pending = session.resize(100, 30);
+      // Its ack can no longer come, and a client left at the old size would
+      // stay there for good.
+      exitSubprocess(session);
+      (session as any).subprocess.stdout.end();
+      await pending;
+
+      expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+    });
+
+    it("reads what the subprocess wrote before exiting ahead of settling", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+      const sent = captureResizeFrames(session);
+      const { stdout } = (session as any).subprocess;
+
+      const pending = session.resize(100, 30);
+      // `exit` can come before the last of stdout has been read.
+      stdout.pause();
+      stdout.write(encodeFrame(MSG.DATA, "drawn at the old size"));
+      stdout.write(encodeJsonFrame(MSG.RESIZED, { id: sent[0].id }));
+      exitSubprocess(session);
+      expect(resizedEvents(written)).toEqual([]);
+
+      stdout.end();
+      stdout.resume();
+      await pending;
+      expect(
+        written
+          .map((line) => JSON.parse(line).type)
+          .filter((type) => type !== "exit"),
+      ).toEqual(["data", "resized"]);
+    });
+
+    it("leaves a same-size request to the pending ack to publish", async () => {
+      vi.useFakeTimers();
+      try {
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        const timedOut = session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await timedOut;
+        // Now the size the session holds, but its ioctl isn't acked yet.
+        await session.resize(100, 30);
+        expect(resizedEvents(written)).toEqual([]);
+
+        pushResizedFrame(session, sent[0].id);
+        expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("publishes a pending resize when the session is disposed", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+
+      const pending = session.resize(100, 30);
+      session.dispose();
+
+      expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+      await pending;
+    });
+
+    describe("a repaint after a doubtful boundary", () => {
+      /** The Signal frames the session sent its pty subprocess, in order. */
+      function captureSignalFrames(session: Session): unknown[] {
+        const signals: unknown[] = [];
+        const decoder = new FrameDecoder((type, payload) => {
+          if (type === MSG.SIGNAL)
+            signals.push(JSON.parse(payload.toString("utf-8")));
+        });
+        (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+          decoder.push(c),
+        );
+        return signals;
+      }
+
+      const REPAINT = { signal: "SIGWINCH", target: "foreground" };
+
+      /** A pane on manor-pty, with `foreground` in front. */
+      async function paneRunning(foreground: string | null) {
+        vi.useFakeTimers();
+        session.spawn();
+        // Only manor-pty can signal the foreground group.
+        (session as any).helperKind = "native";
+        (session as any).decoder.push(
+          encodeJsonFrame(MSG.FGPROC, { name: foreground }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        return {
+          signals: captureSignalFrames(session),
+          resizes: captureResizeFrames(session),
+        };
+      }
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("repaints an agent once, 300 ms after a timed-out ack went quiet", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000);
+        // Not before the late ack: a repaint then would be at the old size.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(signals).toEqual([]);
+
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(299);
+        expect(signals).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(signals).toEqual([REPAINT]);
+
+        // Once per doubtful boundary, however long the pane stays quiet.
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("repaints an agent after a resize made while output was paused", async () => {
+        const { signals, resizes } = await paneRunning("codex");
+        (session as any).outputPaused = true;
+
+        void session.resize(100, 30);
+        (session as any).outputPaused = false;
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("never repaints a plain shell", async () => {
+        const { signals } = await paneRunning(null);
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+
+      it("waits for output to stop before repainting", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(200);
+        pushDataFrame(session, "still drawing");
+        await vi.advanceTimersByTimeAsync(299);
+        expect(signals).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("waits while output is paused, then repaints once it resumes", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+        (session as any).outputPaused = true;
+
+        void session.resize(100, 30);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(signals).toEqual([]);
+
+        (session as any).outputPaused = false;
+        await vi.advanceTimersByTimeAsync(300);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("leaves a resize acked in time alone", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+
+      it("sends nothing through the Node helper, which can't reach the agent", async () => {
+        const { signals } = await paneRunning("claude");
+        (session as any).helperKind = "node";
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+    });
+
+    it("logs each published resize to resizes.jsonl", async () => {
+      const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-rl-"));
+      try {
+        const logged = new Session("logged", "/tmp", 80, 24, sessionsDir);
+        logged.spawn();
+        const sent = captureResizeFrames(logged);
+        pushDataFrame(logged, "before");
+
+        void logged.resize(100, 30);
+        pushResizedFrame(logged, sent[0].id);
+        await logged.whenPersisted();
+
+        const lines = fs
+          .readFileSync(
+            path.join(sessionsDir, "logged", "resizes.jsonl"),
+            "utf-8",
+          )
+          .trimEnd()
+          .split("\n")
+          .map((l) => JSON.parse(l));
+        expect(lines).toEqual([
+          {
+            event: "resize",
+            ts: expect.any(Number),
+            id: sent[0].id,
+            cols: 100,
+            rows: 30,
+            streamOffset: 1,
+            ackLatencyMs: expect.any(Number),
+            timedOut: false,
+            pausedAtResize: false,
+            pendingQueueLength: 0,
+            settled: false,
+          },
+        ]);
+        logged.dispose();
+      } finally {
+        fs.rmSync(sessionsDir, { recursive: true, force: true });
+      }
     });
 
     it("keeps the resize in order with the output around it", () => {

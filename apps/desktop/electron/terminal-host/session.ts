@@ -149,8 +149,16 @@ export function prependManorBinDir(basePath: string | undefined): string {
   return existing ? `${binDir}:${existing}` : binDir;
 }
 
-/** How long to wait for the pty subprocess to confirm a resize before giving up. */
+/**
+ * How long a caller waits for the pty subprocess to confirm a resize. Past it
+ * the caller goes on, but the size is still published only by its own ack.
+ */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
+/** How long a dead helper's stdout gets to end before pending sizes publish anyway. */
+const EXIT_SETTLE_BACKSTOP_MS = 1_000;
+
+/** How long output must stay quiet after a doubtful resize before a repaint. */
+const REPAINT_QUIET_MS = 300;
 
 /**
  * Unparsed output, in chars, at which the pty is paused and below which it
@@ -256,13 +264,35 @@ export class Session {
    * the first of two in-flight resizes publish the second one's size, which on
    * a shrinking drag hands clients a grid narrower than the pty their program
    * is reading from.
+   *
+   * Each also carries the `id` its Resize frame was sent with, and the ack
+   * echoes it. Matching by position instead credits a late ack to the next
+   * resize, which then publishes before its own ioctl has happened.
    */
   private pendingResizes: Array<{
+    id: number;
     cols: number;
     rows: number;
     resolve: () => void;
     timer: ReturnType<typeof setTimeout>;
+    /** The caller stopped waiting; the ack still publishes the size. */
+    timedOut: boolean;
+    /** Output was paused when the resize was sent. */
+    pausedAtResize: boolean;
+    /** `Date.now()` when the Resize frame was sent, for `resizes.jsonl`. */
+    sentAt: number;
   }> = [];
+  private lastResizeId = 0;
+
+  /**
+   * A resize happened where the stream can't vouch for its position: its ack
+   * timed out, or output was paused around it. An agent may have drawn at
+   * one width into a grid already at the other, so once output goes quiet
+   * it is asked to repaint (`repaintAfterDoubtfulBoundary`).
+   */
+  private boundaryDoubtful = false;
+  /** Fires `REPAINT_QUIET_MS` after the last output while a boundary is doubtful. */
+  private repaintTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Optional extra env vars injected on top of the shell env at spawn time */
   private envOverrides: Record<string, string>;
@@ -380,6 +410,8 @@ export class Session {
     }
     const fallBack = (reason: string, code?: string) => {
       if (this.helperReady || this.subprocess !== child) return;
+      // The Node helper spawns at the newest size and never saw these.
+      this.settlePendingResizes();
       recordNativeHelperFailure(helperPath, reason, code);
       child.removeAllListeners();
       child.stdout?.removeAllListeners();
@@ -409,6 +441,23 @@ export class Session {
     });
 
     child.on("exit", () => {
+      // No ack can come from a helper that is gone, but `exit` can come
+      // before its last frames have been read: settling now would publish
+      // ahead of output (or the very ack) still in the pipe.
+      const stdout = child.stdout;
+      if (!stdout || stdout.readableEnded || stdout.destroyed) {
+        this.settlePendingResizes();
+      } else {
+        const settle = () => {
+          clearTimeout(backstop);
+          this.settlePendingResizes();
+        };
+        // A pipe whose write end something else kept open never ends; don't
+        // hold the sizes back for good on its account.
+        const backstop = setTimeout(settle, EXIT_SETTLE_BACKSTOP_MS);
+        stdout.once("end", settle);
+        stdout.once("close", settle);
+      }
       if (!this.helperReady && onEarlyExit) {
         onEarlyExit();
         return;
@@ -493,6 +542,9 @@ export class Session {
         // Its OSC and title handlers fire while it parses the chunk; output
         // hints follow in the callback, so Pane facts keep the stream's order.
         const seq = ++this.outputSeq;
+        // Repaint only into a quiet pane: output still coming may be the
+        // program repainting already, or more drawn at the old width.
+        if (this.boundaryDoubtful) this.armRepaintTimer();
         this.headlessPendingChars += data.length;
         this.writeHeadless(data, () => {
           this.paneFacts.feedData(data);
@@ -545,11 +597,29 @@ export class Session {
       }
 
       case MSG.RESIZED: {
-        const pending = this.pendingResizes.shift();
+        // A subprocess from before resize ids acks with an empty payload; its
+        // acks still come in order, so the oldest pending resize is the one.
+        const id = payload.length
+          ? (JSON.parse(payload.toString("utf-8")) as { id?: unknown }).id
+          : undefined;
+        const i =
+          typeof id === "number"
+            ? this.pendingResizes.findIndex((p) => p.id === id)
+            : 0;
+        if (i < 0) break;
+        const [pending] = this.pendingResizes.splice(i, 1);
         if (!pending) break;
         clearTimeout(pending.timer);
-        this.applyResized(pending.cols, pending.rows);
-        pending.resolve();
+        // Published here even when the caller gave up waiting: this is where
+        // the ioctl landed in the stream, late or not.
+        this.publishResize(pending, false);
+        if (!pending.timedOut) pending.resolve();
+        // Paused output is read on the helper's terms, not the stream's: what
+        // the program wrote around the ioctl may sit on either side of it. A
+        // late ack says the daemon was behind, which can do the same. Marked
+        // here, at the ack, so the repaint follows the size it is for.
+        if (pending.timedOut || pending.pausedAtResize || this.outputPaused)
+          this.markBoundaryDoubtful();
         break;
       }
 
@@ -621,7 +691,12 @@ export class Session {
       // A client that already agrees drops this without touching its terminal.
       // The ioctl is skipped, so no program is made to repaint for a request
       // that changed nothing.
-      this.applyResized(cols, rows);
+      //
+      // Unless a resize is still waiting for its ack (one that timed out, say):
+      // this size is then the newest one sent, and old-size output may still
+      // be ahead of that ack. Publishing it now would jump that output; the
+      // ack publishes it in its place.
+      if (this.pendingResizes.length === 0) this.applyResized(cols, rows);
       return;
     }
     this.cols = cols;
@@ -630,21 +705,33 @@ export class Session {
       this.applyResized(cols, rows);
       return;
     }
+    const id = ++this.lastResizeId;
     return new Promise<void>((resolve) => {
-      // A subprocess that dies mid-resize would otherwise leave the caller —
-      // and the terminal it is holding at the old size — waiting forever. The
-      // oldest pending resize is always the first to time out, so it is the one
-      // at the head of the queue.
+      // A slow ack would otherwise hold the caller up. The timeout lets the
+      // caller go on but publishes nothing: an ack that is only late (the
+      // daemon is behind on the pipe, output is paused) still has old-size
+      // output ahead of it, and a grid moved now would wrap that output at
+      // the new width. The entry stays queued so its ack publishes it; a
+      // helper that dies instead publishes it on exit
+      // (`settlePendingResizes`), so no client is stranded at the old size.
       const timer = setTimeout(() => {
-        if (this.pendingResizes[0]?.timer === timer)
-          this.pendingResizes.shift();
-        // A client left waiting on an event that will never come would keep its
-        // grid at the old size for good, so the timeout publishes one too.
-        this.applyResized(cols, rows);
+        // Doubtful, but only once its ack lands: a repaint before then would
+        // be drawn at the old size (see the RESIZED case).
+        pending.timedOut = true;
         resolve();
       }, RESIZE_ACK_TIMEOUT_MS);
-      this.pendingResizes.push({ cols, rows, resolve, timer });
-      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows }));
+      const pending = {
+        id,
+        cols,
+        rows,
+        resolve,
+        timer,
+        timedOut: false,
+        pausedAtResize: this.outputPaused,
+        sentAt: Date.now(),
+      };
+      this.pendingResizes.push(pending);
+      this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows, id }));
     });
   }
 
@@ -676,6 +763,95 @@ export class Session {
       sessionId: this.sessionId,
       cols,
       rows,
+    });
+  }
+
+  /**
+   * Publish and resolve every resize still waiting for an ack that can no
+   * longer come, oldest first. Clients then end at the newest size asked
+   * for, instead of holding an old one for good.
+   */
+  private settlePendingResizes(): void {
+    for (const pending of this.pendingResizes.splice(0)) {
+      clearTimeout(pending.timer);
+      this.publishResize(pending, true);
+      pending.resolve();
+    }
+  }
+
+  /**
+   * Publish a resize the subprocess was sent, once its ack came or can no
+   * longer come (`settled`), and log it to `resizes.jsonl`.
+   */
+  private publishResize(
+    pending: Session["pendingResizes"][number],
+    settled: boolean,
+  ): void {
+    this.applyResized(pending.cols, pending.rows);
+    const ts = Date.now();
+    void this.scrollbackWriter?.logResize({
+      event: "resize",
+      ts,
+      id: pending.id,
+      cols: pending.cols,
+      rows: pending.rows,
+      streamOffset: this.outputSeq,
+      ackLatencyMs: ts - pending.sentAt,
+      timedOut: pending.timedOut,
+      pausedAtResize: pending.pausedAtResize,
+      pendingQueueLength: this.pendingResizes.length,
+      settled,
+    });
+  }
+
+  private markBoundaryDoubtful(): void {
+    this.boundaryDoubtful = true;
+    this.armRepaintTimer();
+  }
+
+  private armRepaintTimer(): void {
+    if (this.repaintTimer) clearTimeout(this.repaintTimer);
+    this.repaintTimer = setTimeout(
+      () => this.repaintAfterDoubtfulBoundary(),
+      REPAINT_QUIET_MS,
+    );
+  }
+
+  /**
+   * Once a pane with a doubtful boundary has gone quiet, ask a known agent in
+   * its foreground to repaint, once: what a user does by hand with a resize
+   * when an agent's screen has turned to staircases. A same-size ioctl
+   * raises no SIGWINCH, so the signal is sent outright, to the foreground
+   * process group, which is where the agent is (not the shell's pid).
+   *
+   * A plain shell never gets one: a repaint costs a full redraw and, for a
+   * program that doesn't clear scrollback, a duplicate screen in it. The
+   * mark is cleared either way, so an agent started later isn't repainted
+   * for a boundary it never saw.
+   *
+   * Native helper only: `pty-subprocess.js` can only signal the shell's pid,
+   * which wouldn't reach the agent.
+   */
+  private repaintAfterDoubtfulBoundary(): void {
+    this.repaintTimer = null;
+    if (!this.boundaryDoubtful) return;
+    // No data while paused is the daemon not reading, not the agent idle: a
+    // repaint now would queue behind the backlog it is meant to follow.
+    if (this.outputPaused || this.headlessPendingChars > 0) {
+      this.armRepaintTimer();
+      return;
+    }
+    this.boundaryDoubtful = false;
+    if (!this._alive || !this.subprocess || this.helperKind !== "native")
+      return;
+    if (!this.paneFacts.facts.foreground?.kind) return;
+    this.writeToSubprocess(
+      encodeJsonFrame(MSG.SIGNAL, { signal: "SIGWINCH", target: "foreground" }),
+    );
+    void this.scrollbackWriter?.logResize({
+      event: "repaint",
+      ts: Date.now(),
+      streamOffset: this.outputSeq,
     });
   }
 
@@ -724,10 +900,9 @@ export class Session {
     this._alive = false;
     if (this.readyFallback) clearTimeout(this.readyFallback);
     this.readyFallback = null;
-    for (const pending of this.pendingResizes.splice(0)) {
-      clearTimeout(pending.timer);
-      pending.resolve();
-    }
+    if (this.repaintTimer) clearTimeout(this.repaintTimer);
+    this.repaintTimer = null;
+    this.settlePendingResizes();
     // Kept after disposal, which makes it inert, so `whenPersisted` can
     // still wait on its last writes.
     this.scrollbackWriter?.end();

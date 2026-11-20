@@ -5,6 +5,9 @@
  *   - scrollback.bin  — raw PTY output, appended to; cut back to its last
  *                       half once it passes MAX_SCROLLBACK_BYTES
  *   - meta.json       — { cols, rows, cwd, createdAt, endedAt? }
+ *   - resizes.jsonl   — one `ResizeLogLine` per published resize or repaint,
+ *                       for diagnosing a garbled pane; cut back to its last
+ *                       half once it passes MAX_RESIZE_LOG_BYTES
  */
 
 import * as fs from "node:fs";
@@ -16,6 +19,7 @@ export const SESSIONS_DIR = scrollbackSessionsDir();
 export const MAX_SCROLLBACK_BYTES = 5 * 1024 * 1024; // 5MB
 /** Where a scrollback past MAX_SCROLLBACK_BYTES is cut back to. */
 export const SCROLLBACK_TRUNCATE_TO_BYTES = MAX_SCROLLBACK_BYTES / 2;
+export const MAX_RESIZE_LOG_BYTES = 256 * 1024;
 export const COLD_RESTORE_MAX_BYTES = 500 * 1024; // 500KB read limit for cold restore
 
 /**
@@ -44,7 +48,10 @@ export function isSafeSessionId(sessionId: string): boolean {
  * Write `file` by writing a sibling tmp file and renaming it into place, so a
  * reader never sees it half-written and a crash mid-write leaves the old one.
  */
-async function writeFileAtomic(file: string, data: string | Buffer): Promise<void> {
+async function writeFileAtomic(
+  file: string,
+  data: string | Buffer,
+): Promise<void> {
   const tmpPath = `${file}.tmp`;
   await fsp.writeFile(tmpPath, data);
   await fsp.rename(tmpPath, file);
@@ -55,6 +62,29 @@ function writeFileAtomicSync(file: string, data: string | Buffer): void {
   fs.writeFileSync(tmpPath, data);
   fs.renameSync(tmpPath, file);
 }
+
+/**
+ * A line of `resizes.jsonl`. `streamOffset` is the session's output position
+ * (the `seq` of the last `data` event broadcast) when it happened.
+ */
+export type ResizeLogLine =
+  | {
+      event: "resize";
+      ts: number;
+      id: number;
+      cols: number;
+      rows: number;
+      streamOffset: number;
+      /** From the Resize frame to its ack (or its settling). */
+      ackLatencyMs: number;
+      timedOut: boolean;
+      pausedAtResize: boolean;
+      /** Resizes still waiting for an ack once this one is published. */
+      pendingQueueLength: number;
+      /** Published without an ack: the helper exited or the session ended. */
+      settled: boolean;
+    }
+  | { event: "repaint"; ts: number; streamOffset: number };
 
 export interface SessionMeta {
   sessionId: string;
@@ -99,6 +129,13 @@ export class ScrollbackWriter {
     return path.join(this.sessionDir, "scrollback.bin");
   }
 
+  private get resizeLogPath(): string {
+    return path.join(this.sessionDir, "resizes.jsonl");
+  }
+
+  /** Bytes `resizes.jsonl` holds once every queued append has landed. */
+  private resizeLogBytes = 0;
+
   private get metaPath(): string {
     return path.join(this.sessionDir, "meta.json");
   }
@@ -117,6 +154,32 @@ export class ScrollbackWriter {
     // Create empty scrollback file
     fs.writeFileSync(this.scrollbackPath, "");
     this.totalBytes = 0;
+    fs.writeFileSync(this.resizeLogPath, "");
+    this.resizeLogBytes = 0;
+  }
+
+  /**
+   * Append a line to `resizes.jsonl`. Queued with the other disk writes, so it
+   * never blocks the session, and a failed write is dropped.
+   */
+  logResize(line: ResizeLogLine): Promise<void> {
+    if (this.disposed) return this.whenIdle();
+    const text = JSON.stringify(line) + "\n";
+    this.resizeLogBytes += Buffer.byteLength(text);
+    const truncate = this.resizeLogBytes > MAX_RESIZE_LOG_BYTES;
+    return this.enqueue(async () => {
+      await fsp.appendFile(this.resizeLogPath, text);
+      if (truncate) this.resizeLogBytes = await this.truncateResizeLog();
+    });
+  }
+
+  /** Keep the last half of `resizes.jsonl`, from a line start. Returns its size. */
+  private async truncateResizeLog(): Promise<number> {
+    const content = await fsp.readFile(this.resizeLogPath);
+    const tail = content.subarray(content.length - MAX_RESIZE_LOG_BYTES / 2);
+    const kept = tail.subarray(tail.indexOf(0x0a) + 1);
+    await writeFileAtomic(this.resizeLogPath, kept);
+    return kept.length;
   }
 
   /** Append PTY output data. Buffered and flushed periodically. */

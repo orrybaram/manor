@@ -119,6 +119,9 @@ class TestDaemon {
   private handleConnection(socket: net.Socket): void {
     this.activeSockets.add(socket);
     socket.on("close", () => this.activeSockets.delete(socket));
+    // As the real daemon does: a session disposed in `stop` publishes its
+    // pending resizes to stream sockets the client may already have closed.
+    socket.on("error", () => {});
     let connectionType: "control" | "stream" | null = null;
     let buffer = "";
 

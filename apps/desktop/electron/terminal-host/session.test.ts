@@ -649,9 +649,57 @@ describe("Session", () => {
       // Its ack can no longer come, and a client left at the old size would
       // stay there for good.
       exitSubprocess(session);
+      (session as any).subprocess.stdout.end();
+      await pending;
 
       expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+    });
+
+    it("reads what the subprocess wrote before exiting ahead of settling", async () => {
+      const { socket, written } = mockSocket();
+      session.spawn();
+      session.attachClient(socket);
+      const sent = captureResizeFrames(session);
+      const { stdout } = (session as any).subprocess;
+
+      const pending = session.resize(100, 30);
+      // `exit` can come before the last of stdout has been read.
+      stdout.pause();
+      stdout.write(encodeFrame(MSG.DATA, "drawn at the old size"));
+      stdout.write(encodeJsonFrame(MSG.RESIZED, { id: sent[0].id }));
+      exitSubprocess(session);
+      expect(resizedEvents(written)).toEqual([]);
+
+      stdout.end();
+      stdout.resume();
       await pending;
+      expect(
+        written
+          .map((line) => JSON.parse(line).type)
+          .filter((type) => type !== "exit"),
+      ).toEqual(["data", "resized"]);
+    });
+
+    it("leaves a same-size request to the pending ack to publish", async () => {
+      vi.useFakeTimers();
+      try {
+        const { socket, written } = mockSocket();
+        session.spawn();
+        session.attachClient(socket);
+        const sent = captureResizeFrames(session);
+
+        const timedOut = session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await timedOut;
+        // Now the size the session holds, but its ioctl isn't acked yet.
+        await session.resize(100, 30);
+        expect(resizedEvents(written)).toEqual([]);
+
+        pushResizedFrame(session, sent[0].id);
+        expect(resizedEvents(written)).toEqual([{ cols: 100, rows: 30 }]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("publishes a pending resize when the session is disposed", async () => {

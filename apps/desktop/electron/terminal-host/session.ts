@@ -439,8 +439,17 @@ export class Session {
     });
 
     child.on("exit", () => {
-      // No ack can come from a helper that is gone.
-      this.settlePendingResizes();
+      // No ack can come from a helper that is gone, but `exit` can come
+      // before its last frames have been read: settling now would publish
+      // ahead of output (or the very ack) still in the pipe.
+      const stdout = child.stdout;
+      if (!stdout || stdout.readableEnded || stdout.destroyed) {
+        this.settlePendingResizes();
+      } else {
+        const settle = () => this.settlePendingResizes();
+        stdout.once("end", settle);
+        stdout.once("close", settle);
+      }
       if (!this.helperReady && onEarlyExit) {
         onEarlyExit();
         return;
@@ -672,7 +681,12 @@ export class Session {
       // A client that already agrees drops this without touching its terminal.
       // The ioctl is skipped, so no program is made to repaint for a request
       // that changed nothing.
-      this.applyResized(cols, rows);
+      //
+      // Unless a resize is still waiting for its ack (one that timed out, say):
+      // this size is then the newest one sent, and old-size output may still
+      // be ahead of that ack. Publishing it now would jump that output; the
+      // ack publishes it in its place.
+      if (this.pendingResizes.length === 0) this.applyResized(cols, rows);
       return;
     }
     this.cols = cols;

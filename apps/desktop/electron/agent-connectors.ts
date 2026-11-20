@@ -21,6 +21,9 @@ export interface AgentConnector {
   /** Which agent kind this connector handles */
   readonly kind: AgentKind;
 
+  /** The agent's name as people know it, e.g. in Project Setup's agent list */
+  readonly label: string;
+
   /** Default CLI command for starting a new session */
   readonly defaultCommand: string;
 
@@ -179,6 +182,7 @@ const CLAUDE_HOOK_ENTRIES = [
 
 export class ClaudeConnector implements AgentConnector {
   readonly kind: AgentKind = "claude";
+  readonly label = "Claude Code";
   readonly defaultCommand = "claude --dangerously-skip-permissions";
 
   getResumeCommand(baseCommand: string, sessionId: string): string | null {
@@ -322,6 +326,7 @@ const CODEX_HOOK_ENTRIES = [
 
 export class CodexConnector implements AgentConnector {
   readonly kind: AgentKind = "codex";
+  readonly label = "Codex";
   readonly defaultCommand = "codex --yolo";
 
   getResumeCommand(baseCommand: string, sessionId: string): string | null {
@@ -493,6 +498,7 @@ export class CodexConnector implements AgentConnector {
 
 export class PiConnector implements AgentConnector {
   readonly kind: AgentKind = "pi";
+  readonly label = "Pi";
   readonly defaultCommand = "pi";
 
   getResumeCommand(baseCommand: string, sessionId: string): string | null {
@@ -672,6 +678,7 @@ export default function (pi: ExtensionAPI) {
 
 export class OpencodeConnector implements AgentConnector {
   readonly kind: AgentKind = "opencode";
+  readonly label = "OpenCode";
   readonly defaultCommand = "opencode";
 
   getResumeCommand(baseCommand: string, sessionId: string): string | null {

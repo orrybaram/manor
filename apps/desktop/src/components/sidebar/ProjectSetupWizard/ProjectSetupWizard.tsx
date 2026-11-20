@@ -88,9 +88,14 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
   // Discover available agents on mount
   useMountEffect(() => {
     let cancelled = false;
+    if (!project) {
+      setAgentsLoading(false);
+      return;
+    }
     setAgentsLoading(true);
-    window.electronAPI.shell
-      .discoverAgents()
+    // The project's host, not this machine: a remote project runs its agent there.
+    window.electronAPI.hosts
+      .discoverAgents(project.hostId)
       .then((agents) => {
         if (!cancelled) {
           setDiscoveredAgents(agents);

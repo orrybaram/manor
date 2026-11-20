@@ -32,7 +32,7 @@ import { uploadClipboardImage } from "./paste-image";
  * names as a design fact rather than a gap.
  */
 export function register(deps: HostDeps): void {
-  const { backend, backendRegistry, preferencesManager } = deps;
+  const { backendRegistry, preferencesManager } = deps;
 
   function getMainWindow() {
     return deps.mainWindow;
@@ -105,30 +105,6 @@ export function register(deps: HostDeps): void {
       } catch {
         return null;
       }
-    },
-  );
-
-  ipcMain.handle(
-    "shell:discoverAgents",
-    async (): Promise<Array<{ name: string; command: string }>> => {
-      const agents = [
-        {
-          name: "Claude Code",
-          bin: "claude",
-          command: "claude --dangerously-skip-permissions",
-        },
-        { name: "Codex", bin: "codex", command: "codex --yolo" },
-        { name: "OpenCode", bin: "opencode", command: "opencode" },
-      ];
-      const found: Array<{ name: string; command: string }> = [];
-      await Promise.all(
-        agents.map(async (agent) => {
-          const result = await backend.shell.which(agent.bin);
-          if (result !== null)
-            found.push({ name: agent.name, command: agent.command });
-        }),
-      );
-      return found;
     },
   );
 

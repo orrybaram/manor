@@ -314,6 +314,12 @@ const decoder = new FrameDecoder((type, payload) => {
       // Everything the pty produced at the old size goes out first, so the
       // daemon can treat RESIZED as a boundary in the output stream rather
       // than just a reply: no pre-resize bytes can follow it.
+      //
+      // Known gap: that is only what node-pty has already read. manor-pty
+      // also drains the kernel's buffer before its ioctl; node-pty can't read
+      // synchronously, so here output still in that buffer (all of it while
+      // paused) follows RESIZED. manor-pty is what desktop and the host
+      // tarball ship, so this is the fallback only.
       flushOutput();
       try {
         ptyProcess?.resize(cols, rows);

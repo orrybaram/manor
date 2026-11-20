@@ -265,6 +265,46 @@ fn resized_echoes_the_resize_id_and_is_empty_without_one() {
 }
 
 #[test]
+fn output_waiting_in_the_pty_goes_out_before_resized_even_while_paused() {
+    // What a program wrote at the old size, still in the kernel's buffer
+    // because the daemon paused reading. Small enough that the kernel holds
+    // all of it (WSL2's Linux took 12 KB but not 16 KB), so the writer
+    // finishes and every byte here was written before the Resize.
+    const N: usize = 4096;
+    let marker = std::env::temp_dir().join(format!("manor-pty-drain-{}", std::process::id()));
+    let _ = std::fs::remove_file(&marker);
+    let mut h = Helper::start();
+    h.spawn_sh(&format!(
+        "stty -echo; echo ready; read _; head -c {N} /dev/zero | tr '\\0' x; touch {}; sleep 5",
+        marker.display()
+    ));
+    h.output_until("ready");
+    h.send(PAUSE, b"");
+    h.send(WRITE, b"\r");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        assert!(Instant::now() < deadline, "the child never finished writing");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::fs::remove_file(&marker).unwrap();
+    h.send(RESIZE, br#"{"cols":45,"rows":24,"id":3}"#);
+    let mut before = 0;
+    loop {
+        let (kind, p) = h.next();
+        match kind {
+            DATA => before += p.iter().filter(|&&b| b == b'x').count(),
+            RESIZED => {
+                assert_eq!(p, br#"{"id":3}"#);
+                break;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(before, N, "old-size output read after the ioctl");
+    h.send(DISPOSE, b"");
+}
+
+#[test]
 fn fractional_and_out_of_range_sizes_are_truncated_and_clamped() {
     let mut h = Helper::start();
     let env: serde_json::Map<String, serde_json::Value> = std::env::vars().map(|(k, v)| (k, v.into())).collect();

@@ -390,6 +390,23 @@ fn signal_by_name_reaches_the_shell() {
 }
 
 #[test]
+fn signal_to_the_foreground_reaches_the_job_not_the_shell() {
+    let mut h = Helper::start();
+    // With job control on, the shell puts the job in its own process group
+    // and hands it the terminal: a signal to the shell's pid misses it.
+    h.spawn_sh(
+        "set -m; trap 'echo shell-winch' WINCH; \
+         sh -c 'trap \"echo job-winch\" WINCH; echo ready; while :; do sleep 0.05; done'",
+    );
+    h.output_until("ready");
+    h.send(SIGNAL, br#"{"signal":"SIGWINCH","target":"foreground"}"#);
+    let out = h.output_until("job-winch");
+    assert!(!out.contains("shell-winch"), "{out:?}");
+    h.send(KILL, b"");
+    h.exit_code();
+}
+
+#[test]
 fn a_multibyte_flood_never_splits_a_character() {
     let mut h = Helper::start();
     h.spawn_sh("i=0; while [ $i -lt 3000 ]; do printf '终端🦀é'; i=$((i+1)); done; echo; echo done");

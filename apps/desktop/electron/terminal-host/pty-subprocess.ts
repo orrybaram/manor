@@ -338,6 +338,10 @@ const decoder = new FrameDecoder((type, payload) => {
       handleKill();
       break;
     case MSG.SIGNAL: {
+      // A `target: "foreground"` is ignored: node-pty can't name the pty's
+      // foreground process group, so this always signals the shell. The
+      // daemon sends its foreground repaint to manor-pty only; one that got
+      // here would be a SIGWINCH to the shell, which is harmless.
       const { signal } = JSON.parse(payload.toString("utf-8"));
       if (ptyProcess) {
         try {

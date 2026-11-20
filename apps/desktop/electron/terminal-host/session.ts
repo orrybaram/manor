@@ -155,6 +155,9 @@ export function prependManorBinDir(basePath: string | undefined): string {
  */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
 
+/** How long output must stay quiet after a doubtful resize before a repaint. */
+const REPAINT_QUIET_MS = 300;
+
 /**
  * Unparsed output, in chars, at which the pty is paused and below which it
  * resumes (see `Session.updateFlow`). xterm discards writes past 50MB queued; pausing well short of that
@@ -272,8 +275,20 @@ export class Session {
     timer: ReturnType<typeof setTimeout>;
     /** The caller stopped waiting; the ack still publishes the size. */
     timedOut: boolean;
+    /** Output was paused when the resize was sent. */
+    pausedAtResize: boolean;
   }> = [];
   private lastResizeId = 0;
+
+  /**
+   * A resize happened where the stream can't vouch for its position: its ack
+   * timed out, or output was paused around it. An agent may have drawn at
+   * one width into a grid already at the other, so once output goes quiet
+   * it is asked to repaint (`repaintAfterDoubtfulBoundary`).
+   */
+  private boundaryDoubtful = false;
+  /** Fires `REPAINT_QUIET_MS` after the last output while a boundary is doubtful. */
+  private repaintTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Optional extra env vars injected on top of the shell env at spawn time */
   private envOverrides: Record<string, string>;
@@ -508,6 +523,9 @@ export class Session {
         // Its OSC and title handlers fire while it parses the chunk; output
         // hints follow in the callback, so Pane facts keep the stream's order.
         const seq = ++this.outputSeq;
+        // Repaint only into a quiet pane: output still coming may be the
+        // program repainting already, or more drawn at the old width.
+        if (this.boundaryDoubtful) this.armRepaintTimer();
         this.headlessPendingChars += data.length;
         this.writeHeadless(data, () => {
           this.paneFacts.feedData(data);
@@ -577,6 +595,10 @@ export class Session {
         // the ioctl landed in the stream, late or not.
         this.applyResized(pending.cols, pending.rows);
         if (!pending.timedOut) pending.resolve();
+        // Paused output is read on the helper's terms, not the stream's: what
+        // the program wrote around the ioctl may sit on either side of it.
+        if (pending.pausedAtResize || this.outputPaused)
+          this.markBoundaryDoubtful();
         break;
       }
 
@@ -668,9 +690,18 @@ export class Session {
       // (`settlePendingResizes`), so no client is stranded at the old size.
       const timer = setTimeout(() => {
         pending.timedOut = true;
+        this.markBoundaryDoubtful();
         resolve();
       }, RESIZE_ACK_TIMEOUT_MS);
-      const pending = { id, cols, rows, resolve, timer, timedOut: false };
+      const pending = {
+        id,
+        cols,
+        rows,
+        resolve,
+        timer,
+        timedOut: false,
+        pausedAtResize: this.outputPaused,
+      };
       this.pendingResizes.push(pending);
       this.writeToSubprocess(encodeJsonFrame(MSG.RESIZE, { cols, rows, id }));
     });
@@ -720,6 +751,46 @@ export class Session {
     }
   }
 
+  private markBoundaryDoubtful(): void {
+    this.boundaryDoubtful = true;
+    this.armRepaintTimer();
+  }
+
+  private armRepaintTimer(): void {
+    if (this.repaintTimer) clearTimeout(this.repaintTimer);
+    this.repaintTimer = setTimeout(
+      () => this.repaintAfterDoubtfulBoundary(),
+      REPAINT_QUIET_MS,
+    );
+  }
+
+  /**
+   * Once a pane with a doubtful boundary has gone quiet, ask a known agent in
+   * its foreground to repaint, once: what a user does by hand with a resize
+   * when an agent's screen has turned to staircases. A same-size ioctl
+   * raises no SIGWINCH, so the signal is sent outright, to the foreground
+   * process group, which is where the agent is (not the shell's pid).
+   *
+   * A plain shell never gets one: a repaint costs a full redraw and, for a
+   * program that doesn't clear scrollback, a duplicate screen in it. The
+   * mark is cleared either way, so an agent started later isn't repainted
+   * for a boundary it never saw.
+   *
+   * Native helper only: `pty-subprocess.js` can only signal the shell's pid,
+   * which wouldn't reach the agent.
+   */
+  private repaintAfterDoubtfulBoundary(): void {
+    this.repaintTimer = null;
+    if (!this.boundaryDoubtful) return;
+    this.boundaryDoubtful = false;
+    if (!this._alive || !this.subprocess || this.helperKind !== "native")
+      return;
+    if (!this.paneFacts.facts.foreground?.kind) return;
+    this.writeToSubprocess(
+      encodeJsonFrame(MSG.SIGNAL, { signal: "SIGWINCH", target: "foreground" }),
+    );
+  }
+
   /** Dispose of this session entirely */
   dispose(): void {
     this.disposeInternal();
@@ -765,6 +836,8 @@ export class Session {
     this._alive = false;
     if (this.readyFallback) clearTimeout(this.readyFallback);
     this.readyFallback = null;
+    if (this.repaintTimer) clearTimeout(this.repaintTimer);
+    this.repaintTimer = null;
     this.settlePendingResizes();
     // Kept after disposal, which makes it inert, so `whenPersisted` can
     // still wait on its last writes.

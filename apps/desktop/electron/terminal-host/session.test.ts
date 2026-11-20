@@ -666,6 +666,112 @@ describe("Session", () => {
       await pending;
     });
 
+    describe("a repaint after a doubtful boundary", () => {
+      /** The Signal frames the session sent its pty subprocess, in order. */
+      function captureSignalFrames(session: Session): unknown[] {
+        const signals: unknown[] = [];
+        const decoder = new FrameDecoder((type, payload) => {
+          if (type === MSG.SIGNAL)
+            signals.push(JSON.parse(payload.toString("utf-8")));
+        });
+        (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+          decoder.push(c),
+        );
+        return signals;
+      }
+
+      const REPAINT = { signal: "SIGWINCH", target: "foreground" };
+
+      /** A pane on manor-pty, with `foreground` in front. */
+      async function paneRunning(foreground: string | null) {
+        vi.useFakeTimers();
+        session.spawn();
+        // Only manor-pty can signal the foreground group.
+        (session as any).helperKind = "native";
+        (session as any).decoder.push(
+          encodeJsonFrame(MSG.FGPROC, { name: foreground }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        return {
+          signals: captureSignalFrames(session),
+          resizes: captureResizeFrames(session),
+        };
+      }
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("repaints an agent once, 300 ms after a timed-out ack went quiet", async () => {
+        const { signals } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(299);
+        expect(signals).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(signals).toEqual([REPAINT]);
+
+        // Once per doubtful boundary, however long the pane stays quiet.
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("repaints an agent after a resize made while output was paused", async () => {
+        const { signals, resizes } = await paneRunning("codex");
+        (session as any).outputPaused = true;
+
+        void session.resize(100, 30);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("never repaints a plain shell", async () => {
+        const { signals } = await paneRunning(null);
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+
+      it("waits for output to stop before repainting", async () => {
+        const { signals } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(2_000 + 200);
+        pushDataFrame(session, "still drawing");
+        await vi.advanceTimersByTimeAsync(299);
+        expect(signals).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(signals).toEqual([REPAINT]);
+      });
+
+      it("leaves a resize acked in time alone", async () => {
+        const { signals, resizes } = await paneRunning("claude");
+
+        void session.resize(100, 30);
+        pushResizedFrame(session, resizes[0].id);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+
+      it("sends nothing through the Node helper, which can't reach the agent", async () => {
+        const { signals } = await paneRunning("claude");
+        (session as any).helperKind = "node";
+
+        void session.resize(100, 30);
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(signals).toEqual([]);
+      });
+    });
+
     it("keeps the resize in order with the output around it", () => {
       const { socket, written } = mockSocket();
       session.spawn();

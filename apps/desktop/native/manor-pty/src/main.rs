@@ -93,9 +93,20 @@ enum SignalName {
     Number(i32),
 }
 
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum SignalTarget {
+    /// The PTY's foreground process group: whatever the shell is running
+    /// (an agent), not the shell itself.
+    Foreground,
+}
+
 #[derive(Deserialize)]
 struct SignalPayload {
     signal: SignalName,
+    /// Unset: the shell, as before targets existed.
+    #[serde(default)]
+    target: Option<SignalTarget>,
 }
 
 fn signal_number(s: &SignalName) -> Option<i32> {
@@ -258,8 +269,18 @@ impl Helper {
                     && !self.exited
                     && let Some(sig) = signal_number(&s.signal)
                 {
+                    let pid = if s.target == Some(SignalTarget::Foreground) {
+                        // No foreground group (or init's, where -1 would mean
+                        // every process): nothing to signal.
+                        match child.fd().and_then(pty::foreground_pgrp) {
+                            Some(pgrp) if pgrp > 1 => -pgrp,
+                            _ => return,
+                        }
+                    } else {
+                        child.pid
+                    };
                     // SAFETY: plain syscall.
-                    unsafe { libc::kill(child.pid, sig) };
+                    unsafe { libc::kill(pid, sig) };
                 }
             }
             frame::DISPOSE => self.dispose(),

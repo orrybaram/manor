@@ -8,7 +8,8 @@
  *   0x02 Write   — raw bytes (terminal input)
  *   0x03 Resize  — JSON: { cols, rows, id? }
  *   0x04 Kill    — no payload
- *   0x05 Signal  — JSON: { signal }
+ *   0x05 Signal  — JSON: { signal, target? } (target "foreground": the pty's
+ *                  foreground process group instead of the shell)
  *   0x06 Dispose — no payload
  *   0x07 Pause   — no payload (stop reading the pty; the daemon is behind)
  *   0x08 Resume  — no payload (read the pty again)
@@ -45,6 +46,9 @@
  *     Resize's `id`, echoed in Resized, joined the same way: a subprocess
  *     that ignores it acks with an empty payload, which the daemon matches
  *     in order as before, and a daemon that sends none gets an empty ack.
+     Signal's `target`, the same way: the daemon sends it to `manor-pty`
+     only, and one from before it signals the shell instead, which for the
+     SIGWINCH it is sent with is harmless.
  */
 export const PTY_SUBPROCESS_PROTOCOL = 1;
 

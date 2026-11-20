@@ -268,9 +268,11 @@ fn resized_echoes_the_resize_id_and_is_empty_without_one() {
 fn output_waiting_in_the_pty_goes_out_before_resized_even_while_paused() {
     // What a program wrote at the old size, still in the kernel's buffer
     // because the daemon paused reading. Small enough that the kernel holds
-    // all of it (WSL2's Linux took 12 KB but not 16 KB), so the writer
-    // finishes and every byte here was written before the Resize.
-    const N: usize = 4096;
+    // all of it, so the writer finishes and every byte here was written
+    // before the Resize: macOS's pty buffer is far smaller than Linux's
+    // (WSL2 took 12 KB; macOS blocked a 4 KB writer), and BSD ttys queue
+    // at least 1 KB.
+    const N: usize = 512;
     let marker = std::env::temp_dir().join(format!("manor-pty-drain-{}", std::process::id()));
     let _ = std::fs::remove_file(&marker);
     let mut h = Helper::start();

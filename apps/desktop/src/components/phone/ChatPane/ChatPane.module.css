@@ -422,6 +422,26 @@ button.toolLine:disabled {
   color: var(--text-dim);
 }
 
+.recap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.recapMark {
+  flex: none;
+  opacity: 0.6;
+}
+
+.recapLabel {
+  font-weight: 600;
+}
+
 .thoughtDot {
   font-family: var(--font-mono);
   opacity: 0.6;

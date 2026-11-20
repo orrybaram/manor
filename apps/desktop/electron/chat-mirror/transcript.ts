@@ -135,6 +135,17 @@ export type ChatEntry =
       durationMs: number;
     }
   | {
+      /**
+       * Claude Code's recap of the session, written while the user was away:
+       * where things stand and what's next. Its "(disable recaps in /config)"
+       * hint is dropped.
+       */
+      kind: "recap";
+      id: string;
+      ts: string;
+      text: string;
+    }
+  | {
       /** The main thread's turn ended, after `durationMs`. */
       kind: "turn-end";
       id: string;
@@ -749,8 +760,13 @@ export class TranscriptParser {
   private add(entry: ChatEntry): ChatEntry | null {
     if (this.byId.has(entry.id)) return null;
     // A command's output follows it directly; once anything else lands, a
-    // late stdout belongs to no command. A turn's timing lines aren't content.
-    if (entry.kind !== "command" && entry.kind !== "thought" && entry.kind !== "turn-end") {
+    // late stdout belongs to no command. A turn's timing lines and a recap aren't content.
+    if (
+      entry.kind !== "command" &&
+      entry.kind !== "thought" &&
+      entry.kind !== "turn-end" &&
+      entry.kind !== "recap"
+    ) {
       this.lastCommandId = null;
     }
     this.byId.set(entry.id, entry);
@@ -819,6 +835,14 @@ export class TranscriptParser {
     // Compaction: show the boundary, not the summary that follows it.
     if (type === "system" && parsed.subtype === "compact_boundary") {
       const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
+      return e ? [e] : [];
+    }
+    // A recap Claude Code wrote while the user was away (seen from 2.1.312).
+    if (type === "system" && parsed.subtype === "away_summary") {
+      if (!this.mainThread) return [];
+      const text = (str(parsed.content) ?? "").replace(/\s*\(disable recaps in \/config\)\s*$/, "").trim();
+      if (!text) return [];
+      const e = this.add({ kind: "recap", id: uuid, ts, text });
       return e ? [e] : [];
     }
     // The main thread's turn ended: how long it took, and what it left running.

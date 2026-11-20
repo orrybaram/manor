@@ -169,6 +169,15 @@ describe("TranscriptParser", () => {
     expect(p.entries().some((e) => e.kind === "user")).toBe(false);
   });
 
+  it("shows a recap written while the user was away, without its /config hint", () => {
+    const p = new TranscriptParser();
+    const content = "You asked for Go to File; PR #487 is open. Next, review it. (disable recaps in /config)";
+    expect(p.push(line({ type: "system", subtype: "away_summary", uuid: "r1", content }))).toEqual([
+      { kind: "recap", id: "r1", ts: T, text: "You asked for Go to File; PR #487 is open. Next, review it." },
+    ]);
+    expect(p.push(line({ type: "system", subtype: "away_summary", uuid: "r2", content: "  " }))).toEqual([]);
+  });
+
   it("skips malformed JSON, unknown line types and unknown blocks without throwing", () => {
     const p = new TranscriptParser();
     expect(p.push("{not json")).toEqual([]);

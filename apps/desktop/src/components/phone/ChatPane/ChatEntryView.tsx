@@ -83,6 +83,17 @@ export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewPro
       );
     case "turn-end":
       return <TurnEnd entry={entry} />;
+    case "recap":
+      return (
+        <div className={styles.recap} data-testid="chat-recap">
+          <span className={styles.recapMark} aria-hidden>
+            ※
+          </span>
+          <span>
+            <span className={styles.recapLabel}>recap:</span> {entry.text}
+          </span>
+        </div>
+      );
     case "edit":
       return <EditCard paneId={paneId} entry={entry} />;
     case "question":

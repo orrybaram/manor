@@ -719,6 +719,8 @@ test("Source Control selects files with Shift and Cmd/Ctrl-click and acts on the
   await click(changes, "c.ts", ["Shift"]);
   expect(await inSelection(changes)).toEqual(["a.ts", "b.ts", "c.ts"]);
   await expect(changes.locator('[data-testid="scm-group-selected"]')).toHaveText("3 selected");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-range-dark") });
   // Cmd/Ctrl+click adds one and drops one.
   await click(changes, "d.ts", ["ControlOrMeta"]);
   await click(changes, "b.ts", ["ControlOrMeta"]);
@@ -741,6 +743,8 @@ test("Source Control selects files with Shift and Cmd/Ctrl-click and acts on the
   await expect(row(changes, "b.ts")).toBeVisible();
   await expect(staged.locator('[data-testid="scm-row"]')).toHaveCount(3);
   expect(await inSelection(staged)).toEqual([]);
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-staged-dark") });
 
   // A selection lives in one group: one in Staged, then a click in Changes starts over there.
   await click(staged, "a.ts");

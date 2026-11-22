@@ -310,3 +310,23 @@
 .dialogHost {
   display: contents;
 }
+
+/* One of several selected files: an accent tint, deeper on the open one,
+   so the selection and the open file both read. */
+.rowInSelection,
+.rowInSelection:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.rowInSelection.rowSelected,
+.rowInSelection.rowSelected:hover {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.groupSelected {
+  flex: none;
+  margin-left: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--text-dim);
+}

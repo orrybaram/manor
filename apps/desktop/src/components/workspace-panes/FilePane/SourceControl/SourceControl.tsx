@@ -19,6 +19,7 @@ import { useProjectStore } from "../../../../store/project-store";
 import { ownerOf } from "../../../../lib/workspace-directory";
 import { workspaceKey } from "../../../../lib/workspace-key";
 import { isWebApp } from "../../../../lib/platform";
+import { getPlatform } from "../../../../lib/keybindings";
 import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
 import { ToggleGroup } from "../../../ui/ToggleGroup";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
@@ -43,6 +44,14 @@ import {
   type ScmNode,
   type ScmView,
 } from "./scm-entries";
+import {
+  actionTargets,
+  NO_SELECTION,
+  selectedIn,
+  selectGesture,
+  selectRow,
+  type ScmSelection,
+} from "./scm-selection";
 import styles from "./SourceControl.module.css";
 
 const NO_GIT_FROM_BROWSER = "Git isn't available from the browser yet";
@@ -108,6 +117,7 @@ export function SourceControl({
   const defaultBranch =
     useProjectStore((s) => ownerOf(s.projects, wsKey)?.defaultBranch) ?? "main";
   const webApp = isWebApp();
+  const mac = getPlatform() === "mac";
 
   // Each result is tagged with what it was fetched for, so a stale one reads as absent.
   const [stagedResult, setStagedResult] = useState<{
@@ -126,10 +136,22 @@ export function SourceControl({
   const [busy, setBusy] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [discarding, setDiscarding] = useState<{
-    path: string;
-    /** Untracked: discarding deletes the file outright. */
-    untracked: boolean;
+    paths: string[];
+    /** The untracked ones: discarding deletes them outright. */
+    untracked: ReadonlySet<string>;
   } | null>(null);
+  // Per workspace and view, as the fetched results are: another's is absent.
+  const selectionKey = `${wsKey}\u0000${view}`;
+  const [selectionResult, setSelectionResult] = useState<{
+    key: string;
+    selection: ScmSelection<RowGroup>;
+  } | null>(null);
+  const selection =
+    selectionResult?.key === selectionKey
+      ? selectionResult.selection
+      : NO_SELECTION;
+  const setSelection = (next: ScmSelection<RowGroup>) =>
+    setSelectionResult({ key: selectionKey, selection: next });
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
 
   const updateStaged = (files: string[], on: boolean) =>
@@ -142,12 +164,23 @@ export function SourceControl({
       ),
     }));
 
-  const act = async (action: GitFileAction, files: string[]) => {
+  const act = async (
+    action: GitFileAction,
+    files: string[],
+    untracked?: ReadonlySet<string>,
+  ) => {
     if (webApp || busy || committing || files.length === 0) return;
+    // The selected rows are acted on, and move or go: the selection is done.
+    setSelection(NO_SELECTION);
     // Stage and unstage move the rows at once; a refusal moves them back.
     if (action !== "discard") updateStaged(files, action === "stage");
     setBusy(true);
-    const ok = await runGitFileAction(action, workspace.path, files);
+    const ok = await runGitFileAction(
+      action,
+      workspace.path,
+      files,
+      untracked,
+    );
     if (!ok && action !== "discard") updateStaged(files, action !== "stage");
     setBusy(false);
   };
@@ -171,28 +204,59 @@ export function SourceControl({
     [branchRaw],
   );
 
+  const groupEntries = (group: RowGroup): ScmEntry[] =>
+    group === "staged"
+      ? (local?.staged ?? [])
+      : group === "changes"
+        ? (local?.changes ?? [])
+        : onBranch;
+  const selectedOf = (group: RowGroup) =>
+    selectedIn(
+      selection,
+      group,
+      groupEntries(group).map((e) => e.change.path),
+    );
+  // Each group's file rows in the order they show, folders' closed ones left
+  // out: what a Shift+click ranges over. Filled as this render lists them.
+  const visible: Record<RowGroup, string[]> = {
+    staged: [],
+    changes: [],
+    branch: [],
+  };
+
   // Rows get one callback that never changes, reading this render's state
   // through a ref, so a memoized row re-renders only when what it shows does.
-  const onRowRef = useRef<(action: RowAction, entry: ScmEntry) => void>(
-    () => {},
-  );
-  onRowRef.current = (action, rowEntry) => {
+  const onRowRef = useRef<OnRow>(() => {});
+  onRowRef.current = (action, rowEntry, group, click) => {
     const path = rowEntry.change.path;
     // A memoized row may hold an older copy of its entry (same path and
     // letter, older ranges): act on this render's.
-    const listed =
-      view === "local"
-        ? [...(local?.staged ?? []), ...(local?.changes ?? [])]
-        : onBranch;
+    const listed = groupEntries(group);
     const entry = listed.find((e) => e.change.path === path) ?? rowEntry;
-    if (action === "open") onOpenChange(entry.change, view);
-    else if (action === "openFile") onOpenFile(path);
-    else if (action === "discard")
-      setDiscarding({ path, untracked: entry.letter === "U" });
-    else void act(action, [path]);
+    if (action === "open") {
+      const gesture = click ? selectGesture(click, mac) : "only";
+      setSelection(selectRow(selection, group, path, gesture, visible[group]));
+      // Shift and Cmd+click only select; a plain click shows the change.
+      if (gesture === "only") onOpenChange(entry.change, view);
+      return;
+    }
+    if (action === "openFile") {
+      onOpenFile(path);
+      return;
+    }
+    const files = actionTargets(selectedOf(group), path);
+    if (action === "discard") {
+      const untracked = new Set(
+        listed
+          .filter((e) => e.letter === "U" && files.includes(e.change.path))
+          .map((e) => e.change.path),
+      );
+      setDiscarding({ paths: files, untracked });
+    } else void act(action, files);
   };
-  const onRow = useCallback(
-    (action: RowAction, entry: ScmEntry) => onRowRef.current(action, entry),
+  const onRow = useCallback<OnRow>(
+    (action, entry, group, click) =>
+      onRowRef.current(action, entry, group, click),
     [],
   );
   const locked = webApp || busy || committing;
@@ -214,10 +278,16 @@ export function SourceControl({
   );
 
   // A group's files as a folder tree; a folder's open state is kept per group.
-  const rows = (nodes: ScmNode[], group: RowGroup, depth = 0): ReactNode[] =>
+  const rows = (
+    nodes: ScmNode[],
+    group: RowGroup,
+    selected: readonly string[],
+    depth = 0,
+  ): ReactNode[] =>
     nodes.flatMap((node) => {
       if (node.kind === "file") {
         const { entry } = node;
+        visible[group].push(entry.change.path);
         return [
           <ScmRow
             key={entry.change.path}
@@ -225,6 +295,7 @@ export function SourceControl({
             group={group}
             depth={depth}
             selected={entry.change.path === openFile}
+            bulk={actionTargets(selected, entry.change.path).length}
             webApp={webApp}
             locked={locked}
             onRow={onRow}
@@ -242,7 +313,7 @@ export function SourceControl({
           open={open}
           onToggle={() => toggleGroup(id)}
         />,
-        ...(open ? rows(node.children, group, depth + 1) : []),
+        ...(open ? rows(node.children, group, selected, depth + 1) : []),
       ];
     });
 
@@ -255,6 +326,7 @@ export function SourceControl({
   ) => {
     const open = !closed.has(id);
     const Chevron = open ? ChevronDown : ChevronRight;
+    const selected = selectedOf(id as RowGroup);
     return (
       <div className={styles.group} data-testid={testId}>
         <div className={styles.groupHead}>
@@ -269,11 +341,19 @@ export function SourceControl({
             <span className={styles.groupCount} data-testid="scm-group-count">
               {entries.length}
             </span>
+            {selected.length > 1 && (
+              <span
+                className={styles.groupSelected}
+                data-testid="scm-group-selected"
+              >
+                {selected.length} selected
+              </span>
+            )}
           </button>
           {actions && <span className={styles.actions}>{actions}</span>}
         </div>
         <Collapse open={open}>
-          {rows(scmTree(entries), id as RowGroup)}
+          {rows(scmTree(entries), id as RowGroup, selected)}
         </Collapse>
       </div>
     );
@@ -332,7 +412,23 @@ export function SourceControl({
   }
 
   return (
-    <div className={styles.list} data-testid="scm" data-view={view}>
+    <div
+      className={styles.list}
+      data-testid="scm"
+      data-view={view}
+      onKeyDown={(e) => {
+        // Escape lets a selection go first; the drawer closes on the next.
+        if (
+          e.key === "Escape" &&
+          selection.group !== null &&
+          selectedOf(selection.group).length > 0
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelection(NO_SELECTION);
+        }
+      }}
+    >
       {view === "local" ? (
         <FingerprintedFetch
           key={`staged\u0000${wsKey}`}
@@ -403,24 +499,13 @@ export function SourceControl({
       >
         <ConfirmDialog
           open={discarding !== null}
-          // An untracked file has nothing to go back to: discarding it is `git clean`.
-          title={
-            discarding?.untracked
-              ? `Delete ${basename(discarding.path)}?`
-              : "Discard changes?"
-          }
-          description={
-            discarding?.untracked
-              ? `${basename(discarding.path)} is new and not tracked by git; discarding deletes it. This can't be undone.`
-              : `Your changes to ${discarding?.path ?? ""} will be lost. This can't be undone.`
-          }
-          confirmLabel={discarding?.untracked ? "Delete" : "Discard"}
+          {...discardCopy(discarding?.paths ?? [], discarding?.untracked)}
           confirmVariant="danger"
           onCancel={() => setDiscarding(null)}
           onConfirm={() => {
-            const path = discarding?.path;
+            const pending = discarding;
             setDiscarding(null);
-            if (path) void act("discard", [path]);
+            if (pending) void act("discard", pending.paths, pending.untracked);
           }}
         />
       </div>
@@ -476,6 +561,56 @@ function ScmDirRow({
   );
 }
 type RowAction = "open" | "openFile" | GitFileAction;
+type OnRow = (
+  action: RowAction,
+  entry: ScmEntry,
+  group: RowGroup,
+  /** A row click's modifiers: they say how it changes the selection. */
+  click?: Pick<MouseEvent, "shiftKey" | "metaKey" | "ctrlKey">,
+) => void;
+
+const filesLabel = (n: number) => (n === 1 ? "1 file" : `${n} files`);
+
+/**
+ * The discard confirm's words. An untracked file has nothing to go back to:
+ * discarding it is `git clean`, so the dialog says it deletes.
+ */
+function discardCopy(
+  paths: readonly string[],
+  untracked: ReadonlySet<string> = new Set(),
+): { title: string; description: string; confirmLabel: string } {
+  if (paths.length === 1) {
+    const [path] = paths;
+    return untracked.has(path)
+      ? {
+          title: `Delete ${basename(path)}?`,
+          description: `${basename(path)} is new and not tracked by git; discarding deletes it. This can't be undone.`,
+          confirmLabel: "Delete",
+        }
+      : {
+          title: "Discard changes?",
+          description: `Your changes to ${path} will be lost. This can't be undone.`,
+          confirmLabel: "Discard",
+        };
+  }
+  if (untracked.size === paths.length) {
+    return {
+      title: `Delete ${filesLabel(paths.length)}?`,
+      description:
+        "They are new and not tracked by git; discarding deletes them. This can't be undone.",
+      confirmLabel: "Delete",
+    };
+  }
+  const deleted =
+    untracked.size === 0
+      ? ""
+      : ` ${untracked.size === 1 ? "1 new file is" : `${untracked.size} new files are`} not tracked by git and will be deleted.`;
+  return {
+    title: `Discard changes in ${filesLabel(paths.length)}?`,
+    description: `Your changes will be lost.${deleted} This can't be undone.`,
+    confirmLabel: "Discard",
+  };
+}
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
@@ -530,10 +665,12 @@ type ScmRowProps = {
   /** How many folders deep it sits in the tree. */
   depth: number;
   selected: boolean;
+  /** How many files its buttons act on: more than 1 when it is one of several selected. */
+  bulk: number;
   webApp: boolean;
   /** A git action is running, or git can't be reached: its buttons wait. */
   locked: boolean;
-  onRow: (action: RowAction, entry: ScmEntry) => void;
+  onRow: OnRow;
 };
 
 /**
@@ -548,6 +685,7 @@ function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
     a.group === b.group &&
     a.depth === b.depth &&
     a.selected === b.selected &&
+    a.bulk === b.bulk &&
     a.webApp === b.webApp &&
     a.locked === b.locked &&
     a.onRow === b.onRow
@@ -560,6 +698,7 @@ const ScmRow = memo(function ScmRow({
   group,
   depth,
   selected,
+  bulk,
   webApp,
   locked,
   onRow,
@@ -579,15 +718,17 @@ const ScmRow = memo(function ScmRow({
       webApp={webApp}
       locked={locked}
       destructive={action === "discard"}
-      onClick={() => onRow(action, entry)}
+      onClick={() => onRow(action, entry, group)}
     />
   );
+  const many = bulk > 1;
   return (
     <div
-      className={`${styles.row} ${selected ? styles.rowSelected : ""} ${styles[`letter_${letter}`]}`}
+      className={`${styles.row} ${selected ? styles.rowSelected : ""} ${many ? styles.rowInSelection : ""} ${styles[`letter_${letter}`]}`}
       data-testid="scm-row"
       data-path={change.path}
       data-letter={letter}
+      data-in-selection={many ? "" : undefined}
     >
       <button
         type="button"
@@ -597,7 +738,7 @@ const ScmRow = memo(function ScmRow({
           change.status === "deleted" ? `${change.path} (deleted)` : change.path
         }
         aria-current={selected ? "true" : undefined}
-        onClick={() => onRow("open", entry)}
+        onClick={(e) => onRow("open", entry, group, e)}
       >
         {createElement(fileIconFor(change.path), {
           size: 12,
@@ -615,7 +756,7 @@ const ScmRow = memo(function ScmRow({
               data-testid="scm-open"
               onClick={(e) => {
                 e.stopPropagation();
-                onRow("openFile", entry);
+                onRow("openFile", entry, group);
               }}
             >
               <FileCode size={13} />
@@ -625,14 +766,28 @@ const ScmRow = memo(function ScmRow({
         {group === "changes" &&
           gitButton(
             "discard",
-            letter === "U" ? "Delete file" : "Discard changes",
+            many
+              ? `Discard ${filesLabel(bulk)}`
+              : letter === "U"
+                ? "Delete file"
+                : "Discard changes",
             "scm-discard",
             <Undo2 size={13} />,
           )}
         {group === "changes" &&
-          gitButton("stage", "Stage", "scm-stage", <Plus size={13} />)}
+          gitButton(
+            "stage",
+            many ? `Stage ${filesLabel(bulk)}` : "Stage",
+            "scm-stage",
+            <Plus size={13} />,
+          )}
         {group === "staged" &&
-          gitButton("unstage", "Unstage", "scm-unstage", <Minus size={13} />)}
+          gitButton(
+            "unstage",
+            many ? `Unstage ${filesLabel(bulk)}` : "Unstage",
+            "scm-unstage",
+            <Minus size={13} />,
+          )}
       </span>
       <span className={styles.letter} data-testid="scm-letter">
         {letter}

@@ -807,6 +807,13 @@ test("Source Control selects files with Shift and Cmd/Ctrl-click and acts on the
   await expect(drawer).toBeVisible();
   await window.keyboard.press("Escape");
   await expect(drawer).toBeHidden();
+
+  // One file picked shows no selection, so Escape closes the drawer at once.
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await click(changes, "c.ts");
+  await window.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
 });
 
 test("a Source Control row shows its file's diff in the editor, which edits and saves", async ({

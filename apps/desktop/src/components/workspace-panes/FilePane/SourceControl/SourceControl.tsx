@@ -140,6 +140,13 @@ export function SourceControl({
     /** The untracked ones: discarding deletes them outright. */
     untracked: ReadonlySet<string>;
   } | null>(null);
+  // The dialog keeps its words while it fades out after an answer.
+  const lastDiscarding = useRef<NonNullable<typeof discarding>>({
+    paths: [],
+    untracked: new Set(),
+  });
+  if (discarding) lastDiscarding.current = discarding;
+  const shownDiscard = lastDiscarding.current;
   // Per workspace and view, as the fetched results are: another's is absent.
   const selectionKey = `${wsKey}\u0000${view}`;
   const [selectionResult, setSelectionResult] = useState<{
@@ -218,6 +225,15 @@ export function SourceControl({
     );
   // Each group's file rows in the order they show, folders' closed ones left
   // out: what a Shift+click ranges over. Filled as this render lists them.
+  // Files that left the group (staged, discarded, reverted on disk) leave the
+  // selection too, so they don't come back selected. Only once the list is
+  // read: before that every file would look gone.
+  const listRead = view === "local" ? local !== null : branch !== null;
+  if (listRead && selection.group !== null) {
+    const still = selectedOf(selection.group);
+    if (still.length !== selection.paths.size)
+      setSelection({ ...selection, paths: new Set(still) });
+  }
   const visible: Record<RowGroup, string[]> = {
     staged: [],
     changes: [],
@@ -417,11 +433,14 @@ export function SourceControl({
       data-testid="scm"
       data-view={view}
       onKeyDown={(e) => {
-        // Escape lets a selection go first; the drawer closes on the next.
+        // Escape lets a selection of several go first; the drawer closes on
+        // the next. One file selected shows as nothing, so it closes at once.
         if (
           e.key === "Escape" &&
           selection.group !== null &&
-          selectedOf(selection.group).length > 0
+          selectedOf(selection.group).length > 1 &&
+          !(e.target instanceof HTMLTextAreaElement) &&
+          !(e.target instanceof HTMLInputElement)
         ) {
           e.preventDefault();
           e.stopPropagation();
@@ -499,7 +518,7 @@ export function SourceControl({
       >
         <ConfirmDialog
           open={discarding !== null}
-          {...discardCopy(discarding?.paths ?? [], discarding?.untracked)}
+          {...discardCopy(shownDiscard.paths, shownDiscard.untracked)}
           confirmVariant="danger"
           onCancel={() => setDiscarding(null)}
           onConfirm={() => {

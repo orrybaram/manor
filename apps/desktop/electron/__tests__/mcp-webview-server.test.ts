@@ -1084,7 +1084,7 @@ describe("WebviewServer agent orchestration routes", () => {
         layoutStore.pendingCommands.take(result.paneId),
       ).toEqual({
         // The prompt goes through a file, not the launch line.
-        text: "claude --dangerously-skip-permissions",
+        text: "claude",
         prompt: "do the thing",
         kind: "agent-startup",
         submit: true,

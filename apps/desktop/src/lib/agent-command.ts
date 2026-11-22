@@ -26,7 +26,7 @@
  */
 
 /** Default agent command used when no project-specific command is configured. */
-export const DEFAULT_AGENT_COMMAND = "claude --dangerously-skip-permissions";
+export const DEFAULT_AGENT_COMMAND = "claude";
 
 /**
  * Escape a prompt for interpolation inside a double-quoted shell argument.

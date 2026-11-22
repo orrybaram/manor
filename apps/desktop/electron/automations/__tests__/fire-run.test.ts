@@ -232,13 +232,13 @@ describe("createFireRun", () => {
     expect(deps.workspaceOps.create).not.toHaveBeenCalled();
     expect(deps.startAgent).toHaveBeenCalledWith("/worktrees/inbox", {
       prompt: "Triage new issues",
-      agentCommand: "claude --dangerously-skip-permissions",
+      agentCommand: "claude",
       // Seeded for the pane, so its Agent has a project with no renderer.
       paneContext: {
         projectId: "project-1",
         projectName: "manor",
         workspacePath: "/worktrees/inbox",
-        agentCommand: "claude --dangerously-skip-permissions",
+        agentCommand: "claude",
       },
     });
     expect(result).toEqual({ outcome: "started", workspacePath: "/worktrees/inbox", paneId: "pane-1" });

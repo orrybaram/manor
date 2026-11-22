@@ -52,7 +52,7 @@ import { paneText } from "./helpers/terminal";
  *
  * The stub agent: a run's command is the project's agent command when
  * `getConnectorForCommand` reads it as the automation's kind, else the
- * kind's default (`claude --dangerously-skip-permissions`, which the box
+ * kind's default (`claude`, which the box
  * does not have). `REMOTE_AGENT` (`~/.manor-e2e/bin/manor-e2e-agent`) names
  * no connector, so it falls through to `claude`, the kind a create defaults
  * to: the project's agent command is used as is, typed into the run's

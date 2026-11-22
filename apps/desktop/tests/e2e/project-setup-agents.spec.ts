@@ -69,9 +69,7 @@ test("Project Setup lists agents installed only in per-user folders", async ({
   await expect(claude).toBeVisible({ timeout: 30_000 });
   await expect(opencode).toBeVisible();
   // Claude comes first, so it is the preselected command.
-  await expect(wizard.locator("input").last()).toHaveValue(
-    "claude --dangerously-skip-permissions",
-  );
+  await expect(wizard.locator("input").last()).toHaveValue("claude");
 
   await wizard.screenshot({ path: shot(testInfo, "agent-step-dark") });
   await setTheme(window, LIGHT_THEME);

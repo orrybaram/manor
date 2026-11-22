@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.27.5] - 2026-11-21
+
+### Features
+
+- Source Control now supports multi-select. Shift-click selects a range of files and ⌘/Ctrl-click adds or removes one file. On a selected row, the Stage, Unstage and Discard buttons act on every selected file.
+
+### Fixes
+
+- Claude's transcript no longer turns into staircases when a terminal is resized while it's busy. After a resize that may not have gone through cleanly, Manor repaints the agent once.
+- The chat view now shows Claude's recap.
+- Project Setup's agent list now checks the project's host, so it finds agents installed in per-user folders. Pi is now in the list too.
+- **CLI**
+  - `send-to-session` now submits prompts the same way the chat view does. It only stops an agent that's in the middle of a turn.
+  - `read-session` keeps the spaces between words.
+
+### Improvements
+
+- **CLI**
+  - `create-workspace` now prints the path, branch and folder of the new workspace instead of listing every workspace. If the match is ambiguous, it shows the full list instead of guessing.
+  - `list-agents` hides agents that have no pane unless you pass `--all`. It also has new `--workspace` and `--pane` filters and shows each agent's workspace branch.
+  - `start-agent` waits up to 20 seconds for the agent to register and then names it. If the agent doesn't register in time, it tells you how to check on it instead of relaunching it.
+  - `send-to-session` takes the prompt as a plain argument, and the new `--queue` option lets a busy turn finish first. `--interrupt` is now called `--interrupt-keys`.
+  - The CLI and MCP client keep retrying for up to 10 seconds while Manor isn't listening, but only for requests that were never sent.
+
 ## [0.27.4] - 2026-11-18
 
 ### Fixes

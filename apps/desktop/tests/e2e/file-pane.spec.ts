@@ -677,6 +677,149 @@ test("Source Control stages, unstages and discards a workspace's changes", async
   await window.screenshot({ path: shot(testInfo, "scm-branch-diff") });
 });
 
+test("Source Control selects files with Shift and Cmd/Ctrl-click and acts on them at once", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm-select");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  for (const name of ["a", "b", "c", "d"]) {
+    fs.writeFileSync(path.join(ws, "src", `${name}.ts`), `export const ${name} = 1;\n`);
+  }
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const staged = drawer.locator('[data-testid="scm-group-staged"]');
+  const changes = drawer.locator('[data-testid="scm-group-changes"]');
+  const row = (group: typeof drawer, name: string) =>
+    group.locator(`[data-testid="scm-row"][data-path="src/${name}"]`);
+  const click = (group: typeof drawer, name: string, modifiers: ("Shift" | "ControlOrMeta")[] = []) =>
+    row(group, name).locator("button").first().click({ modifiers });
+  const inSelection = (group: typeof drawer) =>
+    group.locator("[data-testid='scm-row'][data-in-selection]").evaluateAll((rows) =>
+      rows.map((r) => (r.getAttribute("data-path") ?? "").replace("src/", "")),
+    );
+  await expect(row(changes, "d.ts")).toHaveAttribute("data-letter", "U", { timeout: 30_000 });
+
+  // A click opens its diff and selects only it; Shift+click ranges from there, in the order shown.
+  await click(changes, "a.ts");
+  await expect(row(changes, "a.ts")).toHaveAttribute("class", /rowSelected/);
+  expect(await inSelection(changes)).toEqual([]);
+  await click(changes, "c.ts", ["Shift"]);
+  expect(await inSelection(changes)).toEqual(["a.ts", "b.ts", "c.ts"]);
+  await expect(changes.locator('[data-testid="scm-group-selected"]')).toHaveText("3 selected");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-range-dark") });
+  // Cmd/Ctrl+click adds one and drops one.
+  await click(changes, "d.ts", ["ControlOrMeta"]);
+  await click(changes, "b.ts", ["ControlOrMeta"]);
+  await expect.poll(() => inSelection(changes)).toEqual(["a.ts", "c.ts", "d.ts"]);
+  await row(changes, "c.ts").hover();
+  await expect(row(changes, "c.ts").locator('[data-testid="scm-stage"]')).toHaveAttribute(
+    "aria-label",
+    "Stage 3 files",
+  );
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-dark") });
+
+  // Stage on a selected row stages every selected file; the rest stay.
+  await row(changes, "c.ts").locator('[data-testid="scm-stage"]').click();
+  await expect.poll(() => execSync("git diff --cached --name-only", { cwd: ws }).toString().trim().split("\n")).toEqual([
+    "src/a.ts",
+    "src/c.ts",
+    "src/d.ts",
+  ]);
+  await expect(row(changes, "b.ts")).toBeVisible();
+  await expect(staged.locator('[data-testid="scm-row"]')).toHaveCount(3);
+  expect(await inSelection(staged)).toEqual([]);
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-staged-dark") });
+
+  // A selection lives in one group: one in Staged, then a click in Changes starts over there.
+  await click(staged, "a.ts");
+  await click(staged, "d.ts", ["Shift"]);
+  await expect.poll(() => inSelection(staged)).toEqual(["a.ts", "c.ts", "d.ts"]);
+  await click(changes, "b.ts", ["ControlOrMeta"]);
+  await expect.poll(() => inSelection(staged)).toEqual([]);
+  await click(staged, "a.ts");
+  await click(staged, "d.ts", ["Shift"]);
+  await expect.poll(() => inSelection(staged)).toEqual(["a.ts", "c.ts", "d.ts"]);
+
+  // Escape lets the selection go and keeps the drawer.
+  await window.keyboard.press("Escape");
+  await expect.poll(() => inSelection(staged)).toEqual([]);
+  await expect(drawer).toBeVisible();
+
+  // Unstage on a selected row unstages them all.
+  await click(staged, "a.ts");
+  await click(staged, "d.ts", ["Shift"]);
+  await row(staged, "a.ts").hover();
+  const unstage = row(staged, "a.ts").locator('[data-testid="scm-unstage"]');
+  await expect(unstage).toHaveAttribute("aria-label", "Unstage 3 files");
+  await expect(unstage).not.toHaveAttribute("aria-disabled", "true");
+  await unstage.click();
+  await expect(staged).toHaveCount(0);
+  await expect(changes.locator('[data-testid="scm-row"]')).toHaveCount(5);
+
+  // Discard asks once for the lot, saying which new files it deletes.
+  await click(changes, "components/Widget.tsx");
+  await click(changes, "b.ts", ["Shift"]);
+  await expect.poll(() => inSelection(changes)).toEqual(["components/Widget.tsx", "a.ts", "b.ts"]);
+  await row(changes, "b.ts").hover();
+  await row(changes, "b.ts").locator('[data-testid="scm-discard"]').click();
+  const dialog = window.getByRole("dialog");
+  await expect(dialog).toContainText("Discard changes in 3 files?");
+  await expect(dialog).toContainText("2 new files are not tracked by git and will be deleted.");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-discard-dark") });
+  await dialog.getByRole("button", { name: "Discard" }).click();
+  await expect(changes.locator('[data-testid="scm-row"]')).toHaveCount(2);
+  expect(fs.readFileSync(widget, "utf8")).toBe(WIDGET);
+  expect(fs.existsSync(path.join(ws, "src", "a.ts"))).toBe(false);
+  expect(fs.existsSync(path.join(ws, "src", "b.ts"))).toBe(false);
+  expect(fs.existsSync(path.join(ws, "src", "c.ts"))).toBe(true);
+
+  // Light: the selection and the open file both read.
+  await useLightTheme(window);
+  await click(changes, "c.ts");
+  await click(changes, "d.ts", ["Shift"]);
+  await row(changes, "d.ts").hover();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-light") });
+  await row(changes, "d.ts").locator('[data-testid="scm-discard"]').click();
+  // All new: it says it deletes them.
+  await expect(window.getByRole("dialog")).toContainText("Delete 2 files?");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-select-discard-light") });
+  await window.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+  // Escape clears first; only the next one closes the drawer.
+  await click(changes, "d.ts", ["Shift"]);
+  await window.keyboard.press("Escape");
+  await expect.poll(() => inSelection(changes)).toEqual([]);
+  await expect(drawer).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+
+  // One file picked shows no selection, so Escape closes the drawer at once.
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await click(changes, "c.ts");
+  await window.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+});
+
 test("a Source Control row shows its file's diff in the editor, which edits and saves", async ({
   app,
   window,

@@ -29,15 +29,29 @@ const COPY: Record<
  * Run `action` on `files` of the workspace at `workspacePath`, on whichever
  * host it lives (the bridge routes by path), and toast how it went. True
  * when it worked, so a caller can roll back its optimistic update otherwise.
+ *
+ * Discard takes the untracked files apart: the host restores tracked files
+ * with one `git checkout HEAD -- …`, which refuses the whole list when one of
+ * them is unknown to git, so a mixed list would restore nothing.
  */
 export async function runGitFileAction(
   action: GitFileAction,
   workspacePath: string,
   files: string[],
+  untracked: ReadonlySet<string> = new Set(),
 ): Promise<boolean> {
   const id = `${action}-${Date.now()}`;
+  const batches =
+    action === "discard"
+      ? [
+          files.filter((f) => !untracked.has(f)),
+          files.filter((f) => untracked.has(f)),
+        ].filter((batch) => batch.length > 0)
+      : [files];
   try {
-    await window.electronAPI.git[action](workspacePath, files);
+    for (const batch of batches) {
+      await window.electronAPI.git[action](workspacePath, batch);
+    }
     toast.success(COPY[action].done(files.length), { id });
     return true;
   } catch (err) {

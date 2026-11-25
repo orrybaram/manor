@@ -61,8 +61,11 @@ export type ReviewSignal =
   /** Waiting, nobody named. */
   | { kind: "waiting" };
 
-/** The Merge cell: can the branch merge, or is it already on its way. */
-export type MergeSignal = "clean" | "conflicts" | "queued";
+/**
+ * The Merge cell: can the branch merge, or is it already on its way.
+ * "unknown" when GitHub didn't say whether it conflicts.
+ */
+export type MergeSignal = "clean" | "conflicts" | "queued" | "unknown";
 
 export interface PrTableRow {
   pr: PrInfo;
@@ -116,10 +119,16 @@ function reviewSignal(pr: PrInfo): ReviewSignal {
   }
   // Bots (Copilot and the like) comment but don't gate the merge.
   const people = (pr.reviewers ?? []).filter((r) => !r.isBot);
+  const approved = people.filter((r) => r.state === "approved").length;
+  // A repo without required reviews never reports APPROVED: everyone asked
+  // having approved is as good as it gets.
+  if (people.length > 0 && approved === people.length) {
+    return { kind: "approved" };
+  }
   if (people.length > 0) {
     return {
       kind: "reviewers",
-      approved: people.filter((r) => r.state === "approved").length,
+      approved,
       total: people.length,
     };
   }
@@ -129,7 +138,7 @@ function reviewSignal(pr: PrInfo): ReviewSignal {
 function mergeSignal(pr: PrInfo): MergeSignal {
   if (pr.hasConflicts === true) return "conflicts";
   if (pr.queuedToMerge) return "queued";
-  return "clean";
+  return pr.hasConflicts === false ? "clean" : "unknown";
 }
 
 /**

@@ -82,6 +82,7 @@ const MERGE_CELL: Record<MergeSignal, Signal> = {
   clean: { text: "✓", tone: "ok", label: "No conflicts" },
   conflicts: { text: "✕", tone: "bad", label: "Conflicts with the base branch" },
   queued: { text: "queued", tone: "ok", label: "Queued to merge" },
+  unknown: { text: "—", tone: "off", label: "Merge state unknown" },
 };
 
 function SignalCell(props: { signal: Signal }) {

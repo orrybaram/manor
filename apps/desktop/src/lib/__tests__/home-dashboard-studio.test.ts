@@ -108,6 +108,7 @@ describe("prTable / openPrStats", () => {
           updatedAt: hoursAgo(1),
           additions: 482,
           deletions: 3,
+          hasConflicts: false,
         }),
       }),
       baseWorkspace({
@@ -205,6 +206,32 @@ describe("prTable / openPrStats", () => {
       // Drafts last, whatever their stage.
       [prUrl(2), "review"],
     ]);
+  });
+
+  it("calls every reviewer approving approved, and unknown conflicts unknown", () => {
+    const rows = prTable(
+      [
+        baseProject({
+          workspaces: [
+            baseWorkspace({
+              pr: basePr({
+                reviewDecision: null,
+                reviewers: [
+                  { name: "ana", state: "approved" },
+                  { name: "bo", state: "approved" },
+                  { name: "copilot", state: "commented", isBot: true },
+                ],
+              }),
+            }),
+          ],
+        }),
+      ],
+      NOW,
+    );
+    expect(rows[0]).toMatchObject({
+      review: { kind: "approved" },
+      merge: "unknown",
+    });
   });
 
   it("derives each row's signals", () => {

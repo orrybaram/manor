@@ -15,6 +15,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { UnreadBadge } from "../../notifications/UnreadBadge";
+import { NeedsYouPill } from "../NeedsYouBadge/NeedsYouBadge";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { isHomePath } from "../../../lib/home";
@@ -269,6 +270,7 @@ export function Sidebar(props: SidebarProps) {
                 <LayoutDashboard size={14} />
               </span>
               <span className={styles.homeLabel}>Dashboard</span>
+              <NeedsYouPill />
             </div>
             <div
               className={`${styles.homeRow} ${tasksActive ? styles.homeRowActive : ""}`}

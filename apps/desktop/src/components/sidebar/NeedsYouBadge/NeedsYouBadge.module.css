@@ -1,0 +1,52 @@
+/* Orange in every theme, mixed from the palette's red and yellow, with
+   near-black text so it reads on light and dark frames alike. */
+.badge {
+  --needs-you-fill: color-mix(in srgb, var(--red) 75%, var(--yellow));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: var(--needs-you-fill);
+  color: color-mix(in srgb, var(--needs-you-fill) 12%, black);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* At the end of a nav row. */
+.pill {
+  margin-left: auto;
+  min-width: 20px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* On an icon button's top-right corner, ringed in the frame colour the
+   rail sits on (as the project tiles' status badges are). */
+.corner {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: 0 0 0 2px var(--bg-deep);
+}
+
+/* Beside the phone drawer's 16px row labels. */
+:global(:root[data-layout="phone"]) .pill {
+  min-width: 24px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 10px;
+  font-size: 12px;
+}

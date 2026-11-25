@@ -170,6 +170,12 @@
   margin-top: var(--rail-gap);
 }
 
+/* Holds the Needs you corner badge, which hangs past the button's edge. */
+.rail .homeButton {
+  position: relative;
+  overflow: visible;
+}
+
 .rail .homeActive {
   background: var(--surface);
   color: var(--accent);

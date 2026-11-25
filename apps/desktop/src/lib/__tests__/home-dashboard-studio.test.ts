@@ -3,7 +3,7 @@ import {
   headline,
   needsYouCards,
   openPrStats,
-  prPipeline,
+  prTable,
   projectTiles,
   type NeedsYouCardsInput,
   type ProjectTileDeps,
@@ -97,7 +97,7 @@ const checks = (passing: number, failing: number, pending: number) => ({
   total: passing + failing + pending,
 });
 
-describe("prPipeline / openPrStats", () => {
+describe("prTable / openPrStats", () => {
   const project = baseProject({
     workspaces: [
       baseWorkspace({
@@ -106,6 +106,8 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(1),
           checks: checks(1, 0, 1),
           updatedAt: hoursAgo(1),
+          additions: 482,
+          deletions: 3,
         }),
       }),
       baseWorkspace({
@@ -118,6 +120,11 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(3),
           reviewDecision: "REVIEW_REQUIRED",
           updatedAt: hoursAgo(30),
+          reviewers: [
+            { name: "ana", state: "approved" },
+            { name: "bo", state: "requested" },
+            { name: "copilot", state: "commented", isBot: true },
+          ],
         }),
       }),
       baseWorkspace({
@@ -126,6 +133,7 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(4),
           hasConflicts: true,
           updatedAt: hoursAgo(2),
+          unresolvedThreads: 2,
         }),
       }),
       baseWorkspace({
@@ -148,51 +156,104 @@ describe("prPipeline / openPrStats", () => {
           updatedAt: hoursAgo(5),
         }),
       }),
+      baseWorkspace({
+        path: "/i",
+        pr: basePr({
+          url: prUrl(8),
+          updatedAt: hoursAgo(3),
+          checks: checks(4, 2, 0),
+          checkRuns: [
+            { name: "e2e", status: "failing" },
+            { name: "lint", status: "passing" },
+          ],
+        }),
+      }),
+      baseWorkspace({
+        path: "/j",
+        pr: basePr({
+          url: prUrl(9),
+          updatedAt: hoursAgo(4),
+          reviewDecision: "APPROVED",
+          checks: checks(3, 0, 0),
+        }),
+      }),
+      baseWorkspace({
+        path: "/k",
+        pr: basePr({
+          url: prUrl(10),
+          updatedAt: hoursAgo(1),
+          reviewDecision: "CHANGES_REQUESTED",
+        }),
+      }),
     ],
   });
 
-  it("columns open PRs in stage order, deduped, with labels, checks and ages", () => {
-    const pipeline = prPipeline([project], NOW);
-    expect(pipeline.map((c) => c.stage)).toEqual([
-      "checks",
-      "review",
-      "blocked",
-      "ready",
+  it("orders open PRs blocked, ready, checks, review, then drafts; deduped, oldest first", () => {
+    const rows = prTable([project], NOW);
+    expect(rows.map((r) => [r.pr.url, r.stage])).toEqual([
+      // Blocked: #8 (3h), #4 (2h), #10 (1h).
+      [prUrl(8), "blocked"],
+      [prUrl(4), "blocked"],
+      [prUrl(10), "blocked"],
+      // Ready: #9 (4h), then #5 (queued, unknown age).
+      [prUrl(9), "ready"],
+      [prUrl(5), "ready"],
+      [prUrl(1), "checks"],
+      // Review: oldest first (#3 at 30h, #7 at 5h).
+      [prUrl(3), "review"],
+      [prUrl(7), "review"],
+      // Drafts last, whatever their stage.
+      [prUrl(2), "review"],
     ]);
-    const urls = pipeline.map((c) => c.rows.map((r) => r.pr.url));
-    // Review: oldest first (#3 at 30h, #7 at 5h), unknown age (#2) last.
-    expect(urls).toEqual([
-      [prUrl(1)],
-      [prUrl(3), prUrl(7), prUrl(2)],
-      [prUrl(4)],
-      [prUrl(5)],
-    ]);
+  });
 
-    const [checksCol, reviewCol, blockedCol, readyCol] = pipeline;
-    expect(checksCol.rows[0]).toMatchObject({
-      label: null,
-      checks: { passing: 1, failing: 0, pending: 1, total: 2 },
+  it("derives each row's signals", () => {
+    const byUrl = new Map(prTable([project], NOW).map((r) => [r.pr.url, r]));
+
+    expect(byUrl.get(prUrl(1))).toMatchObject({
+      size: { additions: 482, deletions: 3 },
+      ci: { kind: "running", done: 1, total: 2 },
+      review: { kind: "waiting" },
+      threads: 0,
+      merge: "clean",
       ageMs: HOUR,
       stale: false,
     });
-    expect(reviewCol.rows[0]).toMatchObject({ ageMs: 30 * HOUR, stale: true });
-    expect(reviewCol.rows[2]).toMatchObject({
-      label: "draft",
+    expect(byUrl.get(prUrl(2))).toMatchObject({
+      size: null,
+      ci: { kind: "none" },
+      review: { kind: "draft" },
       ageMs: null,
       stale: false,
-      checks: null,
     });
-    expect(blockedCol.rows[0].label).toBe("conflicts");
-    expect(readyCol.rows[0].label).toBe("queued");
+    // Bots don't count as reviewers.
+    expect(byUrl.get(prUrl(3))).toMatchObject({
+      review: { kind: "reviewers", approved: 1, total: 2 },
+      ageMs: 30 * HOUR,
+      stale: true,
+    });
+    expect(byUrl.get(prUrl(4))).toMatchObject({ merge: "conflicts", threads: 2 });
+    expect(byUrl.get(prUrl(5))?.merge).toBe("queued");
+    expect(byUrl.get(prUrl(8))?.ci).toEqual({
+      kind: "failing",
+      count: 2,
+      names: ["e2e"],
+      total: 6,
+    });
+    expect(byUrl.get(prUrl(9))).toMatchObject({
+      ci: { kind: "passing", total: 3 },
+      review: { kind: "approved" },
+    });
+    expect(byUrl.get(prUrl(10))?.review).toEqual({ kind: "changes-requested" });
   });
 
-  it("summarizes a pipeline", () => {
-    expect(openPrStats(prPipeline([project], NOW))).toEqual({
-      total: 6,
+  it("summarizes the open PRs", () => {
+    expect(openPrStats(prTable([project], NOW))).toEqual({
+      total: 9,
       oldestAgeMs: 30 * HOUR,
-      byStage: { checks: 1, review: 3, blocked: 1, ready: 1 },
+      byStage: { checks: 1, review: 3, blocked: 3, ready: 2 },
     });
-    expect(openPrStats(prPipeline([], NOW))).toEqual({
+    expect(openPrStats(prTable([], NOW))).toEqual({
       total: 0,
       oldestAgeMs: null,
       byStage: { checks: 0, review: 0, blocked: 0, ready: 0 },

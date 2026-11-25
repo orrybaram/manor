@@ -1,6 +1,6 @@
 /**
  * Pure selectors for the full Home dashboard ("Studio") — the PR
- * pipeline, Needs you cards, the headline sentence, the Open PRs stat tile
+ * table, Needs you cards, the headline sentence, the Open PRs stat tile
  * and the project tiles. Like `home-dashboard.ts` (whose helpers these build
  * on) there are no store or React imports: the components wire store state in.
  */
@@ -13,15 +13,8 @@ import type {
 } from "../store/project-store";
 import type { HostStatusInfo } from "../store/host-store";
 import { buildTopLevelEntries } from "../utils/sidebar-items";
-import {
-  blockerLabel,
-  PR_STAGES,
-  prVerdict,
-  type PrBlocker,
-  type PrStage,
-  type PrVerdict,
-} from "./pr-readiness";
-import type { ChecksSummary, PrInfo } from "./pr-info";
+import { prVerdict, type PrBlocker, type PrStage } from "./pr-readiness";
+import type { PrInfo } from "./pr-info";
 import { describeHost, groupStateOf, isHostOffline } from "./host-status";
 import { workspaceKey } from "./workspace-key";
 import {
@@ -43,49 +36,114 @@ function ageSince(iso: string | null | undefined, now: number): number | null {
   return Number.isNaN(at) ? null : Math.max(0, now - at);
 }
 
-// ── Pull requests pipeline ──
+// ── Pull requests table ──
 
-export interface PipelineRow {
+/** The CI cell: the commit's status checks, summed up. */
+export type CiSignal =
+  | { kind: "none" }
+  | { kind: "passing"; total: number }
+  | { kind: "running"; done: number; total: number }
+  | {
+      kind: "failing";
+      count: number;
+      /** Named failing runs; may be fewer than `count`. */
+      names: string[];
+      total: number;
+    };
+
+/** The Review cell: where the PR's review stands. */
+export type ReviewSignal =
+  | { kind: "draft" }
+  | { kind: "approved" }
+  | { kind: "changes-requested" }
+  /** Waiting, with the human reviewers known: how many of them approved. */
+  | { kind: "reviewers"; approved: number; total: number }
+  /** Waiting, nobody named. */
+  | { kind: "waiting" };
+
+/** The Merge cell: can the branch merge, or is it already on its way. */
+export type MergeSignal = "clean" | "conflicts" | "queued";
+
+export interface PrTableRow {
   pr: PrInfo;
   project: ProjectInfo;
   workspace: WorkspaceInfo;
-  /** The blocked reason, "queued" or "draft"; null when the column says it all. */
-  label: string | null;
-  checks: Pick<
-    ChecksSummary,
-    "passing" | "failing" | "pending" | "total"
-  > | null;
+  stage: PrStage;
+  /** Lines added and removed; null when GitHub didn't report them. */
+  size: { additions: number; deletions: number } | null;
+  ci: CiSignal;
+  review: ReviewSignal;
+  /** Unresolved review threads. */
+  threads: number;
+  merge: MergeSignal;
   /** Time since `pr.updatedAt`; null when GitHub didn't report it. */
   ageMs: number | null;
   /** No activity for a day or more. */
   stale: boolean;
 }
 
-export interface PipelineColumn {
-  stage: PrStage;
-  rows: PipelineRow[];
+/** The table's stage order: what needs the user first. */
+const TABLE_STAGE_ORDER: readonly PrStage[] = ["blocked", "ready", "checks", "review"];
+
+function ciSignal(pr: PrInfo): CiSignal {
+  const checks = pr.checks;
+  if (!checks || checks.total === 0) return { kind: "none" };
+  if (checks.failing > 0) {
+    return {
+      kind: "failing",
+      count: checks.failing,
+      names: (pr.checkRuns ?? [])
+        .filter((run) => run.status === "failing")
+        .map((run) => run.name),
+      total: checks.total,
+    };
+  }
+  if (checks.pending > 0) {
+    return {
+      kind: "running",
+      done: checks.total - checks.pending,
+      total: checks.total,
+    };
+  }
+  return { kind: "passing", total: checks.total };
 }
 
-function pipelineLabel(pr: PrInfo, verdict: PrVerdict): string | null {
-  if (verdict.blocker) return blockerLabel(verdict.blocker);
+function reviewSignal(pr: PrInfo): ReviewSignal {
+  if (pr.isDraft) return { kind: "draft" };
+  if (pr.reviewDecision === "APPROVED") return { kind: "approved" };
+  if (pr.reviewDecision === "CHANGES_REQUESTED") {
+    return { kind: "changes-requested" };
+  }
+  // Bots (Copilot and the like) comment but don't gate the merge.
+  const people = (pr.reviewers ?? []).filter((r) => !r.isBot);
+  if (people.length > 0) {
+    return {
+      kind: "reviewers",
+      approved: people.filter((r) => r.state === "approved").length,
+      total: people.length,
+    };
+  }
+  return { kind: "waiting" };
+}
+
+function mergeSignal(pr: PrInfo): MergeSignal {
+  if (pr.hasConflicts === true) return "conflicts";
   if (pr.queuedToMerge) return "queued";
-  if (pr.isDraft) return "draft";
-  return null;
+  return "clean";
 }
 
 /**
- * Every open PR across `projects` (deduped by `pr.url`, first
- * wins) in its `prVerdict` stage column, columns in `PR_STAGES` order. Within
- * a column the oldest `updatedAt` comes first; PRs of unknown age go last in
- * `projects` then workspace order.
+ * Every open PR across `projects` (deduped by `pr.url`, first wins), one row
+ * each with its `prVerdict` stage and signal cells. Rows run blocked → ready
+ * → checks → review, drafts after everything else; within a group the oldest
+ * `updatedAt` comes first and PRs of unknown age go last in `projects` then
+ * workspace order.
  */
-export function prPipeline(
+export function prTable(
   projects: readonly ProjectInfo[],
   now: number,
-): PipelineColumn[] {
-  const columns = new Map<PrStage, PipelineRow[]>(
-    PR_STAGES.map((stage) => [stage, []]),
-  );
+): PrTableRow[] {
+  const rows: PrTableRow[] = [];
   const seen = new Set<string>();
   for (const project of projects) {
     for (const workspace of project.workspaces) {
@@ -97,34 +155,36 @@ export function prPipeline(
       // An open PR always has a stage; this narrows away the merged/closed arm.
       if (verdict.stage == null) continue;
       const ageMs = ageSince(pr.updatedAt, now);
-      columns.get(verdict.stage)!.push({
+      rows.push({
         pr,
         project,
         workspace,
-        label: pipelineLabel(pr, verdict),
-        checks: pr.checks
-          ? {
-              passing: pr.checks.passing,
-              failing: pr.checks.failing,
-              pending: pr.checks.pending,
-              total: pr.checks.total,
-            }
-          : null,
+        stage: verdict.stage,
+        size:
+          pr.additions != null || pr.deletions != null
+            ? { additions: pr.additions ?? 0, deletions: pr.deletions ?? 0 }
+            : null,
+        ci: ciSignal(pr),
+        review: reviewSignal(pr),
+        threads: pr.unresolvedThreads ?? 0,
+        merge: mergeSignal(pr),
         ageMs,
         stale: ageMs != null && ageMs >= DAY_MS,
       });
     }
   }
-  return PR_STAGES.map((stage) => ({
-    stage,
-    // Stable sort: unknown ages tie with each other and keep insertion order.
-    rows: columns.get(stage)!.sort((a, b) => {
-      if (a.ageMs == null || b.ageMs == null) {
-        return (a.ageMs == null ? 1 : 0) - (b.ageMs == null ? 1 : 0);
-      }
-      return b.ageMs - a.ageMs;
-    }),
-  }));
+  const group = (row: PrTableRow) =>
+    (row.pr.isDraft ? TABLE_STAGE_ORDER.length : 0) +
+    TABLE_STAGE_ORDER.indexOf(row.stage);
+  // Stable sort: unknown ages tie with each other and keep insertion order.
+  return rows.sort((a, b) => {
+    const byGroup = group(a) - group(b);
+    if (byGroup !== 0) return byGroup;
+    if (a.ageMs == null || b.ageMs == null) {
+      return (a.ageMs == null ? 1 : 0) - (b.ageMs == null ? 1 : 0);
+    }
+    return b.ageMs - a.ageMs;
+  });
 }
 
 export interface OpenPrStats {
@@ -134,29 +194,22 @@ export interface OpenPrStats {
   byStage: Record<PrStage, number>;
 }
 
-/** The Open PRs stat tile: count, oldest age and the stacked stage bar. */
-export function openPrStats(pipeline: readonly PipelineColumn[]): OpenPrStats {
+/** The Open PRs summary: count, oldest age and the stacked stage bar. */
+export function openPrStats(rows: readonly PrTableRow[]): OpenPrStats {
   const byStage: Record<PrStage, number> = {
     checks: 0,
     review: 0,
     blocked: 0,
     ready: 0,
   };
-  let total = 0;
   let oldestAgeMs: number | null = null;
-  for (const column of pipeline) {
-    byStage[column.stage] += column.rows.length;
-    total += column.rows.length;
-    for (const row of column.rows) {
-      if (
-        row.ageMs != null &&
-        (oldestAgeMs == null || row.ageMs > oldestAgeMs)
-      ) {
-        oldestAgeMs = row.ageMs;
-      }
+  for (const row of rows) {
+    byStage[row.stage] += 1;
+    if (row.ageMs != null && (oldestAgeMs == null || row.ageMs > oldestAgeMs)) {
+      oldestAgeMs = row.ageMs;
     }
   }
-  return { total, oldestAgeMs, byStage };
+  return { total: rows.length, oldestAgeMs, byStage };
 }
 
 // ── Needs you cards ──

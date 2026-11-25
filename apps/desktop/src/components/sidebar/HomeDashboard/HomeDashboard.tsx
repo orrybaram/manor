@@ -9,14 +9,14 @@ import {
   headline,
   needsYouCards,
   openPrStats,
-  prPipeline,
+  prTable,
 } from "../../../lib/home-dashboard-studio";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DashboardHeader } from "./DashboardHeader";
 import { HostAlert } from "./HostAlert";
 import { NeedsYouList } from "./NeedsYouList";
-import { PrPipeline } from "./PrPipeline";
+import { PrTable } from "./PrTable";
 import { ProjectTiles } from "./ProjectTiles";
 import { StatTiles } from "./StatTiles";
 import { UpNextPanel } from "./UpNextPanel";
@@ -33,7 +33,7 @@ type HomeDashboardProps = {
 
 /**
  * Home's full dashboard, "Studio": header, host alert, stat tiles,
- * Needs you cards, then Up next, the PR pipeline, the activity timeline,
+ * Needs you cards, then Up next, the PR table, the activity timeline,
  * and project tiles. It reads the same stores the sidebar's
  * indicators do and derives everything with the pure selectors in `home-dashboard-studio.ts`;
  * the section components only render.
@@ -84,8 +84,8 @@ export function HomeDashboard(props: HomeDashboardProps) {
     () => runningAgentCount(agents, paneAgentStatus),
     [agents, paneAgentStatus],
   );
-  const pipeline = useMemo(() => prPipeline(projects, now), [projects, now]);
-  const prStats = useMemo(() => openPrStats(pipeline), [pipeline]);
+  const prRows = useMemo(() => prTable(projects, now), [projects, now]);
+  const prStats = useMemo(() => openPrStats(prRows), [prRows]);
   // The local day: the headline's phrasing holds all day, then changes.
   const day = Math.floor(
     (now - new Date(now).getTimezoneOffset() * 60_000) / 86_400_000,
@@ -116,7 +116,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
 
         <UpNextPanel onNewWorkspace={props.onNewWorkspace} />
 
-        <PrPipeline pipeline={pipeline} />
+        <PrTable rows={prRows} />
 
         <ActivityTimeline now={now} />
 

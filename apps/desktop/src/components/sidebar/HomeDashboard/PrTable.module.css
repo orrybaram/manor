@@ -1,0 +1,266 @@
+/*
+ * The Pull requests table (mockup P1). One row per open PR; the PR column
+ * takes the slack and ellipsises its title, every other column is as wide
+ * as its widest cell. On a narrow pane the table keeps a floor width and
+ * scrolls sideways inside `.scroller`, never the page.
+ */
+.section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 0 14px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-selected);
+  letter-spacing: -0.005em;
+}
+
+.sub {
+  font-size: 12.5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.empty {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hd-line);
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.scroller {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  /* Below this the table scrolls in `.scroller` rather than crushing the PR column. */
+  min-width: 600px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 6px 8px;
+  border-top: 1px solid var(--hd-line);
+  border-bottom: 1px solid var(--hd-line-2);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--hd-line);
+  white-space: nowrap;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.table th.prHead {
+  padding-left: 14px;
+  text-align: left;
+}
+
+.table th.ageHead {
+  padding-right: 14px;
+  text-align: right;
+}
+
+.row {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.draft {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
+
+/*
+ * The PR column: `width: 100%` claims the leftover width and `max-width: 0`
+ * lets its text ellipsise rather than widen the table (whose own
+ * `min-width` keeps the column from collapsing on a narrow pane). A stage
+ * colour tick on the left edge (`--c`) matches the Open PRs legend.
+ */
+.table td.prCell {
+  width: 100%;
+  max-width: 0;
+  padding-left: 14px;
+  text-align: left;
+  box-shadow: inset 2px 0 0 var(--c);
+}
+
+.prLine {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* A plain button that reads as text: the row's keyboard stop. */
+.prTitle {
+  flex: 0 1 auto;
+  min-width: 6em;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-selected);
+  cursor: pointer;
+}
+
+.prTitle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.row:hover .prTitle {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.draftTag {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.proj {
+  display: inline-flex;
+  /* Gives way faster than the title, down to a stub. */
+  flex: 0 4 auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 5em;
+  max-width: 12em;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.proj::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--project-color, var(--text-dim));
+}
+
+/* A signal: a small rounded square with a glyph or count in it. */
+.sig {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ok {
+  background: color-mix(in srgb, var(--green) 18%, transparent);
+  color: color-mix(in srgb, var(--green) 75%, var(--text-selected));
+}
+
+.bad {
+  background: color-mix(in srgb, var(--red) 22%, transparent);
+  color: color-mix(in srgb, var(--red) 75%, var(--text-selected));
+}
+
+.run {
+  background: color-mix(in srgb, var(--yellow) 20%, transparent);
+  color: color-mix(in srgb, var(--yellow) 70%, var(--text-selected));
+}
+
+.wait {
+  background: color-mix(in srgb, var(--cyan) 18%, transparent);
+  color: color-mix(in srgb, var(--cyan) 70%, var(--text-selected));
+}
+
+.off {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--text-dim);
+}
+
+/* The Size cell's bar: added then removed, split by line count. */
+.size {
+  display: inline-flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  vertical-align: middle;
+  background: var(--hd-fg-4);
+}
+
+.size i {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.added {
+  background: var(--green);
+}
+
+.removed {
+  background: var(--red);
+}
+
+.table td.age {
+  padding-right: 14px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+/* No peach token in the theme; yellow is the nearest warm one. */
+.table td.stale {
+  color: var(--yellow);
+}

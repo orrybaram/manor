@@ -51,11 +51,20 @@ type PrPopoverProps = {
   /** The workspace's host. */
   hostId?: string;
   /**
-   * A custom trigger in place of the PR badge (Home's pipeline
-   * cards). Hovering or focusing inside it opens the popover; clicks belong
+   * A custom trigger in place of the PR badge (Home's PR table rows).
+   * Hovering or focusing inside it opens the popover; clicks belong
    * to the child, so it anchors the popover rather than toggling it.
    */
   children?: React.ReactNode;
+  /**
+   * The element that wraps `children`: a `div` by default, or a `tr` whose
+   * children are the cells, so a table row can be the anchor.
+   */
+  anchorTag?: "div" | "tr";
+  /** Replaces the default anchor wrapper class. */
+  anchorClassName?: string;
+  /** Called when the anchor wrapper is clicked (a `tr` has no button of its own). */
+  onAnchorClick?: React.MouseEventHandler<HTMLElement>;
   /** Which side of the trigger the popover opens on. */
   side?: "top" | "right" | "bottom" | "left";
   /**
@@ -88,6 +97,7 @@ const MAX_COMMENTS_SHOWN = 6;
  */
 export function PrPopover(props: PrPopoverProps) {
   const { pr, onOpen, workspacePath, hostId, children, side = "right" } = props;
+  const AnchorTag = props.anchorTag ?? "div";
 
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const controlled = props.open !== undefined;
@@ -175,11 +185,12 @@ export function PrPopover(props: PrPopoverProps) {
     <Popover.Root open={open} onOpenChange={setOpen}>
       {children ? (
         <Popover.Anchor asChild>
-          <div
-            ref={(el) => {
+          <AnchorTag
+            ref={(el: HTMLElement | null) => {
               triggerRef.current = el;
             }}
-            className={styles.prAnchor}
+            className={props.anchorClassName ?? styles.prAnchor}
+            onClick={props.onAnchorClick}
             {...hoverHandlers}
             onFocus={controlled ? undefined : handleFocus}
             onKeyDown={(e) => {
@@ -192,7 +203,7 @@ export function PrPopover(props: PrPopoverProps) {
             }}
           >
             {children}
-          </div>
+          </AnchorTag>
         </Popover.Anchor>
       ) : (
         <Popover.Trigger asChild>

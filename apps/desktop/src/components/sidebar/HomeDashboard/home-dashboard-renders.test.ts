@@ -31,7 +31,7 @@ vi.mock("./NeedsYouList", () => ({
 for (const [path, name] of [
   ["./ActivityTimeline", "ActivityTimeline"],
   ["./HostAlert", "HostAlert"],
-  ["./PrPipeline", "PrPipeline"],
+  ["./PrTable", "PrTable"],
   ["./ProjectTiles", "ProjectTiles"],
   ["./StatTiles", "StatTiles"],
   ["./UpNextPanel", "UpNextPanel"],

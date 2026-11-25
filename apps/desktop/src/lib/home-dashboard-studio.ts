@@ -161,11 +161,21 @@ export function openPrStats(pipeline: readonly PipelineColumn[]): OpenPrStats {
 
 // ── Needs you cards ──
 
-/** What a Needs you card shows under its title. */
+/** The first unresolved review thread's comment, for a threads row's context. */
+export interface ThreadSnippet {
+  /** GitHub login; empty when the author account is gone. */
+  author: string;
+  /** The comment's text on one line, whitespace collapsed. */
+  snippet: string;
+  url: string;
+}
+
+/** Why a Needs you row needs the user: what its context column says. */
 export type NeedsYouCardContext =
-  | { kind: "input" }
+  | { kind: "input"; paneTitle?: string }
   | { kind: "error"; paneTitle?: string }
-  | PrBlocker
+  | Exclude<PrBlocker, { kind: "threads" }>
+  | (Extract<PrBlocker, { kind: "threads" }> & { comment?: ThreadSnippet })
   | { kind: "finished"; diff?: DiffStats }
   | {
       kind: "ready";
@@ -183,10 +193,24 @@ export type NeedsYouCard = NeedsYouItem & {
 };
 
 export interface NeedsYouCardsInput extends NeedsYouInput {
-  /** Live pane titles, for an errored agent's card. */
+  /** Live pane titles, for a waiting or errored agent's row. */
   paneTitle?: Readonly<Record<string, string>>;
   /** Item keys the user snoozed; those cards are dropped. */
   snoozed?: ReadonlySet<string>;
+}
+
+/**
+ * The first unresolved review thread in `pr.recentComments` (newest first),
+ * else `pr.latestComment` when it is one; null when neither says.
+ */
+function firstUnresolvedThread(pr: PrInfo): ThreadSnippet | null {
+  const comment =
+    pr.recentComments?.find((c) => c.kind === "thread" && c.isResolved === false) ??
+    (pr.latestComment?.isResolved === false ? pr.latestComment : null);
+  if (!comment) return null;
+  const snippet = comment.body.replace(/\s+/g, " ").trim();
+  if (!snippet) return null;
+  return { author: comment.author, snippet, url: comment.url };
 }
 
 function cardContext(
@@ -194,6 +218,10 @@ function cardContext(
   input: NeedsYouCardsInput,
 ): NeedsYouCardContext {
   if (item.kind === "pr") {
+    if (item.blocker?.kind === "threads") {
+      const comment = firstUnresolvedThread(item.pr);
+      return comment ? { ...item.blocker, comment } : item.blocker;
+    }
     if (item.blocker) return item.blocker;
     return {
       kind: "ready",
@@ -204,12 +232,11 @@ function cardContext(
   }
   switch (item.tier) {
     case "input":
-      return { kind: "input" };
     case "error": {
       const paneTitle = item.agent.paneId
         ? input.paneTitle?.[item.agent.paneId]
         : undefined;
-      return paneTitle ? { kind: "error", paneTitle } : { kind: "error" };
+      return paneTitle ? { kind: item.tier, paneTitle } : { kind: item.tier };
     }
     case "finished": {
       const diff = item.workspace?.diffStats;
@@ -224,8 +251,8 @@ function cardContext(
 }
 
 /**
- * `needsYouItems` (same tier order) as dashboard cards with their context
- * block and age, minus anything in `input.snoozed`.
+ * `needsYouItems` (same tier order) as Needs you rows with their context
+ * (why each needs the user) and age, minus anything in `input.snoozed`.
  */
 export function needsYouCards(
   input: NeedsYouCardsInput,

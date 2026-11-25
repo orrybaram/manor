@@ -15,7 +15,7 @@ import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DashboardHeader } from "./DashboardHeader";
 import { HostAlert } from "./HostAlert";
-import { NeedsYouCards } from "./NeedsYouCards";
+import { NeedsYouList } from "./NeedsYouList";
 import { PrPipeline } from "./PrPipeline";
 import { ProjectTiles } from "./ProjectTiles";
 import { StatTiles } from "./StatTiles";
@@ -112,7 +112,7 @@ export function HomeDashboard(props: HomeDashboardProps) {
           running={running}
           prStats={prStats}
         />
-        <NeedsYouCards cards={cards} />
+        <NeedsYouList cards={cards} />
 
         <UpNextPanel onNewWorkspace={props.onNewWorkspace} />
 

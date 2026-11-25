@@ -6,10 +6,11 @@ import { killApp, launchApp, test as base, expect } from "./fixtures";
 import { installFakeGh, type FakePr } from "./helpers/fake-gh";
 
 /**
- * The dashboard's Needs you cards, rendered by the real app from PRs a fake
- * `gh` reports: one worktree per blocked/ready state. Checks that every card
- * shows up with its actions and that no action spills out of its card, and
- * writes screenshots of the panel at a wide and a narrow window to
+ * The dashboard's Needs you rows, rendered by the real app from PRs a fake
+ * `gh` reports: one worktree per blocked/ready state. Checks that every row
+ * shows its kind, why it needs you, its one primary action and Snooze, that
+ * no action spills out of its row, that Merge opens the PR popover, and
+ * writes screenshots of the section at a wide and a narrow window to
  * `tests/e2e/artifacts/needs-you/` for eyeballing the layout.
  */
 
@@ -32,9 +33,11 @@ type Case = {
   rollup: Check[];
   unresolved?: number;
   conflicting?: boolean;
-  /** The card's kind label. */
+  /** The row's kind label. */
   kind: string;
-  /** The card's primary action. */
+  /** The row's context: why it needs you. */
+  context: string;
+  /** The row's primary action. */
   primary: string;
 };
 
@@ -52,6 +55,7 @@ const CASES: Case[] = [
       ...Array.from({ length: 4 }, (_, i) => running(`e2e ${i}`)),
     ],
     kind: "Checks failing",
+    context: "✕ 🧹 Lint, Format, Verify GraphQL schema, 🧪 Unit tests (shard 1/4) +1 more",
     primary: "Fix with agent",
   },
   {
@@ -62,6 +66,7 @@ const CASES: Case[] = [
     rollup: [pass("unit")],
     conflicting: true,
     kind: "Conflicts",
+    context: "Conflicts with the base branch",
     primary: "Fix with agent",
   },
   {
@@ -72,6 +77,7 @@ const CASES: Case[] = [
     rollup: [pass("unit")],
     unresolved: 5,
     kind: "Unresolved threads",
+    context: "reviewer-jane: “Still needs a look.”",
     primary: "Fix with agent",
   },
   {
@@ -81,6 +87,7 @@ const CASES: Case[] = [
     reviewDecision: "CHANGES_REQUESTED",
     rollup: [pass("unit")],
     kind: "Changes requested",
+    context: "A reviewer requested changes",
     primary: "Fix with agent",
   },
   {
@@ -90,7 +97,8 @@ const CASES: Case[] = [
     reviewDecision: "APPROVED",
     rollup: [pass("unit"), pass("lint")],
     kind: "Ready to merge",
-    primary: "Open PR",
+    context: "approved · 2/2 checks",
+    primary: "Merge",
   },
 ];
 
@@ -204,7 +212,7 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
 
 const OUT = path.join(__dirname, "artifacts", "needs-you");
 
-test("Needs you cards: every blocked/ready PR, actions inside the card", async ({
+test("Needs you rows: every blocked/ready PR says why, actions inside the row", async ({
   app,
   window,
 }) => {
@@ -212,16 +220,31 @@ test("Needs you cards: every blocked/ready PR, actions inside the card", async (
   fs.mkdirSync(OUT, { recursive: true });
 
   await window.getByTestId("home-row").click();
-  const cards = window.locator("article[aria-label]");
-  await expect(cards).toHaveCount(CASES.length, { timeout: 60_000 });
+  const section = window.getByRole("region", { name: "Needs you" });
+  const rows = section.getByRole("listitem");
+  await expect(rows).toHaveCount(CASES.length, { timeout: 60_000 });
 
   for (const c of CASES) {
-    const card = cards.filter({ hasText: `#${c.number}` });
-    await expect(card, c.branch).toContainText(c.kind);
-    await expect(card.getByText(c.primary, { exact: true }), c.branch).toBeVisible();
-    await expect(card.getByRole("button", { name: "Open workspace" }), c.branch).toBeVisible();
-    await expect(card.getByRole("button", { name: "Snooze for 1 hour" }), c.branch).toBeVisible();
+    const row = rows.filter({ hasText: `#${c.number}` });
+    await expect(row, c.branch).toContainText(c.kind);
+    await expect(row, c.branch).toContainText(c.context);
+    await expect(row.getByRole("button", { name: c.primary, exact: true }), c.branch).toBeVisible();
+    await expect(row.getByTitle(/^Open workspace/), c.branch).toBeVisible();
+    await expect(row.getByRole("button", { name: "Snooze for 1 hour" }), c.branch).toBeVisible();
   }
+
+  // Failing checks link to the first failing run.
+  await expect(
+    rows.filter({ hasText: "#16623" }).getByRole("link", { name: /^View check/ }),
+  ).toBeVisible();
+
+  // Merge opens the PR popover, merge controls and all, on the button.
+  await rows.filter({ hasText: "#97" }).getByRole("button", { name: "Merge", exact: true }).click();
+  const popover = window.locator("[data-radix-popper-content-wrapper]");
+  await expect(popover.getByTestId("pr-state")).toHaveText("Open");
+  await popover.screenshot({ path: path.join(OUT, "needs-you-merge-popover.png"), animations: "disabled" });
+  await window.keyboard.press("Escape");
+  await expect(popover).toHaveCount(0);
 
   for (const width of [1400, 1000, 760]) {
     await app.evaluate(({ BrowserWindow }, w) => {
@@ -229,15 +252,15 @@ test("Needs you cards: every blocked/ready PR, actions inside the card", async (
     }, width);
     await window.waitForTimeout(400);
 
-    // Every action sits inside its card, and every action is one height.
-    const layout = await cards.evaluateAll((els) =>
-      els.map((card) => {
-        const box = card.getBoundingClientRect();
-        const actions = Array.from(card.querySelectorAll("footer a, footer button, div > a, div > button"))
-          .filter((el) => card.contains(el))
+    // Every action sits inside its row, and every action is one height.
+    const layout = await rows.evaluateAll((els) =>
+      els.map((row) => {
+        const box = row.getBoundingClientRect();
+        const actions = Array.from(row.querySelectorAll("button"))
+          .filter((el) => el.closest("div") !== null && !el.title.startsWith("Open workspace"))
           .map((el) => el.getBoundingClientRect());
         return {
-          label: card.getAttribute("aria-label"),
+          label: row.getAttribute("aria-label"),
           overflow: actions.some((a) => a.right > box.right - 1 || a.left < box.left),
           heights: [...new Set(actions.map((a) => Math.round(a.height)))],
         };
@@ -248,7 +271,6 @@ test("Needs you cards: every blocked/ready PR, actions inside the card", async (
       expect(l.heights, `${width}px ${l.label} action heights`).toHaveLength(1);
     }
 
-    const panel = cards.first().locator("xpath=../..");
-    await panel.screenshot({ path: path.join(OUT, `needs-you-${width}.png`), animations: "disabled" });
+    await section.screenshot({ path: path.join(OUT, `needs-you-${width}.png`), animations: "disabled" });
   }
 });

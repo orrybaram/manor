@@ -11,7 +11,7 @@ import {
 import type { AgentInfo, PaneAgentStatus } from "../../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../../store/project-store";
 import type { HostStatusInfo } from "../../store/host-store";
-import type { PrInfo } from "../pr-info";
+import type { PrComment, PrInfo } from "../pr-info";
 
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.parse("2024-01-02T12:00:00.000Z");
@@ -265,7 +265,7 @@ describe("needsYouCards", () => {
       "p-done": status("responded"),
     },
     unseenRespondedAgentIds: new Set(["done"]),
-    paneTitle: { "p-error": "npm test" },
+    paneTitle: { "p-input": "Reuse SearchIcon?", "p-error": "npm test" },
   });
 
   it("keeps tier order and attaches context, key and age", () => {
@@ -281,7 +281,7 @@ describe("needsYouCards", () => {
       "agent:done",
     ]);
     expect(cards.map((c) => c.context)).toEqual([
-      { kind: "input" },
+      { kind: "input", paneTitle: "Reuse SearchIcon?" },
       { kind: "error", paneTitle: "npm test" },
       {
         kind: "checks",
@@ -314,23 +314,87 @@ describe("needsYouCards", () => {
     expect(cards).toHaveLength(6);
   });
 
-  it("omits the error pane title and finished diff when unknown", () => {
+  it("omits the pane title and finished diff when unknown", () => {
     const cards = needsYouCards(
       cardsInput({
         projects: [baseProject({ workspaces: [baseWorkspace()] })],
         agents: [
+          baseAgent({ id: "i", paneId: "pi" }),
           baseAgent({ id: "e", paneId: "pe" }),
           baseAgent({ id: "f", paneId: "pf" }),
         ],
-        paneAgentStatus: { pe: status("error"), pf: status("responded") },
+        paneAgentStatus: {
+          pi: status("requires_input"),
+          pe: status("error"),
+          pf: status("responded"),
+        },
         unseenRespondedAgentIds: new Set(["f"]),
       }),
       NOW,
     );
     expect(cards.map((c) => c.context)).toEqual([
+      { kind: "input" },
       { kind: "error" },
       { kind: "finished" },
     ]);
+  });
+
+  describe("threads context", () => {
+    const comment = (overrides: Partial<PrComment>): PrComment => ({
+      author: "dkim",
+      body: "Can we reuse\n  parseFbclid() here?",
+      url: "https://gh/c/1",
+      createdAt: "2026-01-01T00:00:00Z",
+      ...overrides,
+    });
+    const threadsContext = (pr: Partial<PrInfo>) =>
+      needsYouCards(
+        cardsInput({
+          projects: [
+            baseProject({
+              workspaces: [
+                baseWorkspace({ pr: basePr({ unresolvedThreads: 3, ...pr }) }),
+              ],
+            }),
+          ],
+        }),
+        NOW,
+      )[0]?.context;
+
+    it("carries the first unresolved thread's author and one-line snippet", () => {
+      expect(
+        threadsContext({
+          recentComments: [
+            comment({ kind: "comment", author: "bot", body: "LGTM" }),
+            comment({ kind: "thread", isResolved: true, author: "old" }),
+            comment({ kind: "thread", isResolved: false }),
+          ],
+        }),
+      ).toEqual({
+        kind: "threads",
+        count: 3,
+        comment: {
+          author: "dkim",
+          snippet: "Can we reuse parseFbclid() here?",
+          url: "https://gh/c/1",
+        },
+      });
+    });
+
+    it("falls back to an unresolved latestComment", () => {
+      expect(
+        threadsContext({ latestComment: comment({ isResolved: false }) }),
+      ).toMatchObject({ comment: { author: "dkim" } });
+    });
+
+    it("has no comment when none is a known unresolved thread", () => {
+      expect(
+        threadsContext({
+          recentComments: [comment({ kind: "comment" })],
+          latestComment: comment({}),
+        }),
+      ).toEqual({ kind: "threads", count: 3 });
+    });
   });
 });
 

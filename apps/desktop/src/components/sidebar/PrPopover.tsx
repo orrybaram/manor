@@ -58,6 +58,14 @@ type PrPopoverProps = {
   children?: React.ReactNode;
   /** Which side of the trigger the popover opens on. */
   side?: "top" | "right" | "bottom" | "left";
+  /**
+   * Controlled open, for a custom trigger that opens the popover on click
+   * (Needs you's Merge button). The caller owns opening it: hover and focus
+   * no longer do, a press on the trigger is left to toggle it rather than
+   * dismissing it first, and focus moves into the popover and back.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 const HOVER_DELAY = 400;
@@ -81,7 +89,14 @@ const MAX_COMMENTS_SHOWN = 6;
 export function PrPopover(props: PrPopoverProps) {
   const { pr, onOpen, workspacePath, hostId, children, side = "right" } = props;
 
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const controlled = props.open !== undefined;
+  const open = controlled ? props.open! : uncontrolledOpen;
+  const onOpenChange = props.onOpenChange;
+  const setOpen = useCallback(
+    (next: boolean) => (controlled ? onOpenChange?.(next) : setUncontrolledOpen(next)),
+    [controlled, onOpenChange],
+  );
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Set on focus, so `onOpenAutoFocus` knows the popover was opened from the
   // keyboard and should let Radix move focus into it; a hover-opened popover
@@ -105,12 +120,12 @@ export function PrPopover(props: PrPopoverProps) {
       setOpen(true);
       fetchPrs();
     }, HOVER_DELAY);
-  }, [clearHoverTimeout]);
+  }, [clearHoverTimeout, setOpen]);
 
   const handleMouseLeave = useCallback(() => {
     clearHoverTimeout();
     timeoutRef.current = setTimeout(() => setOpen(false), 150);
-  }, [clearHoverTimeout]);
+  }, [clearHoverTimeout, setOpen]);
 
   // Focus opens the same preview a hover does, immediately rather than after
   // HOVER_DELAY — deliberately tabbing here is not a pointer sweeping past.
@@ -124,7 +139,12 @@ export function PrPopover(props: PrPopoverProps) {
     openedByKeyboardRef.current = true;
     setOpen(true);
     fetchPrs();
-  }, [clearHoverTimeout]);
+  }, [clearHoverTimeout, setOpen]);
+
+  // A controlled popover opens only when its caller says so.
+  const hoverHandlers = controlled
+    ? {}
+    : { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave };
 
   const verdict = prVerdict(pr);
   const readiness = verdict.readiness;
@@ -147,7 +167,7 @@ export function PrPopover(props: PrPopoverProps) {
   const handleSendToAgentStart = useCallback(() => {
     clearHoverTimeout();
     setOpen(false);
-  }, [clearHoverTimeout]);
+  }, [clearHoverTimeout, setOpen]);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -158,9 +178,8 @@ export function PrPopover(props: PrPopoverProps) {
               triggerRef.current = el;
             }}
             className={styles.prAnchor}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
-            onFocus={handleFocus}
+            {...hoverHandlers}
+            onFocus={controlled ? undefined : handleFocus}
             onKeyDown={(e) => {
               if (e.key === "Escape" && open) {
                 e.preventDefault();
@@ -220,8 +239,14 @@ export function PrPopover(props: PrPopoverProps) {
           sideOffset={8}
           align="start"
           collisionPadding={8}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+          {...hoverHandlers}
+          // A press on a controlled trigger toggles the popover itself;
+          // dismissing on its pointerdown would reopen it on the click.
+          onPointerDownOutside={(e) => {
+            if (controlled && triggerRef.current?.contains(e.target as Node)) {
+              e.preventDefault();
+            }
+          }}
           // The portal still bubbles React events to the workspace row: its
           // drag handler captures the pointer and eats every click in here,
           // a click would select the workspace, a double-click would rename it.
@@ -232,7 +257,7 @@ export function PrPopover(props: PrPopoverProps) {
           // inside it, so Tab continues on into the comments and checks; a
           // hover-opened one keeps focus wherever it already was.
           onOpenAutoFocus={(e) => {
-            if (!openedByKeyboardRef.current) e.preventDefault();
+            if (!controlled && !openedByKeyboardRef.current) e.preventDefault();
           }}
           // Mirrors `onOpenAutoFocus`: focus returns to the badge only if it
           // came from the badge. Reset happens here, not on blur — moving
@@ -243,7 +268,7 @@ export function PrPopover(props: PrPopoverProps) {
           // the popover and the returning focus would open it again.
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (!openedByKeyboardRef.current) return;
+            if (!controlled && !openedByKeyboardRef.current) return;
             openedByKeyboardRef.current = false;
             returningFocusRef.current = true;
             try {

@@ -22,8 +22,8 @@ vi.mock("./DashboardHeader", () => ({
     return null;
   },
 }));
-vi.mock("./NeedsYouCards", () => ({
-  NeedsYouCards: (props: { cards: NeedsYouCard[] }) => {
+vi.mock("./NeedsYouList", () => ({
+  NeedsYouList: (props: { cards: NeedsYouCard[] }) => {
     lastCards = props.cards;
     return null;
   },

@@ -44,7 +44,7 @@ const METHOD_MENU: Record<PrMergeMethod, { label: string; detail: string }> = {
 };
 
 /** How long the merged moment plays before the workspace goes. */
-const MERGED_HOLD_MS = 1300;
+export const MERGED_HOLD_MS = 1300;
 
 type Phase = "idle" | "merging" | PrMergeOutcome;
 

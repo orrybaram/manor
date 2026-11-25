@@ -230,6 +230,10 @@ test("Needs you rows: every blocked/ready PR says why, actions inside the row", 
     await expect(row, c.branch).toContainText(c.context);
     await expect(row.getByRole("button", { name: c.primary, exact: true }), c.branch).toBeVisible();
     await expect(row.getByTitle(/^Open workspace/), c.branch).toBeVisible();
+    await expect(row.getByRole("link", { name: `PR #${c.number}`, exact: true }), c.branch).toHaveAttribute(
+      "href",
+      `https://github.com/acme/app/pull/${c.number}`,
+    );
     await expect(row.getByRole("button", { name: "Snooze for 1 hour" }), c.branch).toBeVisible();
   }
 

@@ -36,7 +36,7 @@ import { fetchPrs } from "../../hooks/usePrWatcher";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
 import { renderPrompt } from "../../lib/prompts/catalog";
 import { savedPromptOverrides } from "../../lib/prompts/saved-overrides";
-import { PrActions } from "./PrActions";
+import { MERGED_HOLD_MS, PrActions } from "./PrActions";
 import styles from "./PrPopover.module.css";
 
 type PrPopoverProps = {
@@ -106,6 +106,8 @@ export function PrPopover(props: PrPopoverProps) {
   // True while focus is being handed back to the badge as the popover closes,
   // so that focus doesn't open it again.
   const returningFocusRef = useRef(false);
+  // Controlled only: the popover is closing because of Escape.
+  const escapeCloseRef = useRef(false);
 
   const clearHoverTimeout = useCallback(() => {
     if (timeoutRef.current) {
@@ -184,6 +186,7 @@ export function PrPopover(props: PrPopoverProps) {
               if (e.key === "Escape" && open) {
                 e.preventDefault();
                 e.stopPropagation();
+                escapeCloseRef.current = true;
                 setOpen(false);
               }
             }}
@@ -241,11 +244,14 @@ export function PrPopover(props: PrPopoverProps) {
           collisionPadding={8}
           {...hoverHandlers}
           // A press on a controlled trigger toggles the popover itself;
-          // dismissing on its pointerdown would reopen it on the click.
-          onPointerDownOutside={(e) => {
+          // dismissing on its pointerdown or focus would reopen it on the click.
+          onInteractOutside={(e) => {
             if (controlled && triggerRef.current?.contains(e.target as Node)) {
               e.preventDefault();
             }
+          }}
+          onEscapeKeyDown={() => {
+            escapeCloseRef.current = true;
           }}
           // The portal still bubbles React events to the workspace row: its
           // drag handler captures the pointer and eats every click in here,
@@ -268,7 +274,11 @@ export function PrPopover(props: PrPopoverProps) {
           // the popover and the returning focus would open it again.
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (!controlled && !openedByKeyboardRef.current) return;
+            // A controlled popover hands focus back to its trigger only when
+            // Escape closed it; a click elsewhere keeps focus where it landed.
+            const byEscape = escapeCloseRef.current;
+            escapeCloseRef.current = false;
+            if (controlled ? !byEscape : !openedByKeyboardRef.current) return;
             openedByKeyboardRef.current = false;
             returningFocusRef.current = true;
             try {
@@ -288,6 +298,9 @@ export function PrPopover(props: PrPopoverProps) {
             workspacePath={workspacePath}
             hostId={hostId}
             onSendToAgentStart={handleSendToAgentStart}
+            // Controlled: close once the merged moment has played, rather
+            // than leaving it to the trigger's row disappearing.
+            onMerged={controlled ? () => setTimeout(() => setOpen(false), MERGED_HOLD_MS) : undefined}
           />
         </Popover.Content>
       </Popover.Portal>
@@ -309,8 +322,10 @@ export function PrDetails(props: {
    * close a popover.
    */
   onSendToAgentStart?: () => void;
+  /** Called when a merge from the footer lands. */
+  onMerged?: () => void;
 }) {
-  const { pr, workspacePath, hostId, onSendToAgentStart } = props;
+  const { pr, workspacePath, hostId, onSendToAgentStart, onMerged } = props;
 
   // Set the moment a merge from the footer lands: the header says so before
   // the next poll does.
@@ -393,7 +408,10 @@ export function PrDetails(props: {
           workspacePath={workspacePath}
           hostId={hostId}
           onLeave={onSendToAgentStart}
-          onMerged={() => setMergedHere(true)}
+          onMerged={() => {
+            setMergedHere(true);
+            onMerged?.();
+          }}
         />
       )}
     </div>

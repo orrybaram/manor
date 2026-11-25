@@ -146,6 +146,19 @@
   background: var(--project-color, var(--text-dim));
 }
 
+/* "PR #N" in the second line: opens the PR on GitHub, quietly. Doubled to outrank the Link's `plain` colour. */
+.prLink.prLink {
+  flex: none;
+  color: inherit;
+  text-decoration: none;
+}
+
+.prLink.prLink:hover {
+  color: var(--text-selected);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* The one-line "why", mono and ellipsised. */
 .context {
   display: block;

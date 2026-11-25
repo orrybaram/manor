@@ -94,7 +94,18 @@ export function NeedsYouRow(props: NeedsYouRowProps) {
             {card.project.name}
           </span>
           {" · "}
-          {card.kind === "pr" ? "PR" : "agent"}
+          {card.kind === "pr" ? (
+            <Link
+              href={card.pr.url}
+              variant="plain"
+              className={styles.prLink}
+              title="Open PR on GitHub"
+            >
+              PR #{card.pr.number}
+            </Link>
+          ) : (
+            "agent"
+          )}
         </span>
       </div>
       <RowContext card={card} />

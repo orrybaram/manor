@@ -16,6 +16,14 @@
   pointer-events: none;
 }
 
+/* The numeral, trimmed to its cap height so the badge's flex centering
+   centers the digits themselves rather than the mono font's taller ascent.
+   (`text-box` needs a block container, so it can't sit on the flex badge.) */
+.digits {
+  display: block;
+  text-box: trim-both cap alphabetic;
+}
+
 /* At the end of a nav row. */
 .pill {
   margin-left: auto;

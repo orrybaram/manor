@@ -20,7 +20,7 @@ export function NeedsYouPill() {
         data-testid="needs-you-count"
         aria-hidden="true"
       >
-        {formatNavCount(count)}
+        <span className={styles.digits}>{formatNavCount(count)}</span>
       </span>
       <span className="sr-only">, {needsYouPhrase(count)}</span>
     </>
@@ -44,7 +44,7 @@ export function NeedsYouCornerBadge(props: NeedsYouCornerBadgeProps) {
       data-testid="needs-you-count"
       aria-hidden="true"
     >
-      {formatNavCount(count)}
+      <span className={styles.digits}>{formatNavCount(count)}</span>
     </span>
   );
 }

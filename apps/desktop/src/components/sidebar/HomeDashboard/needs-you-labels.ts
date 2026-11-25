@@ -40,17 +40,6 @@ export function needsYouKindLabel(card: NeedsYouCard): string {
   return KIND_LABEL[card.context.kind];
 }
 
-/**
- * What the Waiting on you tile says about the longest wait: "manor agent
- * errored", "#91 checks failing".
- */
-export function waitingOnLabel(card: NeedsYouCard): string {
-  if (card.kind === "pr") return `#${card.pr.number} ${card.reason}`;
-  const what =
-    card.tier === "input" ? "agent needs input" : card.tier === "error" ? "agent errored" : "agent finished";
-  return `${card.project.name} ${what}`;
-}
-
 /** A card's title: the agent's name, or "#N PR title". */
 export function needsYouTitle(card: NeedsYouCard): string {
   if (card.kind === "pr") return `#${card.pr.number} ${card.pr.title}`;

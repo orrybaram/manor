@@ -1,0 +1,314 @@
+/*
+ * Home's secondary rail (mockup S4 `.rail`). Deliberately quiet: no panels,
+ * muted text, small uppercase labels. Under the PR table by default, its
+ * sections flowing into as many columns as fit, behind a top hairline; on a
+ * wide Home pane it becomes one column beside the main column, behind a left
+ * hairline. The `--hd-*` properties come from `HomeDashboard.module.css`.
+ */
+.rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  align-content: start;
+  gap: 24px 32px;
+  min-width: 0;
+  padding: 20px 14px 0;
+  border-top: 1px solid var(--hd-line);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+@container home (min-width: 1200px) {
+  .rail {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 0 0 24px;
+    border-top: none;
+    border-left: 1px solid var(--hd-line);
+  }
+}
+
+:global(:root[data-layout="phone"]) .rail {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.labelCount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.green {
+  color: var(--green);
+}
+
+.labelAside {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.note {
+  margin: 0;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.meta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
+.rowText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ── Agents working ── */
+
+.agentRow.agentRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  box-sizing: content-box;
+  font-size: 12.5px;
+  font-weight: 400;
+  text-align: left;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.lane,
+.laneAxis {
+  display: grid;
+  grid-template-columns: minmax(0, 86px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.lane {
+  height: 18px;
+  font-size: 11.5px;
+}
+
+.laneName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hd-line);
+}
+
+.track i {
+  position: absolute;
+  top: 0;
+  height: 6px;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--c);
+  /* The window slides every tick; ease the move rather than jump. */
+  transition:
+    left 0.6s ease,
+    width 0.6s ease;
+}
+
+.laneAxis {
+  margin-top: 2px;
+  font-size: 10.5px;
+}
+
+.laneAxis > :first-child {
+  grid-column: 2;
+}
+
+.laneAxis > :last-child {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+
+/* ── Open PRs / Merged this week ── */
+
+.big {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bigNum {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.stages {
+  display: flex;
+  height: 6px;
+  margin: 8px 0 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stages span {
+  background: var(--c);
+  flex-basis: 0;
+  transition: flex-grow 0.4s ease;
+}
+
+/* The divider is an inset shadow, not a gap: an empty stage (zero width)
+   then draws nothing instead of leaving a double gap. */
+.stages span + span {
+  box-shadow: inset 2px 0 0 var(--bg);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11px;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--c);
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 36px;
+  margin-top: 8px;
+}
+
+.bars i {
+  flex: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--magenta) 45%, transparent);
+}
+
+.bars i.today {
+  background: var(--magenta);
+}
+
+.bars i[data-empty] {
+  background: var(--hd-line-2);
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3px;
+  font-size: 10.5px;
+}
+
+/* ── Up next ── */
+
+.taskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.taskAction.taskAction {
+  flex: none;
+}
+
+.viewAll.viewAll {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.skeleton {
+  height: 14px;
+  margin: 8px 0;
+  border-radius: 4px;
+  background: var(--hd-panel-2);
+  opacity: 0.6;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

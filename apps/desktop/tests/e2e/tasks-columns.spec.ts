@@ -350,11 +350,11 @@ test.describe("Tasks table columns", () => {
     await window.mouse.move(1, 400);
     await shot(window, "09-drawer-open-light");
 
-    // Home's Up next keeps its fixed compact columns, whatever the Tasks table chose.
+    // Home's Up next lists the same tasks in the rail, whatever columns the Tasks table chose.
     await window.keyboard.press("Escape");
     await window.getByText("Dashboard", { exact: true }).first().click();
     await expect(
-      window.getByRole("table", { name: "Up next tasks" }),
+      window.getByRole("list", { name: "Up next tasks" }),
     ).toBeVisible({
       timeout: 20_000,
     });

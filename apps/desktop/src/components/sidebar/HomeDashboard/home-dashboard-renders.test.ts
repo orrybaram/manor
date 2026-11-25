@@ -12,12 +12,12 @@ import {
   type TestRoot,
 } from "../../../test-utils/react-root";
 
-// Render the dashboard without its sections: the header counts the
+// Render the dashboard without its sections: the host alert counts the
 // dashboard's renders, the cards mock records what it derived.
 let renders = 0;
 let lastCards: NeedsYouCard[] = [];
-vi.mock("./DashboardHeader", () => ({
-  DashboardHeader: () => {
+vi.mock("./HostAlert", () => ({
+  HostAlert: () => {
     renders++;
     return null;
   },
@@ -29,12 +29,8 @@ vi.mock("./NeedsYouList", () => ({
   },
 }));
 for (const [path, name] of [
-  ["./ActivityTimeline", "ActivityTimeline"],
-  ["./HostAlert", "HostAlert"],
+  ["./DashboardRail", "DashboardRail"],
   ["./PrTable", "PrTable"],
-  ["./ProjectTiles", "ProjectTiles"],
-  ["./StatTiles", "StatTiles"],
-  ["./UpNextPanel", "UpNextPanel"],
 ]) {
   vi.doMock(path, () => ({ [name]: () => null }));
 }

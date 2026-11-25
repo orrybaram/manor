@@ -4,22 +4,16 @@ import { useAppStore } from "../../../store/app-store";
 import { useAgentStore } from "../../../store/agent-store";
 import { useActiveSnoozes } from "../../../store/snooze-store";
 import { useCleanPaneTitles } from "../../../hooks/useAgentDisplay";
-import { runningAgentCount } from "../../../lib/home-dashboard";
 import {
-  headline,
   needsYouCards,
   openPrStats,
   prTable,
 } from "../../../lib/home-dashboard-studio";
 import type { NewWorkspaceHandler } from "../../../lib/start-issue-work";
-import { ActivityTimeline } from "./ActivityTimeline";
-import { DashboardHeader } from "./DashboardHeader";
+import { DashboardRail } from "./DashboardRail";
 import { HostAlert } from "./HostAlert";
 import { NeedsYouList } from "./NeedsYouList";
 import { PrTable } from "./PrTable";
-import { ProjectTiles } from "./ProjectTiles";
-import { StatTiles } from "./StatTiles";
-import { UpNextPanel } from "./UpNextPanel";
 import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useNow } from "./useNow";
 import styles from "./HomeDashboard.module.css";
@@ -32,10 +26,11 @@ type HomeDashboardProps = {
 };
 
 /**
- * Home's full dashboard, "Studio": header, host alert, stat tiles,
- * Needs you cards, then Up next, the PR table, the activity timeline,
- * and project tiles. It reads the same stores the sidebar's
- * indicators do and derives everything with the pure selectors in `home-dashboard-studio.ts`;
+ * Home's full dashboard, "Studio": the host alert, Needs you and the PR
+ * table in the main column, and a quieter rail of stats (Agents working,
+ * Open PRs, Merged this week, Up next) beside it on a wide pane or under it
+ * on a narrow one. It reads the same stores the sidebar's indicators do and
+ * derives everything with the pure selectors in `home-dashboard-studio.ts`;
  * the section components only render.
  *
  * The root is the Home pane's scroller and query container
@@ -43,7 +38,7 @@ type HomeDashboardProps = {
  * a viewport query can't see because the sidebar takes width.
  */
 export function HomeDashboard(props: HomeDashboardProps) {
-  const { testId } = props;
+  const { testId, onNewWorkspace } = props;
 
   const projects = useProjectStore((s) => s.projects);
   const paneAgentStatus = useAppStore((s) => s.paneAgentStatus);
@@ -80,47 +75,23 @@ export function HomeDashboard(props: HomeDashboardProps) {
       now,
     ],
   );
-  const running = useMemo(
-    () => runningAgentCount(agents, paneAgentStatus),
-    [agents, paneAgentStatus],
-  );
   const prRows = useMemo(() => prTable(projects, now), [projects, now]);
   const prStats = useMemo(() => openPrStats(prRows), [prRows]);
-  // The local day: the headline's phrasing holds all day, then changes.
-  const day = Math.floor(
-    (now - new Date(now).getTimezoneOffset() * 60_000) / 86_400_000,
-  );
-  const sentence = headline({
-    needsYou: cards.length,
-    running,
-    inReview: prStats.byStage.review,
-    openPrs: prStats.total,
-  }, day);
 
   return (
     <div className={styles.pane} data-testid={testId}>
-      <div ref={animate} className={styles.page}>
-        <DashboardHeader
+      <div className={styles.page}>
+        <div ref={animate} className={styles.main}>
+          <HostAlert projects={projects} now={now} />
+          <NeedsYouList cards={cards} />
+          <PrTable rows={prRows} />
+        </div>
+        <DashboardRail
+          className={styles.rail}
           now={now}
-          headline={sentence}
-          urgent={cards.length > 0}
-        />
-        <HostAlert projects={projects} now={now} />
-        <StatTiles
-          now={now}
-          cards={cards}
-          running={running}
           prStats={prStats}
+          onNewWorkspace={onNewWorkspace}
         />
-        <NeedsYouList cards={cards} />
-
-        <UpNextPanel onNewWorkspace={props.onNewWorkspace} />
-
-        <PrTable rows={prRows} />
-
-        <ActivityTimeline now={now} />
-
-        <ProjectTiles now={now} />
       </div>
     </div>
   );

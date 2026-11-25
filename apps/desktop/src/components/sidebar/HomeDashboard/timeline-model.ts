@@ -1,6 +1,6 @@
 import type { AgentStatus } from "../../../electron.d";
 
-/** Status colours; `responded` and `idle` never draw as bars. */
+/** Status colours for the rail's agent dots and activity lanes; `responded` and `idle` never draw as bars. */
 export const STATUS_COLOR: Record<AgentStatus, string> = {
   working: "var(--green)",
   thinking: "var(--accent)",
@@ -18,11 +18,6 @@ export const STATUS_LABEL: Record<AgentStatus, string> = {
   responded: "Finished",
   idle: "Idle",
 };
-
-/** Waiting periods draw as the red stripe pattern at full track height. */
-export function isWaitStatus(status: AgentStatus): boolean {
-  return status === "requires_input" || status === "error";
-}
 
 /** Position of `at` in the window as a CSS percentage, clamped to the track. */
 export function pct(at: number, start: number, span: number): number {

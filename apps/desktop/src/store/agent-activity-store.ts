@@ -55,24 +55,13 @@ export interface LaneSegment {
   to: number;
 }
 
-export interface LaneMarker {
-  kind: "finished" | "error";
-  at: number;
-}
-
-export interface ClosedGap {
-  from: number;
-  to: number;
-}
-
 const isWaiting = (s: AgentStatus) => s === "requires_input" || s === "error";
 const isWorking = (s: AgentStatus) => s === "working" || s === "thinking";
 const isActive = (s: AgentStatus) => isWaiting(s) || isWorking(s);
 
 /**
  * Convert an Agent's transitions into segments clipped to [windowStart, now],
- * merging adjacent equal statuses and dropping `idle` and `responded` (the
- * latter shows as a marker). Segments are also clipped to the sessions, so
+ * merging adjacent equal statuses and dropping `idle` and `responded`. Segments are also clipped to the sessions, so
  * nothing crosses a span where Manor was closed.
  */
 export function laneSegments(
@@ -103,25 +92,6 @@ export function laneSegments(
   return out;
 }
 
-/** Finished / errored moments inside the window, for the lane's markers. */
-export function laneMarkers(
-  transitions: AgentActivityTransition[],
-  windowStart: number,
-  now: number,
-): LaneMarker[] {
-  const out: LaneMarker[] = [];
-  for (const { status, at } of transitions) {
-    if (at < windowStart || at > now) continue;
-    if (status === "responded") out.push({ kind: "finished", at });
-    else if (status === "error") out.push({ kind: "error", at });
-  }
-  return out;
-}
-
-/**
- * Spans inside the window not covered by any session — Manor was closed, or
- * had not yet recorded anything (the span before the first session).
- */
 /**
  * `sessions` with the last one — the running app — ending no earlier than
  * `now`. Main stamps that end when it sends a snapshot, which only happens on
@@ -136,25 +106,6 @@ export function liveSessions(
   const last = sessions[sessions.length - 1];
   if (last.end >= now) return sessions;
   return [...sessions.slice(0, -1), { start: last.start, end: now }];
-}
-
-export function closedGaps(
-  sessions: AgentActivitySession[],
-  windowStart: number,
-  now: number,
-): ClosedGap[] {
-  const gaps: ClosedGap[] = [];
-  let cursor = windowStart;
-  for (const session of [...sessions].sort((a, b) => a.start - b.start)) {
-    if (session.end <= cursor) continue;
-    if (session.start > cursor) {
-      gaps.push({ from: cursor, to: Math.min(session.start, now) });
-    }
-    cursor = Math.max(cursor, session.end);
-    if (cursor >= now) break;
-  }
-  if (cursor < now) gaps.push({ from: cursor, to: now });
-  return gaps.filter((g) => g.to > g.from);
 }
 
 /**
@@ -195,33 +146,4 @@ export function lanePriority(
       rank(agents[a].transitions) - rank(agents[b].transitions) ||
       recency[b] - recency[a],
   );
-}
-
-/**
- * How many Agents matched `predicate` at each step time from `start`, plus a
- * final point at `end`. An Agent's status at t is its last transition at or
- * before t; with none it is not counted.
- */
-export function statusCountSeries(
-  agents: Record<string, AgentActivityEntry>,
-  start: number,
-  end: number,
-  stepMs: number,
-  predicate: (status: AgentStatus) => boolean,
-): number[] {
-  const times: number[] = [];
-  for (let t = start; t < end; t += stepMs) times.push(t);
-  times.push(end);
-
-  const counts = times.map(() => 0);
-  for (const { transitions } of Object.values(agents)) {
-    let idx = -1;
-    times.forEach((t, i) => {
-      while (idx + 1 < transitions.length && transitions[idx + 1].at <= t) {
-        idx++;
-      }
-      if (idx >= 0 && predicate(transitions[idx].status)) counts[i]++;
-    });
-  }
-  return counts;
 }

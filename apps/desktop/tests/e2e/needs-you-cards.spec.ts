@@ -4,6 +4,7 @@ import { execSync } from "child_process";
 import { type ElectronApplication, type Page } from "@playwright/test";
 import { killApp, launchApp, test as base, expect } from "./fixtures";
 import { installFakeGh, type FakePr } from "./helpers/fake-gh";
+import { useTheme } from "./helpers/theme";
 
 /**
  * The dashboard's Needs you rows, rendered by the real app from PRs a fake
@@ -102,6 +103,32 @@ const CASES: Case[] = [
   },
 ];
 
+
+/** PRs that don't need the user: they fill the PR table but stay out of Needs you. */
+type Extra = { branch: string; number: number; title: string; draft?: boolean; rollup: Check[]; reviewDecision: Case["reviewDecision"]; ageMs: number };
+const EXTRAS: Extra[] = [
+  { branch: "review", number: 101, title: "fix: stop counting a purchase twice", rollup: [pass("unit"), pass("lint")], reviewDecision: "REVIEW_REQUIRED", ageMs: 6 * 86_400_000 },
+  { branch: "draft", number: 102, title: "feat: send click IDs with sign-up", draft: true, rollup: [pass("unit")], reviewDecision: null, ageMs: 4 * 86_400_000 },
+  { branch: "running", number: 103, title: "feat: forward the ad click ID", rollup: [pass("unit"), running("e2e 1"), running("e2e 2")], reviewDecision: "REVIEW_REQUIRED", ageMs: 40 * 60_000 },
+];
+
+function fakeExtra(e: Extra): FakePr {
+  return {
+    number: e.number,
+    state: "OPEN",
+    title: e.title,
+    url: `https://github.com/acme/app/pull/${e.number}`,
+    isDraft: e.draft ?? false,
+    additions: 120,
+    deletions: 30,
+    reviewDecision: e.reviewDecision,
+    updatedAt: new Date(Date.now() - e.ageMs).toISOString(),
+    autoMergeRequest: null,
+    statusCheckRollup: e.rollup,
+    mergeable: "MERGEABLE",
+  };
+}
+
 function fakePr(c: Case): FakePr {
   return {
     number: c.number,
@@ -152,7 +179,7 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
 
     const worktreeRoot = path.join(tempHome, "worktrees");
     fs.mkdirSync(worktreeRoot, { recursive: true });
-    const workspaces = CASES.map((c) => {
+    const workspaces = [...CASES, ...EXTRAS].map((c) => {
       const wtPath = path.join(worktreeRoot, c.branch);
       execSync(`git worktree add "${wtPath}" -b "${c.branch}"`, {
         cwd: projectPath,
@@ -197,8 +224,14 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
     }
 
     const binDir = installFakeGh(tempHome, {
-      prs: Object.fromEntries(CASES.map((c) => [c.branch, fakePr(c)])),
-      conversations: Object.fromEntries(CASES.map((c) => [c.number, conversation(c)])),
+      prs: Object.fromEntries([
+        ...CASES.map((c) => [c.branch, fakePr(c)] as const),
+        ...EXTRAS.map((e) => [e.branch, fakeExtra(e)] as const),
+      ]),
+      conversations: Object.fromEntries([
+        ...CASES.map((c) => [c.number, conversation(c)] as const),
+        ...EXTRAS.map((e) => [e.number, conversation({ unresolved: 0, number: e.number } as Case)] as const),
+      ]),
     });
     const originalPath = process.env.PATH ?? "";
     process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
@@ -277,4 +310,94 @@ test("Needs you rows: every blocked/ready PR says why, actions inside the row", 
 
     await section.screenshot({ path: path.join(OUT, `needs-you-${width}.png`), animations: "disabled" });
   }
+});
+
+const SHOTS = path.join(__dirname, "artifacts", "dashboard");
+
+test("Dashboard: PR table, side rail, nav count, both themes and widths", async ({ app, window }) => {
+  test.setTimeout(180_000);
+  fs.mkdirSync(SHOTS, { recursive: true });
+  const size = async (w: number, h = 1100) => {
+    await app.evaluate(({ BrowserWindow }, [ww, hh]) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(ww!, hh!);
+    }, [w, h]);
+    await window.waitForTimeout(500);
+  };
+
+  await window.getByTestId("home-row").click();
+  const needs = window.getByRole("region", { name: "Needs you" });
+  await expect(needs.getByRole("listitem")).toHaveCount(CASES.length, { timeout: 60_000 });
+
+  // Every open PR is a table row, drafts last.
+  const table = window.getByRole("table");
+  await expect(table.locator("tbody tr")).toHaveCount(CASES.length + EXTRAS.length, { timeout: 30_000 });
+  await expect(table.locator("tbody tr").last()).toContainText("#102");
+
+  // The nav row carries the count.
+  await expect(window.getByTestId("home-row")).toContainText(String(CASES.length));
+
+  // The old sections are gone; the rail's are there.
+  await expect(window.getByText("Waiting on you", { exact: true })).toHaveCount(0);
+  const rail = window.getByRole("complementary", { name: "Activity and stats" });
+  for (const name of ["Agents working", "Open PRs", "Merged this week", "Up next"]) {
+    await expect(rail.getByRole("region", { name }), name).toBeVisible();
+  }
+
+  for (const theme of ["Catppuccin Mocha", "Catppuccin Latte"] as const) {
+    await useTheme(window, theme);
+    const tag = theme === "Catppuccin Mocha" ? "dark" : "light";
+    for (const width of [1900, 1100]) {
+      await size(width);
+      // The page never scrolls sideways.
+      const sideways = await window.getByTestId("home-view").evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(sideways, `${tag} ${width} sideways scroll`).toBe(false);
+      await window.screenshot({ path: path.join(SHOTS, `dashboard-${width}-${tag}.png`), animations: "disabled" });
+      await window.getByTestId("home-view").screenshot({ path: path.join(SHOTS, `dashboard-${width}-${tag}-full.png`), animations: "disabled" });
+    }
+    await size(1900);
+    await table.screenshot({ path: path.join(SHOTS, `pr-table-${tag}.png`), animations: "disabled" });
+    await rail.screenshot({ path: path.join(SHOTS, `rail-${tag}.png`), animations: "disabled" });
+    await window.getByTestId("home-row").screenshot({ path: path.join(SHOTS, `nav-row-${tag}.png`), animations: "disabled" });
+  }
+
+  // Rail beside the main column when wide, under it when narrow.
+  await size(1900);
+  const wideRail = (await rail.boundingBox())!;
+  const wideTable = (await table.boundingBox())!;
+  expect(wideRail.x).toBeGreaterThan(wideTable.x + wideTable.width - 1);
+  await size(1100);
+  const narrowRail = (await rail.boundingBox())!;
+  const narrowTable = (await table.boundingBox())!;
+  expect(narrowRail.y).toBeGreaterThan(narrowTable.y);
+
+  // Hovering a PR row shows its PR card.
+  await size(1900);
+  await table.locator("tbody tr").filter({ hasText: "#101" }).hover();
+  const popover = window.locator("[data-radix-popper-content-wrapper]");
+  await expect(popover.getByTestId("pr-state")).toBeVisible({ timeout: 5_000 });
+  await window.screenshot({ path: path.join(SHOTS, "pr-row-hover.png"), animations: "disabled" });
+  await window.mouse.move(5, 5);
+  await expect(popover).toHaveCount(0, { timeout: 5_000 });
+
+  // The collapsed sidebar's Dashboard icon carries the count too.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Collapse Sidebar");
+  await window.locator("[cmdk-item]", { hasText: "Collapse Sidebar" }).first().click();
+  const railHome = window.getByTestId("rail-home");
+  await expect(railHome).toHaveAttribute("aria-label", new RegExp(`${CASES.length} need you`));
+  await window.getByTestId("sidebar-rail").screenshot({ path: path.join(SHOTS, "sidebar-rail-badge.png"), animations: "disabled" });
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Collapse Sidebar");
+  await window.locator("[cmdk-item]", { hasText: "Collapse Sidebar" }).first().click();
+  await expect(window.getByTestId("home-row")).toBeVisible();
+
+  // Snoozing everything empties Needs you and clears the count.
+  const rows = needs.getByRole("listitem");
+  while ((await rows.count()) > 0) {
+    await rows.first().getByRole("button", { name: "Snooze for 1 hour" }).click();
+    await window.waitForTimeout(250);
+  }
+  await expect(needs).toContainText("Nothing needs you right now.");
+  await expect(window.getByTestId("home-row")).not.toContainText(/\d/);
+  await window.screenshot({ path: path.join(SHOTS, "needs-you-empty.png"), animations: "disabled" });
 });

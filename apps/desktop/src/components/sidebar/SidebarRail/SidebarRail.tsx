@@ -17,6 +17,8 @@ import { useRailPopover } from "./useRailPopover";
 import { RailPopoverShell } from "./RailPopoverShell";
 import { AgentsList } from "../AgentsList";
 import { NotificationsPopover } from "../../notifications/NotificationsPopover";
+import { NeedsYouCornerBadge } from "../NeedsYouBadge/NeedsYouBadge";
+import { needsYouPhrase, useNeedsYouCount } from "../../../hooks/useNeedsYouCount";
 import styles from "./SidebarRail.module.css";
 
 /** The Agents button's key in the rail's one open popover; never a project id. */
@@ -87,21 +89,7 @@ export function SidebarRail(props: SidebarRailProps) {
       data-testid="sidebar-rail"
     >
       <div className={styles.dragSpacer} />
-      <Tooltip label="Dashboard" side="right">
-        <Button
-          variant="ghost"
-          className={`${styles.iconButton} ${homeActive ? styles.homeActive : ""}`}
-          data-testid="rail-home"
-          data-sidebar-row=""
-          tabIndex={-1}
-          aria-label="Dashboard"
-          aria-current={homeActive ? "true" : undefined}
-          onClick={goHome}
-          onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: goHome })}
-        >
-          <LayoutDashboard size={14} />
-        </Button>
-      </Tooltip>
+      <RailDashboardButton active={homeActive} onActivate={goHome} />
       <Tooltip label="Tasks" side="right">
         <Button
           variant="ghost"
@@ -210,5 +198,39 @@ export function SidebarRail(props: SidebarRailProps) {
       </div>
       <SidebarResizeHandle />
     </div>
+  );
+}
+
+type RailDashboardButtonProps = {
+  active: boolean;
+  onActivate: () => void;
+};
+
+/**
+ * The rail's Dashboard button with the Needs you count on its corner. Its
+ * own component so the count's stores re-render only this button.
+ */
+function RailDashboardButton(props: RailDashboardButtonProps) {
+  const { active, onActivate } = props;
+
+  const needsYou = useNeedsYouCount();
+
+  return (
+    <Tooltip label="Dashboard" side="right">
+      <Button
+        variant="ghost"
+        className={`${styles.iconButton} ${styles.homeButton} ${active ? styles.homeActive : ""}`}
+        data-testid="rail-home"
+        data-sidebar-row=""
+        tabIndex={-1}
+        aria-label={needsYou > 0 ? `Dashboard, ${needsYouPhrase(needsYou)}` : "Dashboard"}
+        aria-current={active ? "true" : undefined}
+        onClick={onActivate}
+        onKeyDown={(e) => handleSidebarRowKeyDown(e, { activate: onActivate })}
+      >
+        <LayoutDashboard size={14} />
+        <NeedsYouCornerBadge count={needsYou} />
+      </Button>
+    </Tooltip>
   );
 }

@@ -1,17 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
-  headline,
   needsYouCards,
   openPrStats,
-  prPipeline,
-  projectTiles,
+  prTable,
   type NeedsYouCardsInput,
-  type ProjectTileDeps,
 } from "../home-dashboard-studio";
 import type { AgentInfo, PaneAgentStatus } from "../../electron.d";
 import type { ProjectInfo, WorkspaceInfo } from "../../store/project-store";
-import type { HostStatusInfo } from "../../store/host-store";
-import type { PrInfo } from "../pr-info";
+import type { PrComment, PrInfo } from "../pr-info";
 
 const HOUR = 60 * 60 * 1000;
 const NOW = Date.parse("2024-01-02T12:00:00.000Z");
@@ -97,7 +93,7 @@ const checks = (passing: number, failing: number, pending: number) => ({
   total: passing + failing + pending,
 });
 
-describe("prPipeline / openPrStats", () => {
+describe("prTable / openPrStats", () => {
   const project = baseProject({
     workspaces: [
       baseWorkspace({
@@ -106,6 +102,9 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(1),
           checks: checks(1, 0, 1),
           updatedAt: hoursAgo(1),
+          additions: 482,
+          deletions: 3,
+          hasConflicts: false,
         }),
       }),
       baseWorkspace({
@@ -118,6 +117,11 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(3),
           reviewDecision: "REVIEW_REQUIRED",
           updatedAt: hoursAgo(30),
+          reviewers: [
+            { name: "ana", state: "approved" },
+            { name: "bo", state: "requested" },
+            { name: "copilot", state: "commented", isBot: true },
+          ],
         }),
       }),
       baseWorkspace({
@@ -126,6 +130,7 @@ describe("prPipeline / openPrStats", () => {
           url: prUrl(4),
           hasConflicts: true,
           updatedAt: hoursAgo(2),
+          unresolvedThreads: 2,
         }),
       }),
       baseWorkspace({
@@ -148,51 +153,130 @@ describe("prPipeline / openPrStats", () => {
           updatedAt: hoursAgo(5),
         }),
       }),
+      baseWorkspace({
+        path: "/i",
+        pr: basePr({
+          url: prUrl(8),
+          updatedAt: hoursAgo(3),
+          checks: checks(4, 2, 0),
+          checkRuns: [
+            { name: "e2e", status: "failing" },
+            { name: "lint", status: "passing" },
+          ],
+        }),
+      }),
+      baseWorkspace({
+        path: "/j",
+        pr: basePr({
+          url: prUrl(9),
+          updatedAt: hoursAgo(4),
+          reviewDecision: "APPROVED",
+          checks: checks(3, 0, 0),
+        }),
+      }),
+      baseWorkspace({
+        path: "/k",
+        pr: basePr({
+          url: prUrl(10),
+          updatedAt: hoursAgo(1),
+          reviewDecision: "CHANGES_REQUESTED",
+        }),
+      }),
     ],
   });
 
-  it("columns open PRs in stage order, deduped, with labels, checks and ages", () => {
-    const pipeline = prPipeline([project], NOW);
-    expect(pipeline.map((c) => c.stage)).toEqual([
-      "checks",
-      "review",
-      "blocked",
-      "ready",
+  it("orders open PRs blocked, ready, checks, review, then drafts; deduped, oldest first", () => {
+    const rows = prTable([project], NOW);
+    expect(rows.map((r) => [r.pr.url, r.stage])).toEqual([
+      // Blocked: #8 (3h), #4 (2h), #10 (1h).
+      [prUrl(8), "blocked"],
+      [prUrl(4), "blocked"],
+      [prUrl(10), "blocked"],
+      // Ready: #9 (4h), then #5 (queued, unknown age).
+      [prUrl(9), "ready"],
+      [prUrl(5), "ready"],
+      [prUrl(1), "checks"],
+      // Review: oldest first (#3 at 30h, #7 at 5h).
+      [prUrl(3), "review"],
+      [prUrl(7), "review"],
+      // Drafts last, whatever their stage.
+      [prUrl(2), "review"],
     ]);
-    const urls = pipeline.map((c) => c.rows.map((r) => r.pr.url));
-    // Review: oldest first (#3 at 30h, #7 at 5h), unknown age (#2) last.
-    expect(urls).toEqual([
-      [prUrl(1)],
-      [prUrl(3), prUrl(7), prUrl(2)],
-      [prUrl(4)],
-      [prUrl(5)],
-    ]);
+  });
 
-    const [checksCol, reviewCol, blockedCol, readyCol] = pipeline;
-    expect(checksCol.rows[0]).toMatchObject({
-      label: null,
-      checks: { passing: 1, failing: 0, pending: 1, total: 2 },
+  it("calls every reviewer approving approved, and unknown conflicts unknown", () => {
+    const rows = prTable(
+      [
+        baseProject({
+          workspaces: [
+            baseWorkspace({
+              pr: basePr({
+                reviewDecision: null,
+                reviewers: [
+                  { name: "ana", state: "approved" },
+                  { name: "bo", state: "approved" },
+                  { name: "copilot", state: "commented", isBot: true },
+                ],
+              }),
+            }),
+          ],
+        }),
+      ],
+      NOW,
+    );
+    expect(rows[0]).toMatchObject({
+      review: { kind: "approved" },
+      merge: "unknown",
+    });
+  });
+
+  it("derives each row's signals", () => {
+    const byUrl = new Map(prTable([project], NOW).map((r) => [r.pr.url, r]));
+
+    expect(byUrl.get(prUrl(1))).toMatchObject({
+      size: { additions: 482, deletions: 3 },
+      ci: { kind: "running", done: 1, total: 2 },
+      review: { kind: "waiting" },
+      threads: 0,
+      merge: "clean",
       ageMs: HOUR,
       stale: false,
     });
-    expect(reviewCol.rows[0]).toMatchObject({ ageMs: 30 * HOUR, stale: true });
-    expect(reviewCol.rows[2]).toMatchObject({
-      label: "draft",
+    expect(byUrl.get(prUrl(2))).toMatchObject({
+      size: null,
+      ci: { kind: "none" },
+      review: { kind: "draft" },
       ageMs: null,
       stale: false,
-      checks: null,
     });
-    expect(blockedCol.rows[0].label).toBe("conflicts");
-    expect(readyCol.rows[0].label).toBe("queued");
+    // Bots don't count as reviewers.
+    expect(byUrl.get(prUrl(3))).toMatchObject({
+      review: { kind: "reviewers", approved: 1, total: 2 },
+      ageMs: 30 * HOUR,
+      stale: true,
+    });
+    expect(byUrl.get(prUrl(4))).toMatchObject({ merge: "conflicts", threads: 2 });
+    expect(byUrl.get(prUrl(5))?.merge).toBe("queued");
+    expect(byUrl.get(prUrl(8))?.ci).toEqual({
+      kind: "failing",
+      count: 2,
+      names: ["e2e"],
+      total: 6,
+    });
+    expect(byUrl.get(prUrl(9))).toMatchObject({
+      ci: { kind: "passing", total: 3 },
+      review: { kind: "approved" },
+    });
+    expect(byUrl.get(prUrl(10))?.review).toEqual({ kind: "changes-requested" });
   });
 
-  it("summarizes a pipeline", () => {
-    expect(openPrStats(prPipeline([project], NOW))).toEqual({
-      total: 6,
+  it("summarizes the open PRs", () => {
+    expect(openPrStats(prTable([project], NOW))).toEqual({
+      total: 9,
       oldestAgeMs: 30 * HOUR,
-      byStage: { checks: 1, review: 3, blocked: 1, ready: 1 },
+      byStage: { checks: 1, review: 3, blocked: 3, ready: 2 },
     });
-    expect(openPrStats(prPipeline([], NOW))).toEqual({
+    expect(openPrStats(prTable([], NOW))).toEqual({
       total: 0,
       oldestAgeMs: null,
       byStage: { checks: 0, review: 0, blocked: 0, ready: 0 },
@@ -265,7 +349,7 @@ describe("needsYouCards", () => {
       "p-done": status("responded"),
     },
     unseenRespondedAgentIds: new Set(["done"]),
-    paneTitle: { "p-error": "npm test" },
+    paneTitle: { "p-input": "Reuse SearchIcon?", "p-error": "npm test" },
   });
 
   it("keeps tier order and attaches context, key and age", () => {
@@ -281,7 +365,7 @@ describe("needsYouCards", () => {
       "agent:done",
     ]);
     expect(cards.map((c) => c.context)).toEqual([
-      { kind: "input" },
+      { kind: "input", paneTitle: "Reuse SearchIcon?" },
       { kind: "error", paneTitle: "npm test" },
       {
         kind: "checks",
@@ -314,257 +398,86 @@ describe("needsYouCards", () => {
     expect(cards).toHaveLength(6);
   });
 
-  it("omits the error pane title and finished diff when unknown", () => {
+  it("omits the pane title and finished diff when unknown", () => {
     const cards = needsYouCards(
       cardsInput({
         projects: [baseProject({ workspaces: [baseWorkspace()] })],
         agents: [
+          baseAgent({ id: "i", paneId: "pi" }),
           baseAgent({ id: "e", paneId: "pe" }),
           baseAgent({ id: "f", paneId: "pf" }),
         ],
-        paneAgentStatus: { pe: status("error"), pf: status("responded") },
+        paneAgentStatus: {
+          pi: status("requires_input"),
+          pe: status("error"),
+          pf: status("responded"),
+        },
         unseenRespondedAgentIds: new Set(["f"]),
       }),
       NOW,
     );
     expect(cards.map((c) => c.context)).toEqual([
+      { kind: "input" },
       { kind: "error" },
       { kind: "finished" },
     ]);
   });
-});
 
-describe("headline", () => {
-  const SEEDS = [0, 1, 2, 3, 4, 5];
-  const all = (counts: Parameters<typeof headline>[0]) =>
-    SEEDS.map((seed) => headline(counts, seed));
-
-  it("holds a line steady for a seed", () => {
-    const counts = { needsYou: 3, running: 3, inReview: 5, openPrs: 7 };
-    expect(headline(counts, 7)).toEqual(headline(counts, 7));
-  });
-
-  it("varies its phrasing across seeds", () => {
-    const leads = new Set(
-      all({ needsYou: 3, running: 3, inReview: 5, openPrs: 7 }).map((h) => h.lead),
-    );
-    expect(leads.size).toBeGreaterThan(1);
-  });
-
-  it("names every count in the lead and clauses", () => {
-    for (const { lead, rest } of all({ needsYou: 3, running: 2, inReview: 5, openPrs: 7 })) {
-      expect(lead).toContain("3");
-      expect(rest).toMatch(/^2 agents .* and 5 PRs .*\.$/);
-    }
-  });
-
-  it("uses singulars and drops zero clauses", () => {
-    for (const { lead, rest } of all({ needsYou: 1, running: 1, inReview: 0, openPrs: 0 })) {
-      expect(lead).not.toMatch(/\d/);
-      expect(rest).toMatch(/agent/);
-      expect(rest).not.toMatch(/PR/);
-      expect(rest.charAt(0)).toBe(rest.charAt(0).toUpperCase());
-    }
-    for (const { rest } of all({ needsYou: 0, running: 0, inReview: 1, openPrs: 1 })) {
-      expect(rest).toMatch(/PR/);
-      expect(rest).not.toMatch(/agent/);
-    }
-  });
-
-  it("uses the quiet lines only when nothing is running and no PR is open", () => {
-    const quiet = new Set(all({ needsYou: 0, running: 0, inReview: 0, openPrs: 0 }).map((h) => h.lead));
-    // Only checks running: nothing needs you, but it isn't quiet.
-    for (const { lead, rest } of all({ needsYou: 0, running: 0, inReview: 0, openPrs: 1 })) {
-      expect(quiet.has(lead)).toBe(false);
-      expect(rest).toMatch(/agent/i);
-    }
-  });
-
-  it("doesn't suggest starting something while things need you", () => {
-    for (const { lead, rest } of all({ needsYou: 2, running: 0, inReview: 0, openPrs: 2 })) {
-      expect(lead).toContain("2");
-      expect(rest).toMatch(/agent/i);
-    }
-  });
-});
-
-describe("projectTiles", () => {
-  const host = (
-    hostId: string,
-    s: HostStatusInfo["status"],
-  ): HostStatusInfo => ({
-    hostId,
-    spec: null,
-    status: s,
-  });
-  const deps = (overrides: Partial<ProjectTileDeps> = {}): ProjectTileDeps => ({
-    projects: [],
-    agents: [],
-    paneAgentStatus: {},
-    unseenRespondedAgentIds: new Set(),
-    hosts: [host("local", "connected")],
-    hostName: (id) => (id === "local" ? "local" : id),
-    now: NOW,
-    ...overrides,
-  });
-
-  const group = {
-    id: "g1",
-    name: "Repo",
-    memberIds: ["a", "b"],
-    lastUsedHostId: null,
-  };
-  const memberA = baseProject({
-    id: "a",
-    name: "Repo",
-    hostId: "local",
-    color: "#f00",
-    group,
-    workspaces: [
-      baseWorkspace({
-        path: "/a/needs",
-        name: "needs",
-        pr: basePr({ url: prUrl(1), hasConflicts: true }),
-      }),
-      baseWorkspace({
-        path: "/a/run",
-        name: "run",
-        diffStats: { added: 10, removed: 2 },
-      }),
-      baseWorkspace({
-        path: "/a/hidden",
-        hidden: true,
-        diffStats: { added: 99, removed: 99 },
-      }),
-    ],
-  });
-  const memberB = baseProject({
-    id: "b",
-    name: "Repo",
-    hostId: "devbox",
-    color: "#f00",
-    group,
-    workspaces: [
-      baseWorkspace({
-        path: "/b/ready",
-        name: null,
-        pr: basePr({ url: prUrl(2), queuedToMerge: true }),
-      }),
-      baseWorkspace({
-        path: "/b/open",
-        name: "open",
-        pr: basePr({ url: prUrl(3) }),
-        diffStats: { added: 5, removed: 1 },
-      }),
-      baseWorkspace({ path: "/b/idle", name: "idle" }),
-    ],
-  });
-  const solo = baseProject({
-    id: "solo",
-    name: "Solo",
-    workspaces: [baseWorkspace({ path: "/solo" })],
-  });
-
-  it("builds one tile per top-level entry with urgent-first workspace states", () => {
-    const tiles = projectTiles(
-      [memberA, solo, memberB],
-      deps({
-        agents: [
-          baseAgent({
-            id: "r",
-            projectId: "a",
-            workspacePath: "/a/run",
-            paneId: "pr",
-          }),
-          // A running agent in a workspace that already needs you stays "needs-you".
-          baseAgent({
-            id: "r2",
-            projectId: "a",
-            workspacePath: "/a/needs",
-            paneId: "pr2",
-          }),
-        ],
-        paneAgentStatus: { pr: status("working"), pr2: status("thinking") },
-        hosts: [host("local", "connected"), host("devbox", "error")],
-        ports: [
-          {
-            port: 5173,
-            processName: "vite",
-            workspacePath: "/a/run",
-            hostId: "local",
-          },
-          {
-            port: 3000,
-            processName: "node",
-            workspacePath: "/b/open",
-            hostId: "devbox",
-          },
-          {
-            port: 80,
-            processName: "other",
-            workspacePath: "/b/open",
-            hostId: "local",
-          },
-          {
-            port: 22,
-            processName: "none",
-            workspacePath: null,
-            hostId: "local",
-          },
-        ],
-      }),
-    );
-
-    expect(tiles.map((t) => t.key)).toEqual(["g1", "solo"]);
-    const [repo, soloTile] = tiles;
-    expect(repo).toMatchObject({
-      name: "Repo",
-      color: "#f00",
-      host: {
-        label: "local + devbox",
-        state: "partial",
-        status: "Connection failed",
-      },
-      diff: { added: 15, removed: 3 },
-      needsYou: 1,
-      running: 2,
-      openPrs: 3,
-      port: { port: 3000, label: "node" },
+  describe("threads context", () => {
+    const comment = (overrides: Partial<PrComment>): PrComment => ({
+      author: "dkim",
+      body: "Can we reuse\n  parseFbclid() here?",
+      url: "https://gh/c/1",
+      createdAt: "2026-01-01T00:00:00Z",
+      ...overrides,
     });
-    expect(repo.workspaces.map((w) => [w.name, w.state])).toEqual([
-      ["needs", "needs-you"],
-      ["run", "running"],
-      ["ready", "pr-ready"],
-      ["open", "pr-open"],
-      ["idle", "idle"],
-    ]);
-    expect(repo.workspaces[2]).toMatchObject({
-      projectId: "b",
-      path: "/b/ready",
-    });
-
-    expect(soloTile).toMatchObject({
-      name: "Solo",
-      host: { label: "local", state: "online" },
-      diff: { added: 0, removed: 0 },
-      needsYou: 0,
-      running: 0,
-      openPrs: 0,
-    });
-    expect(soloTile.host.status).toBeUndefined();
-    expect(soloTile.port).toBeUndefined();
-  });
-
-  it("does not count snoozed items as needing you", () => {
-    const [tile] = projectTiles(
-      [
-        baseProject({
-          workspaces: [baseWorkspace({ pr: basePr({ hasConflicts: true }) })],
+    const threadsContext = (pr: Partial<PrInfo>) =>
+      needsYouCards(
+        cardsInput({
+          projects: [
+            baseProject({
+              workspaces: [
+                baseWorkspace({ pr: basePr({ unresolvedThreads: 3, ...pr }) }),
+              ],
+            }),
+          ],
         }),
-      ],
-      deps({ snoozed: new Set([`pr:${prUrl(1)}`]) }),
-    );
-    expect(tile.needsYou).toBe(0);
-    expect(tile.workspaces[0].state).toBe("pr-open");
+        NOW,
+      )[0]?.context;
+
+    it("carries the first unresolved thread's author and one-line snippet", () => {
+      expect(
+        threadsContext({
+          recentComments: [
+            comment({ kind: "comment", author: "bot", body: "LGTM" }),
+            comment({ kind: "thread", isResolved: true, author: "old" }),
+            comment({ kind: "thread", isResolved: false }),
+          ],
+        }),
+      ).toEqual({
+        kind: "threads",
+        count: 3,
+        comment: {
+          author: "dkim",
+          snippet: "Can we reuse parseFbclid() here?",
+          url: "https://gh/c/1",
+        },
+      });
+    });
+
+    it("falls back to an unresolved latestComment", () => {
+      expect(
+        threadsContext({ latestComment: comment({ isResolved: false }) }),
+      ).toMatchObject({ comment: { author: "dkim" } });
+    });
+
+    it("has no comment when none is a known unresolved thread", () => {
+      expect(
+        threadsContext({
+          recentComments: [comment({ kind: "comment" })],
+          latestComment: comment({}),
+        }),
+      ).toEqual({ kind: "threads", count: 3 });
+    });
   });
 });

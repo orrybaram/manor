@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   itemKey,
   needsYouItems,
-  runningAgentCount,
-  openPrCount,
+  runningAgents,
   primaryMember,
   type NeedsYouInput,
 } from "../home-dashboard";
@@ -269,8 +268,8 @@ describe("itemKey", () => {
   });
 });
 
-describe("runningAgentCount", () => {
-  it("counts panes that are thinking or working for a live agent, once per pane", () => {
+describe("runningAgents", () => {
+  it("lists panes that are thinking or working for a live agent, once per pane", () => {
     const agents: AgentInfo[] = [
       baseAgent({ id: "a1", paneId: "p1", status: "active" }),
       baseAgent({ id: "a2", paneId: "p2", status: "active" }),
@@ -283,21 +282,12 @@ describe("runningAgentCount", () => {
       p2: status("working"),
       p3: status("thinking"),
     };
-    expect(runningAgentCount(agents, paneAgentStatus)).toBe(2);
-  });
-});
-
-describe("openPrCount", () => {
-  it("dedupes open PRs by url", () => {
-    const url = "https://github.com/example/repo/pull/7";
-    const project = baseProject({
-      workspaces: [
-        baseWorkspace({ path: "/a", pr: basePr({ url }) }),
-        baseWorkspace({ path: "/b", pr: basePr({ url }) }),
-        baseWorkspace({ path: "/c", pr: basePr({ url: "other", state: "closed" }) }),
-      ],
-    });
-    expect(openPrCount([project])).toBe(1);
+    expect(
+      runningAgents(agents, paneAgentStatus).map((r) => [r.agent.id, r.status]),
+    ).toEqual([
+      ["a1", "thinking"],
+      ["a2", "working"],
+    ]);
   });
 });
 

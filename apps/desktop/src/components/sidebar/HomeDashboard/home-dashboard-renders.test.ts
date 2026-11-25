@@ -12,29 +12,25 @@ import {
   type TestRoot,
 } from "../../../test-utils/react-root";
 
-// Render the dashboard without its sections: the header counts the
+// Render the dashboard without its sections: the host alert counts the
 // dashboard's renders, the cards mock records what it derived.
 let renders = 0;
 let lastCards: NeedsYouCard[] = [];
-vi.mock("./DashboardHeader", () => ({
-  DashboardHeader: () => {
+vi.mock("./HostAlert", () => ({
+  HostAlert: () => {
     renders++;
     return null;
   },
 }));
-vi.mock("./NeedsYouCards", () => ({
-  NeedsYouCards: (props: { cards: NeedsYouCard[] }) => {
+vi.mock("./NeedsYouList", () => ({
+  NeedsYouList: (props: { cards: NeedsYouCard[] }) => {
     lastCards = props.cards;
     return null;
   },
 }));
 for (const [path, name] of [
-  ["./ActivityTimeline", "ActivityTimeline"],
-  ["./HostAlert", "HostAlert"],
-  ["./PrPipeline", "PrPipeline"],
-  ["./ProjectTiles", "ProjectTiles"],
-  ["./StatTiles", "StatTiles"],
-  ["./UpNextPanel", "UpNextPanel"],
+  ["./DashboardRail", "DashboardRail"],
+  ["./PrTable", "PrTable"],
 ]) {
   vi.doMock(path, () => ({ [name]: () => null }));
 }

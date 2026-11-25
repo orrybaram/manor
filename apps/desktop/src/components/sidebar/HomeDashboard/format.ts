@@ -17,12 +17,3 @@ export function formatAge(ms: number): string {
 export function formatClock(at: number): string {
   return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
-/** "Tuesday, 29 September" — the header's date eyebrow. */
-export function formatDateEyebrow(at: number): string {
-  return new Date(at).toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}

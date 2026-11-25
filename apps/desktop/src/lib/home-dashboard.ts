@@ -84,7 +84,7 @@ function resolveAgentWorkspaceKey(
 }
 
 /** The project (and workspace, when known) `agent` belongs to, or null when neither can be found. */
-export function resolveAgentContext(
+function resolveAgentContext(
   agent: AgentInfo,
   projects: readonly ProjectInfo[],
 ): { project: ProjectInfo; workspace?: WorkspaceInfo } | null {
@@ -187,33 +187,24 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
 // ── Counts ──
 
 /**
- * Panes in `thinking` or `working` that belong to a live (`status ===
- * "active"`) agent, counted once per pane.
+ * Live (`status === "active"`) agents whose pane is `thinking` or `working`,
+ * with that status, one per pane (the first agent recorded on it).
  */
-export function runningAgentCount(
+export function runningAgents(
   agents: readonly AgentInfo[],
   paneAgentStatus: Readonly<Record<string, PaneAgentStatus>>,
-): number {
+): { agent: AgentInfo; status: "thinking" | "working" }[] {
   const panes = new Set<string>();
+  const out: { agent: AgentInfo; status: "thinking" | "working" }[] = [];
   for (const agent of agents) {
-    if (agent.status !== "active" || !agent.paneId) continue;
+    if (agent.status !== "active" || !agent.paneId || panes.has(agent.paneId)) continue;
     const status = paneAgentStatus[agent.paneId]?.status;
     if (status === "thinking" || status === "working") {
       panes.add(agent.paneId);
+      out.push({ agent, status });
     }
   }
-  return panes.size;
-}
-
-/** Open PRs across `projects`, deduped by `pr.url`. */
-export function openPrCount(projects: readonly ProjectInfo[]): number {
-  const urls = new Set<string>();
-  for (const project of projects) {
-    for (const workspace of project.workspaces) {
-      if (workspace.pr && workspace.pr.state === "open") urls.add(workspace.pr.url);
-    }
-  }
-  return urls.size;
+  return out;
 }
 
 /**

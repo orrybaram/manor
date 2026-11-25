@@ -183,7 +183,7 @@ const CLAUDE_HOOK_ENTRIES = [
 export class ClaudeConnector implements AgentConnector {
   readonly kind: AgentKind = "claude";
   readonly label = "Claude Code";
-  readonly defaultCommand = "claude --dangerously-skip-permissions";
+  readonly defaultCommand = "claude";
 
   getResumeCommand(baseCommand: string, sessionId: string): string | null {
     if (!sessionId) return null;

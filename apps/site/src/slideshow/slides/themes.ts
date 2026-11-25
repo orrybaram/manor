@@ -192,7 +192,7 @@ function projectPage(p: Project): string {
     `</div><div class="ma-stack"><label class="ma-field-label">Color</label><div class="ma-color-picker">${colors}</div></div></div>` +
     `<div class="ma-stack"><div class="ma-section-label">Linear</div><div class="ma-field-hint">Connect Linear in Integrations to link this project to a team.</div></div>` +
     hostsSection(p) +
-    `<div class="ma-stack"><div class="ma-section-label">Agent</div><label class="ma-field-label">Agent Command</label>${field(p, "agentCommand", "claude --dangerously-skip-permissions")}</div>` +
+    `<div class="ma-stack"><div class="ma-section-label">Agent</div><label class="ma-field-label">Agent Command</label>${field(p, "agentCommand", "claude")}</div>` +
     `<div class="ma-stack"><div class="ma-section-label">Commands</div><div class="ma-command-list"><button class="ma-add-command" type="button" tabindex="-1">${icon("plus", 12)}Add Command</button></div></div>` +
     `</div>`
   );

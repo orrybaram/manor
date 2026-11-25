@@ -36,7 +36,7 @@ import { HOME_PATH } from "../../src/lib/home-path";
 
 const WS = "/repos/demo-ws";
 const PROJECT_COMMAND = "claude --workspace";
-const DEFAULT_COMMAND = "claude --dangerously-skip-permissions";
+const DEFAULT_COMMAND = "claude";
 
 const launchRoute = ((): Route => {
   const route = agentRoutes.find(

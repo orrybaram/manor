@@ -30,7 +30,7 @@ describe("discoverAgentsOnHost", () => {
       userBin: ["/home/user/.local/bin/claude", "/home/user/.opencode/bin/opencode"],
     });
     await expect(discoverAgentsOnHost(shell)).resolves.toEqual([
-      { name: "Claude Code", command: "claude --dangerously-skip-permissions" },
+      { name: "Claude Code", command: "claude" },
       { name: "Codex", command: "codex --yolo" },
       { name: "Pi", command: "pi" },
       { name: "OpenCode", command: "opencode" },

@@ -379,6 +379,16 @@ test("Dashboard: PR table, side rail, nav count, both themes and widths", async 
   await window.mouse.move(5, 5);
   await expect(popover).toHaveCount(0, { timeout: 5_000 });
 
+  // Phone width: one column, nothing scrolls sideways.
+  await size(420, 900);
+  await expect.poll(() => window.evaluate(() => document.documentElement.dataset.layout)).toBe("phone");
+  const phoneSideways = await window.getByTestId("home-view").evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+  expect(phoneSideways, "phone sideways scroll").toBe(false);
+  await window.screenshot({ path: path.join(SHOTS, "dashboard-phone-light.png"), animations: "disabled" });
+  await window.getByTestId("home-view").screenshot({ path: path.join(SHOTS, "dashboard-phone-light-full.png"), animations: "disabled" });
+  await size(1900);
+  await expect.poll(() => window.evaluate(() => document.documentElement.dataset.layout)).toBe("desk");
+
   // The collapsed sidebar's Dashboard icon carries the count too.
   await window.keyboard.press("ControlOrMeta+k");
   await window.locator("[cmdk-input]").fill("Collapse Sidebar");
@@ -393,6 +403,7 @@ test("Dashboard: PR table, side rail, nav count, both themes and widths", async 
 
   // Snoozing everything empties Needs you and clears the count.
   const rows = needs.getByRole("listitem");
+  await expect(rows).toHaveCount(CASES.length);
   while ((await rows.count()) > 0) {
     await rows.first().getByRole("button", { name: "Snooze for 1 hour" }).click();
     await window.waitForTimeout(250);

@@ -27,11 +27,11 @@
 /* At the end of a nav row. */
 .pill {
   margin-left: auto;
-  min-width: 20px;
-  height: 16px;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 11px;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 10px;
   font-weight: 600;
 }
 
@@ -41,20 +41,20 @@
   position: absolute;
   top: -4px;
   right: -6px;
-  min-width: 16px;
-  height: 14px;
-  padding: 0 4px;
-  border-radius: 7px;
-  font-size: 10px;
+  min-width: 14px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 9px;
   font-weight: 700;
   box-shadow: 0 0 0 2px var(--bg-deep);
 }
 
 /* Beside the phone drawer's 16px row labels. */
 :global(:root[data-layout="phone"]) .pill {
-  min-width: 24px;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: 10px;
-  font-size: 12px;
+  min-width: 20px;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 8.5px;
+  font-size: 11px;
 }
